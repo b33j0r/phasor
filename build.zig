@@ -11,9 +11,13 @@ pub fn build(b: *std.Build) void {
     });
 
     const phasor_exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("examples/ecs/main.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{ .{
+            .module = phasor_mod,
+            .name = "phasor",
+        } },
     });
 
     const exe = b.addExecutable(.{
