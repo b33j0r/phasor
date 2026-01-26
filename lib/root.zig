@@ -1,7 +1,5 @@
-pub const meta = @import("meta.zig");
-pub const TypeId = meta.TypeId;
-pub const typeId = meta.typeId;
+pub const db = @import("db.zig");
 
 test "import tests" {
-    _ = meta;
+    _ = db;
 }
