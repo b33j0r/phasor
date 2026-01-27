@@ -18,6 +18,7 @@ pub const VTable = struct {
     ensure_total_capacity: *const fn (ptr: *anyopaque, needed: usize) anyerror!void,
     get_ptr: *const fn (ptr: *anyopaque, index: usize) ?*anyopaque,
     push_from_ptr: *const fn (ptr: *anyopaque, value_ptr: *const anyopaque) anyerror!void,
+    push_default: *const fn (ptr: *anyopaque) anyerror!void,
     swap_remove_deinit: *const fn (ptr: *anyopaque, index: usize) bool,
     swap_remove_take: *const fn (ptr: *anyopaque, index: usize, out_ptr: *anyopaque) anyerror!bool,
 };
@@ -57,6 +58,12 @@ pub fn init(comptime T: type, allocator: std.mem.Allocator) !Self {
             try c.push(vp.*);
         }
 
+        fn pushDefault(ptr: *anyopaque) !void {
+            const c: *C = @ptrCast(@alignCast(ptr));
+            const default_value = defaultValue(T) orelse return error.MissingDefault;
+            try c.push(default_value);
+        }
+
         fn swapRemoveDeinit(ptr: *anyopaque, index: usize) bool {
             const c: *C = @ptrCast(@alignCast(ptr));
             return c.swapRemoveDeinit(index);
@@ -85,6 +92,7 @@ pub fn init(comptime T: type, allocator: std.mem.Allocator) !Self {
             .ensure_total_capacity = vt.ensureTotalCapacity,
             .get_ptr = vt.getPtr,
             .push_from_ptr = vt.pushFromPtr,
+            .push_default = vt.pushDefault,
             .swap_remove_deinit = vt.swapRemoveDeinit,
             .swap_remove_take = vt.swapRemoveTake,
         },
@@ -118,6 +126,35 @@ pub fn getPtr(self: *Self, index: usize) ?*anyopaque {
 
 pub fn pushFromPtr(self: *Self, value_ptr: *const anyopaque) !void {
     try self.vtable.push_from_ptr(self.column, value_ptr);
+}
+
+/// Appends a default-initialized value for the underlying type.
+pub fn pushDefault(self: *Self) !void {
+    try self.vtable.push_default(self.column);
+}
+
+fn defaultValue(comptime T: type) ?T {
+    const info = @typeInfo(T);
+    const can_have_decls = switch (info) {
+        .@"struct", .@"enum", .@"union", .@"opaque" => true,
+        else => false,
+    };
+
+    if (can_have_decls and @hasDecl(T, "default")) {
+        return T.default;
+    }
+    if (can_have_decls and @hasDecl(T, "initDefault")) {
+        if (@typeInfo(@TypeOf(T.initDefault)) == .@"fn") {
+            return T.initDefault();
+        }
+    }
+    if (@sizeOf(T) == 0) {
+        return @as(T, .{});
+    }
+    if (info == .optional) {
+        return null;
+    }
+    return null;
 }
 
 /// Safer, typed convenience for pushing.

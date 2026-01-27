@@ -1,9 +1,11 @@
 const std = @import("std");
 const meta = @import("../meta.zig");
 const fixtures = @import("fixtures.zig");
+const zst_impl = @import("typed_column_zst.zig");
 
 /// Internal. A typed, owning column for a single component type `T`. Used by `Column`.
 pub fn TypedColumn(comptime T: type) type {
+    if (@sizeOf(T) == 0) return zst_impl.TypedColumnZst(T);
     return struct {
         allocator: std.mem.Allocator,
         type_id: meta.TypeId = meta.typeId(T),
@@ -175,4 +177,25 @@ test "TypedColumn deinit calls deinit when present" {
 
     col.deinit();
     try std.testing.expectEqual(@as(usize, 2), deinit_count);
+}
+
+test "TypedColumn ZST basics" {
+    const Z = struct {};
+    const C = TypedColumn(Z);
+
+    var col = C.init(std.testing.allocator);
+    defer col.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), col.len());
+    try std.testing.expect(col.get(0) == null);
+
+    try col.push(.{});
+    try col.push(.{});
+    try std.testing.expectEqual(@as(usize, 2), col.len());
+    try std.testing.expect(col.get(1) != null);
+
+    _ = col.swapRemoveTake(0).?;
+    try std.testing.expectEqual(@as(usize, 1), col.len());
+    try std.testing.expect(col.swapRemoveDeinit(0));
+    try std.testing.expectEqual(@as(usize, 0), col.len());
 }
