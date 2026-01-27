@@ -12,7 +12,7 @@ pub fn main(init: std.process.Init) u8 {
     app.run() catch |err| {
         switch (err) {
             error.NotImplemented => {
-                std.debug.print("Error: Not Implemented\n", .{});
+                std.debug.print("Error: {s}\n", .{App.error_message(err)});
             }
         }
         return 1;

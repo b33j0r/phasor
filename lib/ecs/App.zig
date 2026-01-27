@@ -4,6 +4,12 @@ pub const Error = error{
     NotImplemented,
 };
 
+pub fn error_message(err: Error) []const u8 {
+    return switch (err) {
+        Error.NotImplemented => "Not implemented",
+    };
+}
+
 const Self = @This();
 
 pub fn init() Self {
@@ -17,7 +23,7 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn run(_: *Self) !void {
-    return Error.NotImplemented;
+    return error.NotImplemented;
 }
 
 // Imports

@@ -1,9 +1,7 @@
-const meta = @import("meta.zig");
+pub const Column = @import("column/Column.zig");
+const typed_column = @import("column/typed_column.zig");
 
-pub fn Column(T: type) type {
-    return struct {
-        const Self = @This();
-
-        pub const type_id: meta.TypeId = meta.typeId(T);
-    };
+test "import tests" {
+    _ = Column;
+    _ = typed_column;
 }
