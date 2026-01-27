@@ -71,6 +71,26 @@ pub const Database = struct {
         return entity_id;
     }
 
+    pub fn tableMut(self: *Self, table_index: usize) *Table {
+        return &self.tables.items[table_index];
+    }
+
+    pub fn tableConst(self: *const Self, table_index: usize) *const Table {
+        return &self.tables.items[table_index];
+    }
+
+    pub fn removeEntity(self: *Self, entity_id: Entity.Id) !void {
+        const loc = self.entities.getPtr(entity_id) orelse return Error.EntityNotFound;
+        const table = &self.tables.items[loc.table_index];
+        const moved = table.swapRemove(loc.row);
+        if (moved) |moved_id| {
+            if (self.entities.getPtr(moved_id)) |moved_loc| {
+                moved_loc.row = loc.row;
+            }
+        }
+        _ = self.entities.swapRemove(entity_id);
+    }
+
     /// Move an entity to another table, copying shared components and updating locations.
     pub fn moveEntity(self: *Self, entity_id: Entity.Id, dest_table_index: usize) !void {
         const loc = self.entities.getPtr(entity_id) orelse return Error.EntityNotFound;

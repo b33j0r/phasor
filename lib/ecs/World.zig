@@ -1,47 +1,74 @@
-const Self = @This();
-
-pub const Mutator = struct {
-    ptr: ?*anyopaque,
-    vtable: VTable,
-
-    pub const Error = error{
-        OutOfMemory,
-    };
-
-    pub fn error_message(err: Error) []const u8 {
-        return switch (err) {
-            .OutOfMemory => "Out of memory",
-        };
-    }
-
-    pub const VTable = struct {
-        reserveEntity: *const fn (mutator: *Mutator) Error!Entity.Id,
-
-        addComponents: *const fn (mutator: *Mutator, id: Entity.Id, components: []AddComponent) Error!void,
-        removeComponents: *const fn (mutator: *Mutator, id: Entity.Id, type_ids: []phasor.db.meta.TypeId) Error!void,
-        getComponent: *const fn (mutator: *Mutator, id: Entity.Id, type_id: phasor.db.meta.TypeId) ?[]const u8,
-
-        insertResource: *const fn (mutator: *Mutator, type_id: phasor.db.meta.TypeId, data: []const u8) Error!void,
-        removeResource: *const fn (mutator: *Mutator, type_id: phasor.db.meta.TypeId) Error!void,
-        getResource: *const fn (mutator: *Mutator, type_id: phasor.db.meta.TypeId) ?[]const u8,
-
-        pub const AddComponent = struct {
-            type_id: phasor.db.meta.TypeId,
-            data: []const u8,
-        };
-    };
-};
-
-
-pub fn init() Self {
-    return Self{};
-}
-
-pub fn deinit(_: *Self) void {
-
-}
-
-// Imports
 const std = @import("std");
 const phasor = @import("../root.zig");
-const Entity = phasor.db.Entity;
+const db = phasor.db;
+const resources = @import("resources.zig");
+
+const Self = @This();
+
+allocator: std.mem.Allocator,
+database: db.Database,
+resources_map: std.AutoHashMapUnmanaged(db.meta.TypeId, resources.ResourceEntry) = .empty,
+
+pub fn init(allocator: std.mem.Allocator) Self {
+    return .{
+        .allocator = allocator,
+        .database = db.Database.init(allocator),
+        .resources_map = .empty,
+    };
+}
+
+pub fn deinit(self: *Self) void {
+    var it = self.resources_map.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.deinit_fn) |f| {
+            f(self.allocator, entry.value_ptr.ptr);
+        }
+    }
+    self.resources_map.deinit(self.allocator);
+    self.database.deinit();
+    self.* = undefined;
+}
+
+pub fn insertResource(self: *Self, value: anytype) !void {
+    const T = @TypeOf(value);
+    const id = resources.resourceTypeId(T);
+    if (self.resources_map.getPtr(id)) |existing| {
+        if (existing.deinit_fn) |f| f(self.allocator, existing.ptr);
+        _ = self.resources_map.remove(id);
+    }
+
+    const entry = try resources.resourceEntry(T, self.allocator, value);
+    try self.resources_map.put(self.allocator, id, entry);
+}
+
+pub fn getResource(self: *Self, comptime T: type) ?*const T {
+    const id = resources.resourceTypeId(T);
+    const entry = self.resources_map.get(id) orelse return null;
+    return @ptrCast(@alignCast(entry.ptr));
+}
+
+pub fn getResourceMut(self: *Self, comptime T: type) ?*T {
+    const id = resources.resourceTypeId(T);
+    const entry = self.resources_map.get(id) orelse return null;
+    return @ptrCast(@alignCast(entry.ptr));
+}
+
+pub fn removeResource(self: *Self, comptime T: type) bool {
+    const id = resources.resourceTypeId(T);
+    const entry = self.resources_map.getPtr(id) orelse return false;
+    if (entry.deinit_fn) |f| f(self.allocator, entry.ptr);
+    _ = self.resources_map.remove(id);
+    return true;
+}
+
+pub fn hasResource(self: *Self, comptime T: type) bool {
+    return self.resources_map.contains(resources.resourceTypeId(T));
+}
+
+pub fn dbMut(self: *Self) *db.Database {
+    return &self.database;
+}
+
+pub fn dbConst(self: *const Self) *const db.Database {
+    return &self.database;
+}

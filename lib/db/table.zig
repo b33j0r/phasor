@@ -129,6 +129,12 @@ pub const Table = struct {
         return self.entity_ids.items.len;
     }
 
+    /// Return the entity id at a row, or null if out of bounds.
+    pub fn entityIdAt(self: *const Self, row: usize) ?Entity.Id {
+        if (row >= self.entity_ids.items.len) return null;
+        return self.entity_ids.items[row];
+    }
+
     /// Add an entity with components that exactly match the table schema.
     pub fn addEntity(self: *Self, entity_id: Entity.Id, components: anytype) !usize {
         const input_set = meta.typeIdSet(@TypeOf(components));
