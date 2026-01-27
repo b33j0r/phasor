@@ -126,37 +126,42 @@ fn binarySearch(items: []const TypeId, target: TypeId) bool {
 }
 
 test "typeId produces consistent ids for the same type" {
-    const id1 = typeId(i32);
-    const id2 = typeId(i32);
+    const fixtures = @import("column/fixtures.zig");
+    const id1 = typeId(fixtures.Position);
+    const id2 = typeId(fixtures.Position);
     try std.testing.expect(id1 == id2);
 }
 
 test "typeId produces different ids for different types" {
-    const id1 = typeId(i32);
-    const id2 = typeId(u32);
+    const fixtures = @import("column/fixtures.zig");
+    const id1 = typeId(fixtures.Position);
+    const id2 = typeId(fixtures.Velocity);
     try std.testing.expect(id1 != id2);
 }
 
 test "typeIdSet sorts" {
-    const set = typeIdSet(.{ i32, u8, u16 });
+    const fixtures = @import("column/fixtures.zig");
+    const set = typeIdSet(.{ fixtures.Position, fixtures.Velocity, fixtures.Health });
     const ids = set.slice();
     try std.testing.expect(ids.len == 3);
     try std.testing.expect(ids[0] < ids[1] and ids[1] < ids[2]);
 }
 
 test "typeIdSet matches same type set" {
-    const set_a = typeIdSet(.{ i32, u8 });
-    const set_b = typeIdSet(struct { a: i32, b: u8 });
+    const fixtures = @import("column/fixtures.zig");
+    const set_a = typeIdSet(.{ fixtures.Position, fixtures.Velocity });
+    const set_b = typeIdSet(struct { a: fixtures.Position, b: fixtures.Velocity });
     try std.testing.expect(set_a.eql(&set_b));
 }
 
 test "TypeIdSet contains/hasAll/hasAny" {
-    const a = typeIdSet(.{ i8, u8, i16 });
-    const b = typeIdSet(.{u8});
-    const c = typeIdSet(.{ u16, u32 });
+    const fixtures = @import("column/fixtures.zig");
+    const a = typeIdSet(.{ fixtures.Position, fixtures.Velocity, fixtures.Health });
+    const b = typeIdSet(.{ fixtures.Velocity });
+    const c = typeIdSet(.{ fixtures.Tag, fixtures.ShipIsOnFire });
 
-    try std.testing.expect(a.contains(typeId(u8)));
-    try std.testing.expect(!a.contains(typeId(u16)));
+    try std.testing.expect(a.contains(typeId(fixtures.Velocity)));
+    try std.testing.expect(!a.contains(typeId(fixtures.Tag)));
     try std.testing.expect(a.hasAll(&b));
     try std.testing.expect(!a.hasAll(&c));
     try std.testing.expect(a.hasAny(&b));
@@ -164,7 +169,8 @@ test "TypeIdSet contains/hasAll/hasAny" {
 }
 
 test "TypeIdSet hash is stable for same items" {
-    const a = typeIdSet(.{ u8, i32, u16 });
-    const b = typeIdSet(.{ i32, u16, u8 });
+    const fixtures = @import("column/fixtures.zig");
+    const a = typeIdSet(.{ fixtures.Position, fixtures.Velocity, fixtures.Health });
+    const b = typeIdSet(.{ fixtures.Health, fixtures.Position, fixtures.Velocity });
     try std.testing.expect(a.hash() == b.hash());
 }

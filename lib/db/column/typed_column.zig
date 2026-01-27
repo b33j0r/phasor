@@ -85,34 +85,36 @@ pub fn TypedColumn(comptime T: type) type {
 }
 
 test "TypedColumn push/get basics" {
-    const C = TypedColumn(u32);
+    const Position = fixtures.Position;
+    const C = TypedColumn(Position);
     var col = C.init(std.testing.allocator);
     defer col.deinit();
 
     try std.testing.expectEqual(@as(usize, 0), col.len());
     try std.testing.expect(col.get(0) == null);
 
-    try col.push(10);
-    try col.push(20);
+    try col.push(.{ .x = 1, .y = 2 });
+    try col.push(.{ .x = 3, .y = 4 });
 
     try std.testing.expectEqual(@as(usize, 2), col.len());
-    try std.testing.expectEqual(@as(u32, 10), col.get(0).?.*);
-    try std.testing.expectEqual(@as(u32, 20), col.get(1).?.*);
+    try std.testing.expectEqual(@as(f32, 1), col.get(0).?.*.x);
+    try std.testing.expectEqual(@as(f32, 4), col.get(1).?.*.y);
 }
 
 test "TypedColumn swapRemoveDeinit swaps and removes" {
-    const C = TypedColumn(u32);
+    const Position = fixtures.Position;
+    const C = TypedColumn(Position);
     var col = C.init(std.testing.allocator);
     defer col.deinit();
 
-    try col.push(1);
-    try col.push(2);
-    try col.push(3);
+    try col.push(.{ .x = 1, .y = 1 });
+    try col.push(.{ .x = 2, .y = 2 });
+    try col.push(.{ .x = 3, .y = 3 });
 
     try std.testing.expect(col.swapRemoveDeinit(1));
     try std.testing.expectEqual(@as(usize, 2), col.len());
-    try std.testing.expectEqual(@as(u32, 1), col.get(0).?.*);
-    try std.testing.expectEqual(@as(u32, 3), col.get(1).?.*);
+    try std.testing.expectEqual(@as(f32, 1), col.get(0).?.*.x);
+    try std.testing.expectEqual(@as(f32, 3), col.get(1).?.*.x);
 }
 
 test "TypedColumn swapRemoveDeinit calls deinit when present" {
@@ -157,31 +159,18 @@ test "TypedColumn swapRemoveTake doesn't call deinit" {
 test "TypedColumn deinit calls deinit when present" {
     var deinit_count: usize = 0;
 
-    const Component = struct {
-        counter: *usize,
-
-        pub fn init(counter: *usize) @This() {
-            return .{ .counter = counter };
-        }
-
-        pub fn deinit(self: *@This()) void {
-            self.counter.* += 1;
-            self.* = undefined;
-        }
-    };
-
+    const Component = fixtures.DeinitCounterForTests(8);
     const C = TypedColumn(Component);
     var col = C.init(std.testing.allocator);
-    try col.push(Component.init(&deinit_count));
-    try col.push(Component.init(&deinit_count));
+    try col.push(try Component.init(std.testing.allocator, &deinit_count));
+    try col.push(try Component.init(std.testing.allocator, &deinit_count));
 
     col.deinit();
     try std.testing.expectEqual(@as(usize, 2), deinit_count);
 }
 
 test "TypedColumn ZST basics" {
-    const Z = struct {};
-    const C = TypedColumn(Z);
+    const C = TypedColumn(fixtures.ShipIsOnFire);
 
     var col = C.init(std.testing.allocator);
     defer col.deinit();

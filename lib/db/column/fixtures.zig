@@ -6,6 +6,7 @@ pub const Velocity = struct {
     dy: f32,
     pub const default = @This(){ .dx = 0, .dy = 0 };
 };
+pub const State = enum { idle, active, paused };
 pub const Health = struct {
     hp: i32,
     pub const default = @This(){ .hp = 0 };

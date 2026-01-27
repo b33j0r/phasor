@@ -180,29 +180,32 @@ pub fn swapRemoveTake(self: *Self, index: usize, out_ptr: *anyopaque) !bool {
 }
 
 test "Column pushAs/getAs basics" {
-    var col = try Self.init(u32, std.testing.allocator);
+    const Position = fixtures.Position;
+    const Velocity = fixtures.Velocity;
+    var col = try Self.init(Position, std.testing.allocator);
     defer col.deinit();
 
-    try std.testing.expectEqual(meta.typeId(u32), col.type_id);
-    try std.testing.expectEqual(@as(usize, @sizeOf(u32)), col.size);
-    try std.testing.expectEqual(@as(usize, @alignOf(u32)), col.alignment);
+    try std.testing.expectEqual(meta.typeId(Position), col.type_id);
+    try std.testing.expectEqual(@as(usize, @sizeOf(Position)), col.size);
+    try std.testing.expectEqual(@as(usize, @alignOf(Position)), col.alignment);
 
-    try col.pushAs(u32, 1234);
-    try col.pushAs(u32, 5678);
+    try col.pushAs(Position, .{ .x = 1, .y = 2 });
+    try col.pushAs(Position, .{ .x = 3, .y = 4 });
 
     try std.testing.expectEqual(@as(usize, 2), col.len());
-    try std.testing.expectEqual(@as(u32, 1234), col.getAs(u32, 0).?.*);
-    try std.testing.expectEqual(@as(u32, 5678), col.getAs(u32, 1).?.*);
+    try std.testing.expectEqual(@as(f32, 1), col.getAs(Position, 0).?.*.x);
+    try std.testing.expectEqual(@as(f32, 4), col.getAs(Position, 1).?.*.y);
 
-    try std.testing.expect(col.getAs(i32, 0) == null);
-    try std.testing.expectError(error.TypeMismatch, col.pushAs(i32, -1));
+    try std.testing.expect(col.getAs(Velocity, 0) == null);
+    try std.testing.expectError(error.TypeMismatch, col.pushAs(Velocity, .{ .dx = 0, .dy = 0 }));
 }
 
 test "Column pushFromPtr rejects misaligned pointer" {
-    var col = try Self.init(u64, std.testing.allocator);
+    const Position = fixtures.Position;
+    var col = try Self.init(Position, std.testing.allocator);
     defer col.deinit();
 
-    var buf: [@sizeOf(u64) + 1]u8 = undefined;
+    var buf: [@sizeOf(Position) + 1]u8 = undefined;
     const misaligned_ptr: *const anyopaque = @ptrCast(buf[1..].ptr);
     try std.testing.expectError(error.MisalignedPointer, col.pushFromPtr(misaligned_ptr));
 }
@@ -229,12 +232,13 @@ test "Column swapRemoveTake doesn't call deinit" {
 }
 
 test "Column swapRemoveTake rejects misaligned out_ptr" {
-    var col = try Self.init(u64, std.testing.allocator);
+    const Position = fixtures.Position;
+    var col = try Self.init(Position, std.testing.allocator);
     defer col.deinit();
 
-    try col.pushAs(u64, 123);
+    try col.pushAs(Position, .{ .x = 1, .y = 2 });
 
-    var buf: [@sizeOf(u64) + 1]u8 = undefined;
+    var buf: [@sizeOf(Position) + 1]u8 = undefined;
     const misaligned_out: *anyopaque = @ptrCast(buf[1..].ptr);
     try std.testing.expectError(error.MisalignedPointer, col.swapRemoveTake(0, misaligned_out));
 }
@@ -257,7 +261,7 @@ test "Column swapRemoveDeinit calls deinit when present" {
 }
 
 test "Column swapRemoveTake works with enum components" {
-    const Component = enum { idle, active, paused };
+    const Component = fixtures.State;
 
     var col = try Self.init(Component, std.testing.allocator);
     defer col.deinit();
