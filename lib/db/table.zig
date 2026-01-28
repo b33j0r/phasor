@@ -6,6 +6,7 @@ const Entity = @import("Entity.zig");
 pub const Table = struct {
     allocator: std.mem.Allocator,
     schema: meta.TypeIdSet,
+    schema_storage: ?[]meta.TypeId = null,
     columns: []Column,
     entity_ids: std.ArrayListUnmanaged(Entity.Id) = .empty,
 
@@ -96,9 +97,8 @@ pub const Table = struct {
 
         var i: usize = 0;
         errdefer {
-            var j: usize = 0;
-            while (j < i) : (j += 1) {
-                columns[j].deinit();
+            for (columns[0..i]) |*column| {
+                column.deinit();
             }
         }
 
@@ -110,6 +110,17 @@ pub const Table = struct {
         return Self{
             .allocator = allocator,
             .schema = schema,
+            .schema_storage = null,
+            .columns = columns,
+            .entity_ids = .empty,
+        };
+    }
+
+    pub fn initFromTypeIds(allocator: std.mem.Allocator, ids: []const meta.TypeId, columns: []Column) Self {
+        return Self{
+            .allocator = allocator,
+            .schema = .{ .items = ids },
+            .schema_storage = @constCast(ids),
             .columns = columns,
             .entity_ids = .empty,
         };
@@ -122,6 +133,9 @@ pub const Table = struct {
         }
         if (self.columns.len > 0) self.allocator.free(self.columns);
         self.entity_ids.deinit(self.allocator);
+        if (self.schema_storage) |storage| {
+            self.allocator.free(storage);
+        }
         self.* = undefined;
     }
 
@@ -236,7 +250,6 @@ pub const Table = struct {
         return new_row;
     }
 
-
     fn getColumnIndex(self: *const Self, id: meta.TypeId) ?usize {
         var left: usize = 0;
         var right: usize = self.schema.items.len;
@@ -272,13 +285,12 @@ test "Table initFromTypes/add/get basics" {
     const p = table.getComponentPtr(row0, fixtures.Position).?;
     try std.testing.expectEqual(@as(f32, 1), p.x);
     try std.testing.expectEqual(@as(f32, 2), p.y);
-
 }
 
 test "Table swapRemove returns moved entity id" {
     const fixtures = @import("column/fixtures.zig");
 
-    var table = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position });
+    var table = try Table.initFromTypes(std.testing.allocator, .{fixtures.Position});
     defer table.deinit();
 
     _ = try table.addEntity(1, .{fixtures.Position{ .x = 1, .y = 1 }});
@@ -315,9 +327,9 @@ test "Table move copies shared components only" {
 test "Table move returns moved id on source swapRemove" {
     const fixtures = @import("column/fixtures.zig");
 
-    var src = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position });
+    var src = try Table.initFromTypes(std.testing.allocator, .{fixtures.Position});
     defer src.deinit();
-    var dst = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position });
+    var dst = try Table.initFromTypes(std.testing.allocator, .{fixtures.Position});
     defer dst.deinit();
 
     _ = try src.addEntity(10, .{fixtures.Position{ .x = 1, .y = 1 }});
@@ -331,7 +343,7 @@ test "Table move returns moved id on source swapRemove" {
 test "Table move works with ZST components" {
     const fixtures = @import("column/fixtures.zig");
 
-    var src = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position });
+    var src = try Table.initFromTypes(std.testing.allocator, .{fixtures.Position});
     defer src.deinit();
     var dst = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position, fixtures.ShipIsOnFire });
     defer dst.deinit();

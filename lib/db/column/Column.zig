@@ -14,6 +14,7 @@ const Self = @This();
 
 pub const VTable = struct {
     destroy: *const fn (alloc: std.mem.Allocator, ptr: *anyopaque) void,
+    create_empty: *const fn (alloc: std.mem.Allocator) anyerror!*anyopaque,
     len: *const fn (ptr: *const anyopaque) usize,
     ensure_total_capacity: *const fn (ptr: *anyopaque, needed: usize) anyerror!void,
     get_ptr: *const fn (ptr: *anyopaque, index: usize) ?*anyopaque,
@@ -33,6 +34,12 @@ pub fn init(comptime T: type, allocator: std.mem.Allocator) !Self {
             const c: *C = @ptrCast(@alignCast(ptr));
             c.deinit();
             alloc.destroy(c);
+        }
+
+        fn createEmpty(alloc: std.mem.Allocator) !*anyopaque {
+            const c_ptr = try alloc.create(C);
+            c_ptr.* = C.init(alloc);
+            return @ptrCast(c_ptr);
         }
 
         fn len(ptr: *const anyopaque) usize {
@@ -88,6 +95,7 @@ pub fn init(comptime T: type, allocator: std.mem.Allocator) !Self {
         .alignment = @alignOf(T),
         .vtable = &.{
             .destroy = vt.destroy,
+            .create_empty = vt.createEmpty,
             .len = vt.len,
             .ensure_total_capacity = vt.ensureTotalCapacity,
             .get_ptr = vt.getPtr,
@@ -109,6 +117,18 @@ pub fn deinit(self: *Self) void {
         .size = 0,
         .alignment = 0,
         .vtable = undefined,
+    };
+}
+
+pub fn cloneEmpty(self: *const Self, allocator: std.mem.Allocator) !Self {
+    const col_ptr = try self.vtable.create_empty(allocator);
+    return .{
+        .allocator = allocator,
+        .column = col_ptr,
+        .type_id = self.type_id,
+        .size = self.size,
+        .alignment = self.alignment,
+        .vtable = self.vtable,
     };
 }
 

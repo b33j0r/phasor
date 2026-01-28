@@ -7,11 +7,19 @@ A game library in zig latest based on ECS and WebGPU.
 ## Example
 
 ```zig
+const std = @import("std");
 const phasor = @import("phasor");
-const App = phasor.App;
 
-pub fn main() !void {
-    var app = try App.init();
-    try app.run();
+pub fn main(init: std.process.Init) !u8 {
+    var app = phasor.ecs.App.init(init.gpa, &init.io);
+    defer app.deinit();
+
+    return try app.run();
 }
 ```
+
+Use `ecs.resources.Exit{ .code = N }` from a system to end the run loop.
+
+## Database component updates
+
+Direct database mutation is internal; systems should use `Commands` for all ECS mutation.

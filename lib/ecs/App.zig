@@ -1,8 +1,12 @@
-const std = @import("std");
-const phasor = @import("../root.zig");
-const World = @import("World.zig");
-const Schedule = @import("schedule.zig").Schedule;
-const resources = @import("resources.zig");
+allocator: std.mem.Allocator,
+io: *const std.Io,
+world: World,
+schedule: Schedule,
+command_queue: ?std.Io.Queue(CommandBatch) = null,
+command_queue_buffer: ?[]CommandBatch = null,
+command_queue_capacity: usize = 64,
+
+const Self = @This();
 
 pub const Error = error{
     NotImplemented,
@@ -14,64 +18,59 @@ pub fn error_message(err: Error) []const u8 {
     };
 }
 
-const Self = @This();
+pub const InitConfig = struct {
+    command_queue_capacity: usize = 64,
+};
 
-allocator: std.mem.Allocator,
-world: World,
-schedule: Schedule,
+pub fn init(allocator: std.mem.Allocator, io: *const std.Io) Self {
+    return initWithConfig(allocator, io, .{});
+}
 
-pub fn init(allocator: std.mem.Allocator) Self {
+pub fn initWithConfig(allocator: std.mem.Allocator, io: *const std.Io, config: InitConfig) Self {
     return .{
         .allocator = allocator,
+        .io = io,
         .world = World.init(allocator),
         .schedule = Schedule.init(),
+        .command_queue = null,
+        .command_queue_buffer = null,
+        .command_queue_capacity = config.command_queue_capacity,
     };
 }
 
 pub fn deinit(self: *Self) void {
-    self.schedule.deinit(self.allocator);
+    self.schedule.deinit(self.allocator, &self.world);
+    if (self.command_queue_buffer) |buffer| {
+        self.allocator.free(buffer);
+    }
     self.world.deinit();
     self.* = undefined;
 }
 
-pub fn addSystem(self: *Self, system: Schedule.SystemFn) !void {
-    try self.schedule.addSystem(self.allocator, system);
+pub fn addSystem(self: *Self, comptime system_fn: anytype) !void {
+    try self.schedule.addSystem(self.allocator, &self.world, system_fn);
 }
 
-pub const RunConfig = struct {
-    warmup_frames: u64 = 0,
-    sample_frames: u64 = 600,
-};
+pub fn run(self: *Self) !u8 {
+    if (self.command_queue == null) {
+        const buffer = try self.allocator.alloc(CommandBatch, self.command_queue_capacity);
+        self.command_queue_buffer = buffer;
+        self.command_queue = std.Io.Queue(CommandBatch).init(buffer);
+    }
+    const command_queue = &self.command_queue.?;
 
-pub fn run(self: *Self, config: RunConfig) !void {
-    var last = try std.time.Instant.now();
-    var frame: u64 = 0;
-    const end_frame = config.warmup_frames + config.sample_frames;
-
-    if (!self.world.hasResource(resources.FrameNum)) try self.world.insertResource(resources.FrameNum{});
-    if (!self.world.hasResource(resources.DeltaTime)) try self.world.insertResource(resources.DeltaTime{});
-    if (!self.world.hasResource(resources.ElapsedTime)) try self.world.insertResource(resources.ElapsedTime{});
-    if (!self.world.hasResource(resources.Metrics)) try self.world.insertResource(resources.Metrics{});
-
-    while (frame < end_frame) : (frame += 1) {
-        const frame_start = try std.time.Instant.now();
-        const dt_ns = frame_start.since(last);
-        last = frame_start;
-
-        if (self.world.getResourceMut(resources.FrameNum)) |f| f.value = frame;
-        if (self.world.getResourceMut(resources.DeltaTime)) |dt| dt.seconds = @as(f32, @floatFromInt(dt_ns)) / 1_000_000_000.0;
-        if (self.world.getResourceMut(resources.ElapsedTime)) |t| t.seconds += @as(f64, @floatFromInt(dt_ns)) / 1_000_000_000.0;
-        if (self.world.getResourceMut(resources.Metrics)) |m| {
-            m.frame = frame;
-            m.resetFrame();
-            m.frame_ns = @as(u64, @intCast(dt_ns));
-        }
-
-        const update_start = try std.time.Instant.now();
-        try self.schedule.run(&self.world);
-        const update_ns = (try std.time.Instant.now()).since(update_start);
-        if (self.world.getResourceMut(resources.Metrics)) |m| {
-            m.update_ns = update_ns;
+    while (true) {
+        try self.schedule.run(self.io, &self.world, command_queue);
+        if (self.world.getResource(resources.Exit)) |exit| {
+            return exit.code;
         }
     }
 }
+
+// Imports
+const std = @import("std");
+const phasor = @import("../root.zig");
+const World = @import("World.zig");
+const Schedule = @import("schedule.zig").Schedule;
+const resources = @import("resources.zig");
+const CommandBatch = @import("Commands.zig").CommandBatch;
