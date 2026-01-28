@@ -27,6 +27,7 @@ A compact ECS storage layer focused on readable, predictable data movement.
 - Tables are keyed by schema hash.
 - Entity locations are tracked as `{table_index, row}`.
 - `moveEntity` is the canonical operation for changing tables.
+- Entity IDs are unique; creating an existing ID returns `Error.EntityAlreadyExists`.
 
 ## Invariants
 

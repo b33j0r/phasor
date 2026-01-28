@@ -16,6 +16,7 @@ pub const EntityLocation = struct {
 pub const Error = error{
     EntityNotFound,
     ComponentMissing,
+    EntityAlreadyExists,
 };
 
 /// Initialize an empty database.
@@ -67,11 +68,13 @@ pub fn createEntityInTable(self: *Self, table_index: usize, components: anytype)
 }
 
 pub fn createEntityWithId(self: *Self, entity_id: Entity.Id, components: anytype) !Entity.Id {
+    if (self.entities.contains(entity_id)) return Error.EntityAlreadyExists;
     const table_index = try self.getOrCreateTable(@TypeOf(components));
     return try self.createEntityWithIdInTable(entity_id, table_index, components);
 }
 
 pub fn createEntityWithIdInTable(self: *Self, entity_id: Entity.Id, table_index: usize, components: anytype) !Entity.Id {
+    if (self.entities.contains(entity_id)) return Error.EntityAlreadyExists;
     const table = &self.tables.items[table_index];
     const row = try table.addEntity(entity_id, components);
     try self.entities.put(self.allocator, entity_id, .{
@@ -463,6 +466,6 @@ test "Database removeComponents moves entity and removes components" {
 const std = @import("std");
 const Table = @import("table.zig").Table;
 const Column = @import("column/Column.zig");
-const Entity = @import("entity.zig");
+const Entity = @import("Entity.zig");
 const meta = @import("meta.zig");
 const fixtures = @import("column/fixtures.zig");

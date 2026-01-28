@@ -2,7 +2,8 @@
 
 ## Overview
 
-A game library in zig latest based on ECS and WebGPU.
+Lightweight ECS + storage layer for Zig, with a small example app and benchmarks.
+Targets recent Zig nightlies.
 
 ## Example
 
@@ -20,15 +21,24 @@ pub fn main(init: std.process.Init) !u8 {
 
 Use `ecs.resources.Exit{ .code = N }` from a system to end the run loop.
 
-## Database component updates
+## Build & test
 
-Direct database mutation is internal; systems should use `Commands` for all ECS mutation.
+```
+zig build
+zig build run
+zig build test
+```
 
-## Code Conventions
+## ECS mutation
+
+Direct database mutation is internal; systems should use `Commands`.
+
+## Code conventions
 
 - Place imports at the bottom of every file.
 
 ```zig
+// ...
 pub fn resourceTypeId(comptime T: type) meta.TypeId {
     return meta.typeId(T);
 }
