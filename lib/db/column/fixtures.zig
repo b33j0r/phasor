@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const Position = struct { x: f32, y: f32 };
 pub const Velocity = struct {
     dx: f32,
@@ -56,3 +54,6 @@ pub fn DeinitCounterForTests(comptime N: usize) type {
         }
     };
 }
+
+// Imports
+const std = @import("std");

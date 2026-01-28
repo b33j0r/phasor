@@ -1,9 +1,3 @@
-const std = @import("std");
-const World = @import("World.zig");
-const System = @import("system.zig").System;
-const Commands = @import("Commands.zig");
-const CommandBatch = @import("Commands.zig").CommandBatch;
-
 /// Minimal system scheduler for headless runs.
 pub const Schedule = struct {
     systems: std.ArrayListUnmanaged(System) = .empty,
@@ -50,3 +44,10 @@ pub const Schedule = struct {
         }
     }
 };
+
+// Imports
+const std = @import("std");
+const World = @import("World.zig");
+const System = @import("system.zig").System;
+const Commands = @import("Commands.zig");
+const CommandBatch = @import("Commands.zig").CommandBatch;

@@ -1,7 +1,3 @@
-const std = @import("std");
-const meta = @import("../meta.zig");
-const fixtures = @import("fixtures.zig");
-
 /// ZST-specialized column. Stores only a count and returns a shared instance.
 pub fn TypedColumnZst(comptime T: type) type {
     return struct {
@@ -121,3 +117,8 @@ test "TypedColumnZst deinit calls deinit when present" {
     col.deinit();
     try std.testing.expectEqual(@as(usize, 2), fixtures.getZstDeinitCount());
 }
+
+// Imports
+const std = @import("std");
+const meta = @import("../meta.zig");
+const fixtures = @import("fixtures.zig");

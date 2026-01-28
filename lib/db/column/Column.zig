@@ -1,8 +1,4 @@
 //! Owning, type-erased column. It owns an underlying `TypedColumn(T)` for some `T`.
-const std = @import("std");
-const meta = @import("../meta.zig");
-const typed_column = @import("typed_column.zig");
-const fixtures = @import("fixtures.zig");
 allocator: std.mem.Allocator,
 column: *anyopaque,
 type_id: meta.TypeId,
@@ -294,3 +290,9 @@ test "Column swapRemoveTake works with enum components" {
     try std.testing.expect(out == .idle or out == .active);
     try std.testing.expectEqual(@as(usize, 1), col.len());
 }
+
+// Imports
+const std = @import("std");
+const meta = @import("../meta.zig");
+const typed_column = @import("typed_column.zig");
+const fixtures = @import("fixtures.zig");

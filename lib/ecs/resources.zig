@@ -1,5 +1,3 @@
-const std = @import("std");
-const meta = @import("../db/meta.zig");
 pub const ResourceEntry = struct {
     ptr: *anyopaque,
     deinit_fn: ?*const fn (allocator: std.mem.Allocator, ptr: *anyopaque) void,
@@ -37,3 +35,7 @@ pub fn resourceEntry(comptime T: type, allocator: std.mem.Allocator, value: T) !
 pub fn resourceTypeId(comptime T: type) meta.TypeId {
     return meta.typeId(T);
 }
+
+// Imports
+const std = @import("std");
+const meta = @import("../db/meta.zig");

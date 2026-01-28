@@ -1,8 +1,3 @@
-const std = @import("std");
-const meta = @import("meta.zig");
-const Column = @import("column.zig").Column;
-const Entity = @import("Entity.zig");
-
 pub const Table = struct {
     allocator: std.mem.Allocator,
     schema: meta.TypeIdSet,
@@ -268,7 +263,6 @@ pub const Table = struct {
 };
 
 test "Table initFromTypes/add/get basics" {
-    const fixtures = @import("column/fixtures.zig");
 
     var table = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position, fixtures.Velocity });
     defer table.deinit();
@@ -288,7 +282,6 @@ test "Table initFromTypes/add/get basics" {
 }
 
 test "Table swapRemove returns moved entity id" {
-    const fixtures = @import("column/fixtures.zig");
 
     var table = try Table.initFromTypes(std.testing.allocator, .{fixtures.Position});
     defer table.deinit();
@@ -302,7 +295,6 @@ test "Table swapRemove returns moved entity id" {
 }
 
 test "Table move copies shared components only" {
-    const fixtures = @import("column/fixtures.zig");
 
     var src = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position, fixtures.Velocity });
     defer src.deinit();
@@ -325,7 +317,6 @@ test "Table move copies shared components only" {
 }
 
 test "Table move returns moved id on source swapRemove" {
-    const fixtures = @import("column/fixtures.zig");
 
     var src = try Table.initFromTypes(std.testing.allocator, .{fixtures.Position});
     defer src.deinit();
@@ -341,7 +332,6 @@ test "Table move returns moved id on source swapRemove" {
 }
 
 test "Table move works with ZST components" {
-    const fixtures = @import("column/fixtures.zig");
 
     var src = try Table.initFromTypes(std.testing.allocator, .{fixtures.Position});
     defer src.deinit();
@@ -356,7 +346,6 @@ test "Table move works with ZST components" {
 }
 
 test "Table addEntity with ZST and non-ZST" {
-    const fixtures = @import("column/fixtures.zig");
 
     var table = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position, fixtures.Tag });
     defer table.deinit();
@@ -367,7 +356,6 @@ test "Table addEntity with ZST and non-ZST" {
 }
 
 test "MovePlan captures shared columns" {
-    const fixtures = @import("column/fixtures.zig");
 
     var src = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position, fixtures.Velocity });
     defer src.deinit();
@@ -381,7 +369,6 @@ test "MovePlan captures shared columns" {
 }
 
 test "Table copyRowToPlan copies shared components" {
-    const fixtures = @import("column/fixtures.zig");
 
     var src = try Table.initFromTypes(std.testing.allocator, .{ fixtures.Position, fixtures.Velocity });
     defer src.deinit();
@@ -399,3 +386,10 @@ test "Table copyRowToPlan copies shared components" {
     const new_row = try src.copyRowToPlan(0, &dst, &plan);
     try std.testing.expect(dst.getComponentPtr(new_row, fixtures.Position) != null);
 }
+
+// Imports
+const std = @import("std");
+const meta = @import("meta.zig");
+const Column = @import("column.zig").Column;
+const Entity = @import("Entity.zig");
+const fixtures = @import("column/fixtures.zig");

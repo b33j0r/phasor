@@ -1,5 +1,3 @@
-const std = @import("std");
-const phasor = @import("phasor");
 const ecs = phasor.ecs;
 const resources = ecs.resources;
 
@@ -32,6 +30,8 @@ fn spawnParticles(commands: *ecs.Commands) !void {
     if (counter.value >= 10) return;
     counter.value += 1;
 
+    std.log.debug("Spawning particle #{d}", .{counter.value});
+
     _ = try commands.createEntity(.{
         Position{ .x = @floatFromInt(counter.value), .y = 0 },
         Velocity{ .dx = 1, .dy = 0 },
@@ -59,3 +59,7 @@ pub fn main(init: std.process.Init) !u8 {
 
     return try app.run();
 }
+
+// Imports
+const std = @import("std");
+const phasor = @import("phasor");

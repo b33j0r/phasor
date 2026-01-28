@@ -1,7 +1,4 @@
-const std = @import("std");
-const phasor = @import("../root.zig");
 const db = phasor.db;
-const resources = @import("resources.zig");
 
 const Self = @This();
 
@@ -72,3 +69,8 @@ pub fn dbMut(self: *Self) *db.Database {
 pub fn dbConst(self: *const Self) *const db.Database {
     return &self.database;
 }
+
+// Imports
+const std = @import("std");
+const phasor = @import("../root.zig");
+const resources = @import("resources.zig");

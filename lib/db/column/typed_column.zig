@@ -1,8 +1,3 @@
-const std = @import("std");
-const meta = @import("../meta.zig");
-const fixtures = @import("fixtures.zig");
-const zst_impl = @import("typed_column_zst.zig");
-
 /// Internal. A typed, owning column for a single component type `T`. Used by `Column`.
 pub fn TypedColumn(comptime T: type) type {
     if (@sizeOf(T) == 0) return zst_impl.TypedColumnZst(T);
@@ -188,3 +183,9 @@ test "TypedColumn ZST basics" {
     try std.testing.expect(col.swapRemoveDeinit(0));
     try std.testing.expectEqual(@as(usize, 0), col.len());
 }
+
+// Imports
+const std = @import("std");
+const meta = @import("../meta.zig");
+const fixtures = @import("fixtures.zig");
+const zst_impl = @import("typed_column_zst.zig");

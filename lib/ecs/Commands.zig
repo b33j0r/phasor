@@ -217,11 +217,11 @@ pub fn flushToQueue(
     };
 }
 
-// Imports
-const std = @import("std");
-
-const db = @import("../db.zig");
 const Entity = db.Entity;
 
+// Imports
+const std = @import("std");
+const db = @import("../db.zig");
 const Command = @import("Command.zig");
 const World = @import("World.zig");
+

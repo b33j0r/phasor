@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const FrameNum = struct { value: u64 = 0 };
 pub const DeltaTime = struct { seconds: f32 = 0 };
 pub const ElapsedTime = struct { seconds: f64 = 0 };
@@ -20,3 +18,6 @@ pub const Metrics = struct {
         self.frame_ns = 0;
     }
 };
+
+// Imports
+const std = @import("std");

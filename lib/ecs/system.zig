@@ -1,7 +1,3 @@
-const std = @import("std");
-const Commands = @import("Commands.zig");
-const World = @import("World.zig");
-
 pub const System = struct {
     run: *const fn (commands: *Commands) anyerror!void,
     register: *const fn (world: *World) anyerror!void,
@@ -81,3 +77,8 @@ pub const System = struct {
         };
     }
 };
+
+// Imports
+const std = @import("std");
+const Commands = @import("Commands.zig");
+const World = @import("World.zig");

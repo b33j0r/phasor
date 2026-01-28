@@ -1,9 +1,3 @@
-const std = @import("std");
-const Table = @import("table.zig").Table;
-const Column = @import("column/Column.zig");
-const Entity = @import("entity.zig");
-const meta = @import("meta.zig");
-
 /// Database owns tables and entity locations, and provides move-first operations.
 allocator: std.mem.Allocator,
 tables: std.ArrayListUnmanaged(Table) = .empty,
@@ -387,7 +381,6 @@ pub fn moveEntity(self: *Self, entity_id: Entity.Id, dest_table_index: usize) !v
 }
 
 test "Database moveEntity updates locations" {
-    const fixtures = @import("column/fixtures.zig");
 
     var db = init(std.testing.allocator);
     defer db.deinit();
@@ -404,7 +397,6 @@ test "Database moveEntity updates locations" {
 }
 
 test "Database moveEntity updates moved row when swapRemove occurs" {
-    const fixtures = @import("column/fixtures.zig");
 
     var db = init(std.testing.allocator);
     defer db.deinit();
@@ -427,7 +419,6 @@ test "Database moveEntity updates moved row when swapRemove occurs" {
 }
 
 test "Database addComponents moves entity and preserves existing data" {
-    const fixtures = @import("column/fixtures.zig");
 
     var db = init(std.testing.allocator);
     defer db.deinit();
@@ -446,7 +437,6 @@ test "Database addComponents moves entity and preserves existing data" {
 }
 
 test "Database removeComponents moves entity and removes components" {
-    const fixtures = @import("column/fixtures.zig");
 
     var db = init(std.testing.allocator);
     defer db.deinit();
@@ -468,3 +458,11 @@ test "Database removeComponents moves entity and removes components" {
     const hp = table.getComponentPtr(loc.row, fixtures.Health).?;
     try std.testing.expectEqual(@as(i32, 9), hp.hp);
 }
+
+// Imports
+const std = @import("std");
+const Table = @import("table.zig").Table;
+const Column = @import("column/Column.zig");
+const Entity = @import("entity.zig");
+const meta = @import("meta.zig");
+const fixtures = @import("column/fixtures.zig");

@@ -23,3 +23,17 @@ Use `ecs.resources.Exit{ .code = N }` from a system to end the run loop.
 ## Database component updates
 
 Direct database mutation is internal; systems should use `Commands` for all ECS mutation.
+
+## Code Conventions
+
+- Place imports at the bottom of every file.
+
+```zig
+pub fn resourceTypeId(comptime T: type) meta.TypeId {
+    return meta.typeId(T);
+}
+
+// Imports
+const std = @import("std");
+const meta = @import("../db/meta.zig");
+```

@@ -1,5 +1,3 @@
-const Commands = @import("Commands.zig").Commands;
-
 pub fn ResMut(comptime T: type) type {
     return struct {
         ptr: *T,
@@ -47,3 +45,6 @@ pub fn Query(comptime T: type) type {
         pub const spec = T;
     };
 }
+
+// Imports
+const Commands = @import("Commands.zig").Commands;

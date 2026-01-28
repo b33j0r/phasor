@@ -1,6 +1,3 @@
-const std = @import("std");
-const BenchmarkConfig = @import("bench_config.zig").BenchmarkConfig;
-
 pub fn sine(cfg: BenchmarkConfig, frame: u64, dt: f32) i32 {
     const t = @as(f64, @floatFromInt(frame)) * @as(f64, dt);
     const wave = std.math.sin(t * @as(f64, cfg.sine_frequency));
@@ -26,3 +23,7 @@ pub fn ramp(cfg: BenchmarkConfig, frame: u64, dt: f32) i32 {
     const rate = @as(f64, cfg.ramp_rate) * t;
     return @as(i32, @intFromFloat(rate * @as(f64, dt)));
 }
+
+// Imports
+const std = @import("std");
+const BenchmarkConfig = @import("bench_config.zig").BenchmarkConfig;

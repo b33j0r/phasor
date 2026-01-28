@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const TypeId = u64;
 
 pub fn typeId(comptime T: type) TypeId {
@@ -126,21 +124,18 @@ fn binarySearch(items: []const TypeId, target: TypeId) bool {
 }
 
 test "typeId produces consistent ids for the same type" {
-    const fixtures = @import("column/fixtures.zig");
     const id1 = typeId(fixtures.Position);
     const id2 = typeId(fixtures.Position);
     try std.testing.expect(id1 == id2);
 }
 
 test "typeId produces different ids for different types" {
-    const fixtures = @import("column/fixtures.zig");
     const id1 = typeId(fixtures.Position);
     const id2 = typeId(fixtures.Velocity);
     try std.testing.expect(id1 != id2);
 }
 
 test "typeIdSet sorts" {
-    const fixtures = @import("column/fixtures.zig");
     const set = typeIdSet(.{ fixtures.Position, fixtures.Velocity, fixtures.Health });
     const ids = set.slice();
     try std.testing.expect(ids.len == 3);
@@ -148,14 +143,12 @@ test "typeIdSet sorts" {
 }
 
 test "typeIdSet matches same type set" {
-    const fixtures = @import("column/fixtures.zig");
     const set_a = typeIdSet(.{ fixtures.Position, fixtures.Velocity });
     const set_b = typeIdSet(struct { a: fixtures.Position, b: fixtures.Velocity });
     try std.testing.expect(set_a.eql(&set_b));
 }
 
 test "TypeIdSet contains/hasAll/hasAny" {
-    const fixtures = @import("column/fixtures.zig");
     const a = typeIdSet(.{ fixtures.Position, fixtures.Velocity, fixtures.Health });
     const b = typeIdSet(.{ fixtures.Velocity });
     const c = typeIdSet(.{ fixtures.Tag, fixtures.ShipIsOnFire });
@@ -169,8 +162,11 @@ test "TypeIdSet contains/hasAll/hasAny" {
 }
 
 test "TypeIdSet hash is stable for same items" {
-    const fixtures = @import("column/fixtures.zig");
     const a = typeIdSet(.{ fixtures.Position, fixtures.Velocity, fixtures.Health });
     const b = typeIdSet(.{ fixtures.Health, fixtures.Position, fixtures.Velocity });
     try std.testing.expect(a.hash() == b.hash());
 }
+
+// Imports
+const std = @import("std");
+const fixtures = @import("column/fixtures.zig");
