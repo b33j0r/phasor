@@ -158,6 +158,11 @@ pub fn hasResource(self: *Self, comptime T: type) bool {
     return self.world.hasResource(T);
 }
 
+pub fn query(self: *Self, comptime Parts: anytype) !db.QueryResult {
+    const Spec = db.QuerySpec.Spec(Parts);
+    return db.QueryResult.fromSpec(self.allocator, &self.world.database, Spec);
+}
+
 pub fn isEmpty(self: *const Self) bool {
     return self.commands.items.len == 0;
 }
@@ -224,4 +229,3 @@ const std = @import("std");
 const db = @import("../db.zig");
 const Command = @import("Command.zig");
 const World = @import("World.zig");
-
