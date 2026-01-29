@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Phasor Lite WebGPU Quad</title>
+    <style>
+      :root {
+        --bg: #0a0d12;
+        --panel: #121720;
+        --accent: #e86e1c;
+        --text: #e9edf2;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: radial-gradient(circle at 10% 10%, #1b2230 0%, #0a0d12 60%, #07090d 100%);
+        color: var(--text);
+        font-family: "SF Mono", "Roboto Mono", "Menlo", monospace;
+      }
+      .wrap {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100%;
+      }
+      header {
+        padding: 12px 18px;
+        background: linear-gradient(90deg, #10141c, #161c26 40%, #10141c);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        font-size: 12px;
+      }
+      main {
+        display: grid;
+        place-items: center;
+      }
+      canvas {
+        width: min(90vw, 900px);
+        height: min(80vh, 600px);
+        border-radius: 14px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        background: #0e1219;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .hint {
+        position: fixed;
+        right: 16px;
+        bottom: 12px;
+        font-size: 11px;
+        color: rgba(233, 237, 242, 0.6);
+      }
+      .hint span {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>Phasor Lite / WebGPU Quad</header>
+      <main>
+        <canvas id="canvas" width="900" height="600"></canvas>
+      </main>
+    </div>
+    <div class="hint">WebGPU: <span>enabled</span></div>
+    <script type="module" src="webgpu.js"></script>
+  </body>
+</html>

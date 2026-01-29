@@ -7,6 +7,9 @@
             .url = "https://github.com/glfw/glfw/archive/refs/tags/3.4.tar.gz",
             .hash = "N-V-__8AAL40TADEbrysYHBl-UIZO4KiG4chP8pLDVDINGH4",
         },
+        .wgpu_native_zig = .{
+            .path = "../wgpu_native_zig",
+        },
     },
     .paths = .{""},
     .fingerprint = 0xff78fde222b7f152,

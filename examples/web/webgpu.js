@@ -1,0 +1,443 @@
+const wasmUrl = new URL("quad_web.wasm", import.meta.url);
+
+const ctxs = new Map();
+let nextCtxId = 1;
+let wasm = null;
+let memory = null;
+let device = null;
+
+const textDecoder = new TextDecoder("utf-8");
+
+function getMemoryView() {
+  return new DataView(memory.buffer);
+}
+
+function readString(ptr, len) {
+  return textDecoder.decode(new Uint8Array(memory.buffer, ptr, len));
+}
+
+function resizeCanvas(canvas) {
+  const scale = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(1, Math.floor(rect.width * scale));
+  const height = Math.max(1, Math.floor(rect.height * scale));
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  return { width, height };
+}
+
+function createBufferWithData(device, data, usage) {
+  const buffer = device.createBuffer({
+    size: data.byteLength,
+    usage,
+    mappedAtCreation: true,
+  });
+  new Uint8Array(buffer.getMappedRange()).set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+  buffer.unmap();
+  return buffer;
+}
+
+function createPipelines(ctx) {
+  const triangleShader = `
+struct VertexIn {
+  @location(0) position: vec2<f32>,
+  @location(1) color: vec3<f32>,
+};
+struct VertexOut {
+  @builtin(position) position: vec4<f32>,
+  @location(0) color: vec3<f32>,
+};
+@vertex
+fn vs_main(in: VertexIn) -> VertexOut {
+  var out: VertexOut;
+  out.position = vec4<f32>(in.position, 0.0, 1.0);
+  out.color = in.color;
+  return out;
+}
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+  return vec4<f32>(in.color, 1.0);
+}`;
+
+  const quadShader = `
+struct VertexIn {
+  @location(0) position: vec2<f32>,
+  @location(1) uv: vec2<f32>,
+  @location(2) model0: vec4<f32>,
+  @location(3) model1: vec4<f32>,
+  @location(4) model2: vec4<f32>,
+  @location(5) model3: vec4<f32>,
+  @location(6) color: vec4<f32>,
+};
+struct VertexOut {
+  @builtin(position) position: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) color: vec4<f32>,
+};
+@group(0) @binding(0) var quad_sampler: sampler;
+@group(0) @binding(1) var quad_texture: texture_2d<f32>;
+@vertex
+fn vs_main(in: VertexIn) -> VertexOut {
+  let model = mat4x4<f32>(in.model0, in.model1, in.model2, in.model3);
+  var out: VertexOut;
+  out.position = model * vec4<f32>(in.position, 0.0, 1.0);
+  out.uv = in.uv;
+  out.color = in.color;
+  return out;
+}
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+  let texel = textureSample(quad_texture, quad_sampler, in.uv);
+  return texel * in.color;
+}`;
+
+  const triangleModule = ctx.device.createShaderModule({ code: triangleShader });
+  const quadModule = ctx.device.createShaderModule({ code: quadShader });
+
+  ctx.trianglePipeline = ctx.device.createRenderPipeline({
+    layout: "auto",
+    vertex: {
+      module: triangleModule,
+      entryPoint: "vs_main",
+      buffers: [{
+        arrayStride: 20,
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: "float32x2" },
+          { shaderLocation: 1, offset: 8, format: "float32x3" },
+        ],
+      }],
+    },
+    fragment: {
+      module: triangleModule,
+      entryPoint: "fs_main",
+      targets: [{ format: ctx.format }],
+    },
+    primitive: { topology: "triangle-list" },
+  });
+
+  ctx.quadBindGroupLayout = ctx.device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+    ],
+  });
+  const quadPipelineLayout = ctx.device.createPipelineLayout({
+    bindGroupLayouts: [ctx.quadBindGroupLayout],
+  });
+  ctx.quadPipeline = ctx.device.createRenderPipeline({
+    layout: quadPipelineLayout,
+    vertex: {
+      module: quadModule,
+      entryPoint: "vs_main",
+      buffers: [
+        {
+          arrayStride: 16,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x2" },
+            { shaderLocation: 1, offset: 8, format: "float32x2" },
+          ],
+        },
+        {
+          arrayStride: 80,
+          stepMode: "instance",
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: "float32x4" },
+            { shaderLocation: 3, offset: 16, format: "float32x4" },
+            { shaderLocation: 4, offset: 32, format: "float32x4" },
+            { shaderLocation: 5, offset: 48, format: "float32x4" },
+            { shaderLocation: 6, offset: 64, format: "float32x4" },
+          ],
+        },
+      ],
+    },
+    fragment: {
+      module: quadModule,
+      entryPoint: "fs_main",
+      targets: [{
+        format: ctx.format,
+        blend: {
+          color: { operation: "add", srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
+          alpha: { operation: "add", srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+        },
+      }],
+    },
+    primitive: { topology: "triangle-list" },
+  });
+}
+
+function createContext(canvas) {
+  const context = canvas.getContext("webgpu");
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  const size = resizeCanvas(canvas);
+  context.configure({
+    device,
+    format,
+    alphaMode: "premultiplied",
+  });
+
+  const ctx = {
+    device,
+    queue: device.queue,
+    canvas,
+    context,
+    format,
+    meshes: [null],
+    textures: [null],
+    samplers: [null],
+    materials: [null],
+    instanceBufferSize: 256 * 1024,
+    instanceOffset: 0,
+  };
+
+  createPipelines(ctx);
+
+  ctx.instanceBuffer = device.createBuffer({
+    size: ctx.instanceBufferSize,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+
+  const triVerts = new Float32Array([
+    0.0, 0.6, 1.0, 0.0, 0.0,
+    -0.6, -0.6, 0.0, 1.0, 0.0,
+    0.6, -0.6, 0.0, 0.0, 1.0,
+  ]);
+  ctx.triangleVertexBuffer = createBufferWithData(
+    device,
+    triVerts,
+    GPUBufferUsage.VERTEX
+  );
+
+  return ctx;
+}
+
+const imports = {
+  env: {
+    webgpu_canvas_size(canvasPtr, canvasLen, outW, outH) {
+      const id = readString(canvasPtr, canvasLen);
+      const canvas = document.querySelector(id);
+      const size = resizeCanvas(canvas);
+      const view = getMemoryView();
+      view.setUint32(outW, size.width, true);
+      view.setUint32(outH, size.height, true);
+    },
+    webgpu_init(canvasPtr, canvasLen, _enableValidation) {
+      const id = readString(canvasPtr, canvasLen);
+      const canvas = document.querySelector(id);
+      if (!canvas) {
+        return 0;
+      }
+      const ctx = createContext(canvas);
+      const ctxId = nextCtxId++;
+      ctxs.set(ctxId, ctx);
+      return ctxId;
+    },
+    webgpu_deinit(ctxId) {
+      ctxs.delete(ctxId);
+    },
+    webgpu_resize(ctxId, width, height) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      ctx.canvas.width = width;
+      ctx.canvas.height = height;
+      ctx.context.configure({
+        device: ctx.device,
+        format: ctx.format,
+        alphaMode: "premultiplied",
+      });
+    },
+    webgpu_begin_frame(ctxId, r, g, b, a) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      ctx.instanceOffset = 0;
+      const encoder = ctx.device.createCommandEncoder();
+      const view = ctx.context.getCurrentTexture().createView();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view,
+          loadOp: "clear",
+          storeOp: "store",
+          clearValue: { r, g, b, a },
+        }],
+      });
+      ctx.encoder = encoder;
+      ctx.pass = pass;
+    },
+    webgpu_draw_triangle(ctxId) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      ctx.pass.setPipeline(ctx.trianglePipeline);
+      ctx.pass.setVertexBuffer(0, ctx.triangleVertexBuffer);
+      ctx.pass.draw(3, 1, 0, 0);
+    },
+    webgpu_draw_textured_quad(ctxId, meshHandle, materialHandle, instancePtr) {
+      const ctx = ctxs.get(ctxId);
+      const mesh = ctx.meshes[meshHandle];
+      const material = ctx.materials[materialHandle];
+      if (!ctx || !mesh || !material) return;
+      const instanceData = new Float32Array(memory.buffer, instancePtr, 20);
+      const stride = 80;
+      const alignment = 256;
+      let offset = Math.ceil(ctx.instanceOffset / alignment) * alignment;
+      if (offset + stride > ctx.instanceBufferSize) {
+        offset = 0;
+      }
+      ctx.instanceOffset = offset + stride;
+      ctx.queue.writeBuffer(ctx.instanceBuffer, offset, instanceData);
+
+      ctx.pass.setPipeline(ctx.quadPipeline);
+      ctx.pass.setBindGroup(0, material.bindGroup);
+      ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
+      ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, stride);
+      ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
+      ctx.pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
+    },
+    webgpu_end_frame(ctxId) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      ctx.pass.end();
+      ctx.queue.submit([ctx.encoder.finish()]);
+      ctx.pass = null;
+      ctx.encoder = null;
+    },
+    webgpu_create_sampler(ctxId) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const sampler = ctx.device.createSampler({
+        magFilter: "linear",
+        minFilter: "linear",
+        mipmapFilter: "linear",
+        addressModeU: "clamp-to-edge",
+        addressModeV: "clamp-to-edge",
+        addressModeW: "clamp-to-edge",
+      });
+      const handle = ctx.samplers.length;
+      ctx.samplers.push(sampler);
+      return handle;
+    },
+    webgpu_destroy_sampler(ctxId, handle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      ctx.samplers[handle] = null;
+    },
+    webgpu_create_texture_rgba8(ctxId, _samplerHandle, dataPtr, dataLen, width, height) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const texture = ctx.device.createTexture({
+        size: { width, height },
+        format: "rgba8unorm-srgb",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      const view = texture.createView();
+      const bytesPerRow = width * 4;
+      const alignedBpr = Math.ceil(bytesPerRow / 256) * 256;
+      let data = new Uint8Array(memory.buffer, dataPtr, dataLen);
+      if (alignedBpr !== bytesPerRow) {
+        const padded = new Uint8Array(alignedBpr * height);
+        for (let row = 0; row < height; row++) {
+          const srcOff = row * bytesPerRow;
+          const dstOff = row * alignedBpr;
+          padded.set(data.subarray(srcOff, srcOff + bytesPerRow), dstOff);
+        }
+        data = padded;
+      }
+      ctx.queue.writeTexture(
+        { texture },
+        data,
+        { bytesPerRow: alignedBpr },
+        { width, height }
+      );
+      const handle = ctx.textures.length;
+      ctx.textures.push({ texture, view });
+      return handle;
+    },
+    webgpu_destroy_texture(ctxId, handle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      ctx.textures[handle] = null;
+    },
+    webgpu_create_material(ctxId, textureHandle, samplerHandle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const texture = ctx.textures[textureHandle];
+      const sampler = ctx.samplers[samplerHandle];
+      if (!texture || !sampler) return 0;
+      const bindGroup = ctx.device.createBindGroup({
+        layout: ctx.quadBindGroupLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: texture.view },
+        ],
+      });
+      const handle = ctx.materials.length;
+      ctx.materials.push({ bindGroup });
+      return handle;
+    },
+    webgpu_destroy_material(ctxId, handle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      ctx.materials[handle] = null;
+    },
+    webgpu_create_mesh(ctxId, vPtr, vLen, iPtr, iLen) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const vertices = new Uint8Array(memory.buffer, vPtr, vLen);
+      const indices = new Uint8Array(memory.buffer, iPtr, iLen);
+      const vertexBuffer = createBufferWithData(ctx.device, vertices, GPUBufferUsage.VERTEX);
+      const indexBuffer = createBufferWithData(ctx.device, indices, GPUBufferUsage.INDEX);
+      const indexCount = iLen / 2;
+      const handle = ctx.meshes.length;
+      ctx.meshes.push({ vertexBuffer, indexBuffer, indexCount });
+      return handle;
+    },
+    webgpu_destroy_mesh(ctxId, handle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      ctx.meshes[handle] = null;
+    },
+  },
+};
+
+async function start() {
+  if (!navigator.gpu) {
+    document.querySelector(".hint").textContent = "WebGPU: unavailable";
+    return;
+  }
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    document.querySelector(".hint").textContent = "WebGPU: adapter unavailable";
+    return;
+  }
+  device = await adapter.requestDevice();
+
+  const response = await fetch(wasmUrl);
+  const bytes = await response.arrayBuffer();
+  const result = await WebAssembly.instantiate(bytes, imports);
+  wasm = result.instance;
+  memory = wasm.exports.memory;
+
+  if (wasm.exports.wasmInit) {
+    wasm.exports.wasmInit();
+  }
+
+  function resizeAndNotify() {
+    const canvas = document.querySelector("#canvas");
+    const size = resizeCanvas(canvas);
+    if (wasm.exports.wasmResize) {
+      wasm.exports.wasmResize(size.width, size.height);
+    }
+  }
+  window.addEventListener("resize", resizeAndNotify);
+  resizeAndNotify();
+
+  function frame() {
+    if (wasm.exports.wasmFrame) {
+      wasm.exports.wasmFrame();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+start();

@@ -1,0 +1,806 @@
+const std = @import("std");
+const wgpu = @import("wgpu");
+const utils = @import("utils.zig");
+const common = @import("common");
+
+const Color = utils.Color;
+const Size = utils.Size;
+const SurfaceTarget = utils.SurfaceTarget;
+const NativeSurface = utils.NativeSurface;
+const NativeHandle = utils.NativeHandle;
+const CacheKey = utils.CacheKey;
+const hashCacheKey = utils.hashCacheKey;
+const RingBuffer = utils.RingBuffer;
+
+pub const RendererConfig = struct {
+    present_mode: ?wgpu.PresentMode = null,
+    enable_validation: bool = false,
+};
+
+pub const Buffer = struct {
+    buffer: *wgpu.Buffer,
+    size: u64,
+};
+
+pub const Texture = struct {
+    texture: *wgpu.Texture,
+    view: *wgpu.TextureView,
+    width: u32,
+    height: u32,
+    format: wgpu.TextureFormat,
+};
+
+pub const Sampler = struct {
+    sampler: *wgpu.Sampler,
+};
+
+pub const Pipeline = struct {
+    pipeline: *wgpu.RenderPipeline,
+};
+
+pub const Material = struct {
+    bind_group: *wgpu.BindGroup,
+};
+
+pub const Mesh = struct {
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_count: u32,
+};
+
+pub const MeshInstance = struct {
+    transform: common.Mat4 = common.Mat4.identity(),
+    color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+};
+
+pub const VertexColor = extern struct {
+    position: [2]f32,
+    color: [3]f32,
+};
+
+pub const VertexUv = extern struct {
+    position: [2]f32,
+    uv: [2]f32,
+};
+
+pub const Triangle = struct {
+    vertices: [3]VertexColor,
+};
+
+pub const TexturedQuad = struct {
+    mesh: Mesh,
+    material: Material,
+    instance: MeshInstance,
+};
+
+pub const DrawCmd = union(enum) {
+    triangle: Triangle,
+    textured_quad: TexturedQuad,
+};
+
+const InstanceData = extern struct {
+    model0: [4]f32,
+    model1: [4]f32,
+    model2: [4]f32,
+    model3: [4]f32,
+    color: [4]f32,
+};
+
+const PipelineCache = struct {
+    map: std.AutoHashMap(u64, *wgpu.RenderPipeline),
+
+    fn init(allocator: std.mem.Allocator) PipelineCache {
+        return .{ .map = std.AutoHashMap(u64, *wgpu.RenderPipeline).init(allocator) };
+    }
+
+    fn deinit(self: *PipelineCache) void {
+        self.map.deinit();
+    }
+};
+
+pub const Renderer = struct {
+    allocator: std.mem.Allocator,
+    instance: *wgpu.Instance,
+    surface: *wgpu.Surface,
+    adapter: *wgpu.Adapter,
+    device: *wgpu.Device,
+    queue: *wgpu.Queue,
+    surface_format: wgpu.TextureFormat,
+    surface_size: Size,
+    present_mode: wgpu.PresentMode,
+
+    triangle_pipeline: *wgpu.RenderPipeline,
+    quad_pipeline: *wgpu.RenderPipeline,
+    quad_bind_group_layout: *wgpu.BindGroupLayout,
+
+    triangle_vertex_buffer: Buffer,
+    quad_vertex_buffer: Buffer,
+    quad_index_buffer: Buffer,
+    instance_buffer: Buffer,
+    instance_ring: RingBuffer,
+
+    pipeline_cache: PipelineCache,
+
+    pub fn init(allocator: std.mem.Allocator, target: SurfaceTarget, config: RendererConfig) !Renderer {
+        if (target != .native) return error.InvalidSurfaceTarget;
+        const native = target.native;
+
+        const instance = createInstance(config.enable_validation) orelse return error.InstanceCreationFailed;
+        errdefer instance.release();
+
+        const surface = try createSurface(instance, native);
+        errdefer surface.release();
+
+        const adapter = try requestAdapter(instance, surface);
+        errdefer adapter.release();
+
+        const device = try requestDevice(instance, adapter);
+        errdefer device.release();
+
+        const queue = device.getQueue() orelse return error.QueueCreationFailed;
+        errdefer queue.release();
+
+        const capabilities = try getSurfaceCapabilities(surface, adapter);
+        defer capabilities.freeMembers();
+        const surface_format = selectSurfaceFormat(capabilities);
+        const present_mode = selectPresentMode(capabilities, config.present_mode);
+
+        const surface_size = native.size;
+        configureSurface(device, surface, surface_format, surface_size.width, surface_size.height, present_mode);
+
+        const pipeline_cache = PipelineCache.init(allocator);
+
+        var renderer = Renderer{
+            .allocator = allocator,
+            .instance = instance,
+            .surface = surface,
+            .adapter = adapter,
+            .device = device,
+            .queue = queue,
+            .surface_format = surface_format,
+            .surface_size = surface_size,
+            .present_mode = present_mode,
+            .triangle_pipeline = undefined,
+            .quad_pipeline = undefined,
+            .quad_bind_group_layout = undefined,
+            .triangle_vertex_buffer = undefined,
+            .quad_vertex_buffer = undefined,
+            .quad_index_buffer = undefined,
+            .instance_buffer = undefined,
+            .instance_ring = RingBuffer.init(256 * 1024),
+            .pipeline_cache = pipeline_cache,
+        };
+
+        try renderer.initResources();
+        return renderer;
+    }
+
+    fn initResources(self: *Renderer) !void {
+        self.triangle_vertex_buffer = try createBufferWithData(
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+            std.mem.asBytes(&defaultTriangleVertices),
+        );
+
+        self.quad_vertex_buffer = try createBufferWithData(
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+            std.mem.asBytes(&defaultQuadVertices),
+        );
+        self.quad_index_buffer = try createBufferWithData(
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+            std.mem.asBytes(&defaultQuadIndices),
+        );
+
+        self.instance_buffer = try createEmptyBuffer(
+            self.device,
+            wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+            self.instance_ring.size,
+        );
+
+        const shader_triangle = self.device.createShaderModule(&wgpu.shaderModuleWGSLDescriptor(.{
+            .code = triangleShaderWGSL,
+        })) orelse return error.ShaderCreationFailed;
+        defer shader_triangle.release();
+
+        const shader_quad = self.device.createShaderModule(&wgpu.shaderModuleWGSLDescriptor(.{
+            .code = quadShaderWGSL,
+        })) orelse return error.ShaderCreationFailed;
+        defer shader_quad.release();
+
+        const triangle_key = CacheKey{ .a = 1, .b = 0, .c = 0 };
+        _ = hashCacheKey(triangle_key);
+        self.triangle_pipeline = try createTrianglePipeline(self.device, shader_triangle, self.surface_format);
+
+        const quad_key = CacheKey{ .a = 2, .b = 0, .c = 0 };
+        _ = hashCacheKey(quad_key);
+        const quad_bundle = try createQuadPipeline(self.device, shader_quad, self.surface_format);
+        self.quad_pipeline = quad_bundle.pipeline;
+        self.quad_bind_group_layout = quad_bundle.bind_group_layout;
+    }
+
+    pub fn deinit(self: *Renderer) void {
+        self.triangle_pipeline.release();
+        self.quad_pipeline.release();
+        self.quad_bind_group_layout.release();
+
+        self.triangle_vertex_buffer.buffer.release();
+        self.quad_vertex_buffer.buffer.release();
+        self.quad_index_buffer.buffer.release();
+        self.instance_buffer.buffer.release();
+
+        self.pipeline_cache.deinit();
+
+        self.queue.release();
+        self.device.release();
+        self.adapter.release();
+        self.surface.release();
+        self.instance.release();
+    }
+
+    pub fn resize(self: *Renderer, width: u32, height: u32) void {
+        if (width == 0 or height == 0) return;
+        self.surface_size = .{ .width = width, .height = height };
+        configureSurface(self.device, self.surface, self.surface_format, width, height, self.present_mode);
+    }
+
+    pub fn beginFrame(self: *Renderer, clear: Color) !Frame {
+        self.instance_ring.reset();
+        var surface_texture: wgpu.SurfaceTexture = undefined;
+        self.surface.getCurrentTexture(&surface_texture);
+        if (surface_texture.status != .success_optimal and surface_texture.status != .success_suboptimal) {
+            return error.SurfaceTextureError;
+        }
+        const texture = surface_texture.texture orelse return error.SurfaceTextureError;
+        const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.SurfaceTextureError;
+
+        const encoder = self.device.createCommandEncoder(&wgpu.CommandEncoderDescriptor{
+            .label = wgpu.StringView.fromSlice("phasor-lite encoder"),
+        }) orelse return error.CommandEncoderFailed;
+
+        const color_attachment = wgpu.ColorAttachment{
+            .view = view,
+            .load_op = .clear,
+            .store_op = .store,
+            .clear_value = wgpu.Color{ .r = clear.r, .g = clear.g, .b = clear.b, .a = clear.a },
+        };
+        const attachments = [_]wgpu.ColorAttachment{color_attachment};
+        const render_pass = encoder.beginRenderPass(&wgpu.RenderPassDescriptor{
+            .color_attachment_count = attachments.len,
+            .color_attachments = attachments[0..].ptr,
+        }) orelse return error.RenderPassFailed;
+
+        return Frame{
+            .renderer = self,
+            .encoder = encoder,
+            .render_pass = render_pass,
+            .surface_texture = surface_texture,
+            .view = view,
+        };
+    }
+
+    pub fn createSampler(self: *Renderer) !Sampler {
+        const sampler = self.device.createSampler(&wgpu.SamplerDescriptor{
+            .mag_filter = .linear,
+            .min_filter = .linear,
+            .mipmap_filter = .linear,
+            .address_mode_u = .clamp_to_edge,
+            .address_mode_v = .clamp_to_edge,
+            .address_mode_w = .clamp_to_edge,
+        }) orelse return error.SamplerCreationFailed;
+        return Sampler{ .sampler = sampler };
+    }
+
+    pub fn createTextureRgba8(self: *Renderer, width: u32, height: u32, data: []const u8) !Texture {
+        const texture = self.device.createTexture(&wgpu.TextureDescriptor{
+            .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
+            .format = .rgba8_unorm_srgb,
+            .usage = wgpu.TextureUsages.texture_binding | wgpu.TextureUsages.copy_dst,
+            .mip_level_count = 1,
+            .sample_count = 1,
+            .dimension = .@"2d",
+        }) orelse return error.TextureCreationFailed;
+        errdefer texture.release();
+
+        const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.TextureViewFailed;
+        errdefer view.release();
+
+        const bytes_per_row = width * 4;
+        const aligned_bpr = std.mem.alignForward(u32, bytes_per_row, 256);
+        var upload = data;
+        var scratch: ?[]u8 = null;
+        if (aligned_bpr != bytes_per_row) {
+            const total = aligned_bpr * height;
+            const padded = try self.allocator.alloc(u8, total);
+            std.mem.set(u8, padded, 0);
+            for (0..height) |row| {
+                const src_off = row * bytes_per_row;
+                const dst_off = row * aligned_bpr;
+                std.mem.copyForwards(u8, padded[dst_off..][0..bytes_per_row], data[src_off..][0..bytes_per_row]);
+            }
+            scratch = padded;
+            upload = padded;
+        }
+        defer if (scratch) |padded| self.allocator.free(padded);
+
+        const layout = wgpu.TexelCopyBufferLayout{
+            .bytes_per_row = aligned_bpr,
+            .rows_per_image = height,
+        };
+        const dst = wgpu.TexelCopyTextureInfo{
+            .texture = texture,
+            .origin = .{},
+            .mip_level = 0,
+            .aspect = .all,
+        };
+        const copy_size = wgpu.Extent3D{
+            .width = width,
+            .height = height,
+            .depth_or_array_layers = 1,
+        };
+        self.queue.writeTexture(&dst, upload.ptr, upload.len, &layout, &copy_size);
+
+        return Texture{
+            .texture = texture,
+            .view = view,
+            .width = width,
+            .height = height,
+            .format = .rgba8_unorm_srgb,
+        };
+    }
+
+    pub fn destroyTexture(_: *Renderer, texture: *Texture) void {
+        texture.view.release();
+        texture.texture.release();
+    }
+
+    pub fn destroySampler(_: *Renderer, sampler: *Sampler) void {
+        sampler.sampler.release();
+    }
+
+    pub fn createMaterial(self: *Renderer, texture: Texture, sampler: Sampler) !Material {
+        const entries = [_]wgpu.BindGroupEntry{
+            .{ .binding = 0, .sampler = sampler.sampler },
+            .{ .binding = 1, .texture_view = texture.view },
+        };
+        const bind_group = self.device.createBindGroup(&wgpu.BindGroupDescriptor{
+            .layout = self.quad_bind_group_layout,
+            .entry_count = entries.len,
+            .entries = entries[0..].ptr,
+        }) orelse return error.BindGroupCreationFailed;
+        return Material{ .bind_group = bind_group };
+    }
+
+    pub fn destroyMaterial(_: *Renderer, material: *Material) void {
+        material.bind_group.release();
+    }
+
+    pub fn createMesh(self: *Renderer, vertices: []const VertexUv, indices: []const u16) !Mesh {
+        const vertex_buf = try createBufferWithData(
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(vertices),
+        );
+        const index_buf = try createBufferWithData(
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(indices),
+        );
+        return Mesh{
+            .vertex_buffer = vertex_buf,
+            .index_buffer = index_buf,
+            .index_count = @intCast(indices.len),
+        };
+    }
+
+    pub fn destroyMesh(_: *Renderer, mesh: *Mesh) void {
+        mesh.vertex_buffer.buffer.release();
+        mesh.index_buffer.buffer.release();
+    }
+};
+
+pub const Frame = struct {
+    renderer: *Renderer,
+    encoder: *wgpu.CommandEncoder,
+    render_pass: *wgpu.RenderPassEncoder,
+    surface_texture: wgpu.SurfaceTexture,
+    view: *wgpu.TextureView,
+
+    pub fn draw(self: *Frame, cmd: DrawCmd) void {
+        switch (cmd) {
+            .triangle => |triangle| self.drawTriangle(triangle),
+            .textured_quad => |quad| self.drawTexturedQuad(quad),
+        }
+    }
+
+    fn drawTriangle(self: *Frame, triangle: Triangle) void {
+        const data = std.mem.asBytes(&triangle.vertices);
+        self.renderer.queue.writeBuffer(self.renderer.triangle_vertex_buffer.buffer, 0, data.ptr, data.len);
+        self.render_pass.setPipeline(self.renderer.triangle_pipeline);
+        self.render_pass.setVertexBuffer(0, self.renderer.triangle_vertex_buffer.buffer, 0, self.renderer.triangle_vertex_buffer.size);
+        self.render_pass.draw(3, 1, 0, 0);
+    }
+
+    fn drawTexturedQuad(self: *Frame, quad: TexturedQuad) void {
+        const instance = buildInstanceData(quad.instance);
+        const instance_bytes = std.mem.asBytes(&instance);
+        const offset = self.renderer.instance_ring.allocate(@sizeOf(InstanceData), 256);
+        self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, offset, instance_bytes.ptr, instance_bytes.len);
+
+        self.render_pass.setPipeline(self.renderer.quad_pipeline);
+        self.render_pass.setBindGroup(0, quad.material.bind_group, 0, null);
+        self.render_pass.setVertexBuffer(0, quad.mesh.vertex_buffer.buffer, 0, quad.mesh.vertex_buffer.size);
+        self.render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, @sizeOf(InstanceData));
+        self.render_pass.setIndexBuffer(quad.mesh.index_buffer.buffer, .uint16, 0, quad.mesh.index_buffer.size);
+        self.render_pass.drawIndexed(quad.mesh.index_count, 1, 0, 0, 0);
+    }
+
+    pub fn endFrame(self: *Frame) !void {
+        self.render_pass.end();
+        self.render_pass.release();
+
+        const command_buffer = self.encoder.finish(&wgpu.CommandBufferDescriptor{}) orelse return error.CommandBufferFailed;
+        defer command_buffer.release();
+        self.renderer.queue.submit(&[_]*const wgpu.CommandBuffer{command_buffer});
+
+        _ = self.renderer.surface.present();
+        self.view.release();
+        if (self.surface_texture.texture) |texture| {
+            texture.release();
+        }
+        self.encoder.release();
+    }
+};
+
+fn buildInstanceData(instance: MeshInstance) InstanceData {
+    const m = instance.transform.m;
+    return .{
+        .model0 = .{ m[0][0], m[0][1], m[0][2], m[0][3] },
+        .model1 = .{ m[1][0], m[1][1], m[1][2], m[1][3] },
+        .model2 = .{ m[2][0], m[2][1], m[2][2], m[2][3] },
+        .model3 = .{ m[3][0], m[3][1], m[3][2], m[3][3] },
+        .color = instance.color,
+    };
+}
+
+fn createInstance(enable_validation: bool) ?*wgpu.Instance {
+    var extras = wgpu.InstanceExtras{
+        .backends = wgpu.InstanceBackends.primary,
+        .flags = if (enable_validation) wgpu.InstanceFlags.validation else wgpu.InstanceFlags.default,
+        .dx12_shader_compiler = .dxc,
+        .gles3_minor_version = .automatic,
+        .gl_fence_behavior = .gl_fence_behaviour_normal,
+        .dxil_path = wgpu.StringView{},
+        .dxc_path = wgpu.StringView{},
+        .dxc_max_shader_model = .dxc_max_shader_model_v6_0,
+    };
+    const descriptor = (wgpu.InstanceDescriptor{
+        .features = wgpu.InstanceCapabilities{
+            .timed_wait_any_enable = @intFromBool(false),
+            .timed_wait_any_max_count = 0,
+        },
+    }).withNativeExtras(&extras);
+    return wgpu.Instance.create(&descriptor);
+}
+
+fn requestAdapter(instance: *wgpu.Instance, surface: *wgpu.Surface) !*wgpu.Adapter {
+    const request = instance.requestAdapterSync(&wgpu.RequestAdapterOptions{
+        .compatible_surface = surface,
+        .power_preference = .high_performance,
+    }, 0);
+    return switch (request.status) {
+        .success => request.adapter orelse error.AdapterFailed,
+        else => error.AdapterFailed,
+    };
+}
+
+fn requestDevice(instance: *wgpu.Instance, adapter: *wgpu.Adapter) !*wgpu.Device {
+    const request = adapter.requestDeviceSync(instance, &wgpu.DeviceDescriptor{
+        .required_feature_count = 0,
+        .required_features = &[_]wgpu.FeatureName{},
+        .required_limits = null,
+        .default_queue = wgpu.QueueDescriptor{},
+    }, 0);
+    return switch (request.status) {
+        .success => request.device orelse error.DeviceFailed,
+        else => error.DeviceFailed,
+    };
+}
+
+fn createSurface(instance: *wgpu.Instance, native: NativeSurface) !*wgpu.Surface {
+    const mutable_instance = @constCast(instance);
+    switch (native.kind) {
+        .metal => {
+            const descriptor = wgpu.surfaceDescriptorFromMetalLayer(.{
+                .label = "phasor-lite metal surface",
+                .layer = native.handle.metal.layer,
+            });
+            return mutable_instance.createSurface(&descriptor) orelse error.SurfaceCreationFailed;
+        },
+        .win32 => {
+            const descriptor = wgpu.surfaceDescriptorFromWindowsHWND(.{
+                .label = "phasor-lite win32 surface",
+                .hinstance = native.handle.win32.hinstance,
+                .hwnd = native.handle.win32.hwnd,
+            });
+            return mutable_instance.createSurface(&descriptor) orelse error.SurfaceCreationFailed;
+        },
+        .x11 => {
+            const descriptor = wgpu.surfaceDescriptorFromXlibWindow(.{
+                .label = "phasor-lite x11 surface",
+                .display = native.handle.x11.display,
+                .window = native.handle.x11.window,
+            });
+            return mutable_instance.createSurface(&descriptor) orelse error.SurfaceCreationFailed;
+        },
+    }
+}
+
+fn getSurfaceCapabilities(surface: *wgpu.Surface, adapter: *wgpu.Adapter) !wgpu.SurfaceCapabilities {
+    var capabilities: wgpu.SurfaceCapabilities = std.mem.zeroes(wgpu.SurfaceCapabilities);
+    const status = surface.getCapabilities(adapter, &capabilities);
+    if (status != .success) return error.SurfaceCapabilitiesFailed;
+    return capabilities;
+}
+
+fn selectSurfaceFormat(capabilities: wgpu.SurfaceCapabilities) wgpu.TextureFormat {
+    const preferred = [_]wgpu.TextureFormat{
+        .bgra8_unorm,
+        .rgba8_unorm,
+        .bgra8_unorm_srgb,
+        .rgba8_unorm_srgb,
+    };
+    const formats = capabilities.formats[0..capabilities.format_count];
+    for (preferred) |format| {
+        for (formats) |supported| {
+            if (supported == format) return format;
+        }
+    }
+    return formats[0];
+}
+
+fn selectPresentMode(capabilities: wgpu.SurfaceCapabilities, requested: ?wgpu.PresentMode) wgpu.PresentMode {
+    const modes = capabilities.present_modes[0..capabilities.present_mode_count];
+    if (requested) |mode| {
+        for (modes) |supported| {
+            if (supported == mode) return mode;
+        }
+    }
+    const preferred = [_]wgpu.PresentMode{ .mailbox, .immediate, .fifo };
+    for (preferred) |mode| {
+        for (modes) |supported| {
+            if (supported == mode) return mode;
+        }
+    }
+    return modes[0];
+}
+
+fn configureSurface(device: *wgpu.Device, surface: *wgpu.Surface, format: wgpu.TextureFormat, width: u32, height: u32, present_mode: wgpu.PresentMode) void {
+    const config = wgpu.SurfaceConfiguration{
+        .device = device,
+        .format = format,
+        .usage = wgpu.TextureUsages.render_attachment,
+        .width = width,
+        .height = height,
+        .present_mode = present_mode,
+        .alpha_mode = wgpu.CompositeAlphaMode.auto,
+    };
+    surface.configure(&config);
+}
+
+fn createEmptyBuffer(device: *wgpu.Device, usage: wgpu.BufferUsage, size: u64) !Buffer {
+    const buffer = device.createBuffer(&wgpu.BufferDescriptor{
+        .usage = usage,
+        .size = size,
+        .mapped_at_creation = @intFromBool(false),
+    }) orelse return error.BufferCreationFailed;
+    return Buffer{ .buffer = buffer, .size = size };
+}
+
+fn createBufferWithData(device: *wgpu.Device, queue: *wgpu.Queue, usage: wgpu.BufferUsage, data: []const u8) !Buffer {
+    const buffer = try createEmptyBuffer(device, usage, @intCast(data.len));
+    queue.writeBuffer(buffer.buffer, 0, data.ptr, data.len);
+    return buffer;
+}
+
+fn createTrianglePipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, format: wgpu.TextureFormat) !*wgpu.RenderPipeline {
+    const attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x2, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x3, .offset = @sizeOf([2]f32), .shader_location = 1 },
+    };
+    const vertex_buffers = [_]wgpu.VertexBufferLayout{wgpu.VertexBufferLayout{
+        .array_stride = @sizeOf(VertexColor),
+        .attribute_count = attributes.len,
+        .attributes = attributes[0..].ptr,
+        .step_mode = .vertex,
+    }};
+    const color_targets = [_]wgpu.ColorTargetState{wgpu.ColorTargetState{
+        .format = format,
+    }};
+    const pipeline = device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
+        .vertex = wgpu.VertexState{
+            .module = shader,
+            .entry_point = wgpu.StringView.fromSlice("vs_main"),
+            .buffer_count = vertex_buffers.len,
+            .buffers = vertex_buffers[0..].ptr,
+        },
+        .primitive = wgpu.PrimitiveState{
+            .topology = .triangle_list,
+        },
+        .fragment = &wgpu.FragmentState{
+            .module = shader,
+            .entry_point = wgpu.StringView.fromSlice("fs_main"),
+            .target_count = color_targets.len,
+            .targets = color_targets[0..].ptr,
+        },
+        .multisample = wgpu.MultisampleState{},
+    }) orelse return error.PipelineCreationFailed;
+    return pipeline;
+}
+
+fn createQuadPipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, format: wgpu.TextureFormat) !struct { pipeline: *wgpu.RenderPipeline, bind_group_layout: *wgpu.BindGroupLayout } {
+    const bind_group_layout = device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
+        .entry_count = 2,
+        .entries = &[_]wgpu.BindGroupLayoutEntry{
+            .{
+                .binding = 0,
+                .visibility = wgpu.ShaderStages.fragment,
+                .sampler = .{ .type = .filtering },
+            },
+            .{
+                .binding = 1,
+                .visibility = wgpu.ShaderStages.fragment,
+                .texture = .{
+                    .sample_type = .float,
+                    .view_dimension = .@"2d",
+                    .multisampled = @intFromBool(false),
+                },
+            },
+        },
+    }) orelse return error.BindGroupLayoutFailed;
+
+    const pipeline_layout = device.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
+        .bind_group_layout_count = 1,
+        .bind_group_layouts = &[_]*wgpu.BindGroupLayout{bind_group_layout},
+    }) orelse return error.PipelineLayoutFailed;
+    defer pipeline_layout.release();
+
+    const vertex_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x2, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x2, .offset = @sizeOf([2]f32), .shader_location = 1 },
+    };
+    const instance_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x4, .offset = 0, .shader_location = 2 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 3 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 4 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 5 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = 6 },
+    };
+    const vertex_buffers = [_]wgpu.VertexBufferLayout{
+        .{
+            .array_stride = @sizeOf(VertexUv),
+            .attribute_count = vertex_attributes.len,
+            .attributes = vertex_attributes[0..].ptr,
+            .step_mode = .vertex,
+        },
+        .{
+            .array_stride = @sizeOf(InstanceData),
+            .attribute_count = instance_attributes.len,
+            .attributes = instance_attributes[0..].ptr,
+            .step_mode = .instance,
+        },
+    };
+    const color_targets = [_]wgpu.ColorTargetState{wgpu.ColorTargetState{
+        .format = format,
+        .blend = &wgpu.BlendState{
+            .color = .{
+                .operation = .add,
+                .src_factor = .src_alpha,
+                .dst_factor = .one_minus_src_alpha,
+            },
+            .alpha = .{
+                .operation = .add,
+                .src_factor = .one,
+                .dst_factor = .one_minus_src_alpha,
+            },
+        },
+    }};
+
+    const pipeline = device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
+        .layout = pipeline_layout,
+        .vertex = wgpu.VertexState{
+            .module = shader,
+            .entry_point = wgpu.StringView.fromSlice("vs_main"),
+            .buffer_count = vertex_buffers.len,
+            .buffers = vertex_buffers[0..].ptr,
+        },
+        .primitive = wgpu.PrimitiveState{
+            .topology = .triangle_list,
+        },
+        .fragment = &wgpu.FragmentState{
+            .module = shader,
+            .entry_point = wgpu.StringView.fromSlice("fs_main"),
+            .target_count = color_targets.len,
+            .targets = color_targets[0..].ptr,
+        },
+        .multisample = wgpu.MultisampleState{},
+    }) orelse return error.PipelineCreationFailed;
+
+    return .{ .pipeline = pipeline, .bind_group_layout = bind_group_layout };
+}
+
+const defaultTriangleVertices = [_]VertexColor{
+    .{ .position = .{ 0.0, 0.6 }, .color = .{ 1.0, 0.0, 0.0 } },
+    .{ .position = .{ -0.6, -0.6 }, .color = .{ 0.0, 1.0, 0.0 } },
+    .{ .position = .{ 0.6, -0.6 }, .color = .{ 0.0, 0.0, 1.0 } },
+};
+
+const defaultQuadVertices = [_]VertexUv{
+    .{ .position = .{ -0.5, -0.5 }, .uv = .{ 0.0, 1.0 } },
+    .{ .position = .{ 0.5, -0.5 }, .uv = .{ 1.0, 1.0 } },
+    .{ .position = .{ 0.5, 0.5 }, .uv = .{ 1.0, 0.0 } },
+    .{ .position = .{ -0.5, 0.5 }, .uv = .{ 0.0, 0.0 } },
+};
+
+const defaultQuadIndices = [_]u16{ 0, 1, 2, 2, 3, 0 };
+
+const triangleShaderWGSL =
+    \\struct VertexIn {
+    \\    @location(0) position: vec2<f32>,
+    \\    @location(1) color: vec3<f32>,
+    \\};
+    \\struct VertexOut {
+    \\    @builtin(position) position: vec4<f32>,
+    \\    @location(0) color: vec3<f32>,
+    \\};
+    \\@vertex
+    \\fn vs_main(in: VertexIn) -> VertexOut {
+    \\    var out: VertexOut;
+    \\    out.position = vec4<f32>(in.position, 0.0, 1.0);
+    \\    out.color = in.color;
+    \\    return out;
+    \\}
+    \\@fragment
+    \\fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    \\    return vec4<f32>(in.color, 1.0);
+    \\}
+;
+
+const quadShaderWGSL =
+    \\struct VertexIn {
+    \\    @location(0) position: vec2<f32>,
+    \\    @location(1) uv: vec2<f32>,
+    \\    @location(2) model0: vec4<f32>,
+    \\    @location(3) model1: vec4<f32>,
+    \\    @location(4) model2: vec4<f32>,
+    \\    @location(5) model3: vec4<f32>,
+    \\    @location(6) color: vec4<f32>,
+    \\};
+    \\struct VertexOut {
+    \\    @builtin(position) position: vec4<f32>,
+    \\    @location(0) uv: vec2<f32>,
+    \\    @location(1) color: vec4<f32>,
+    \\};
+    \\@group(0) @binding(0) var quad_sampler: sampler;
+    \\@group(0) @binding(1) var quad_texture: texture_2d<f32>;
+    \\@vertex
+    \\fn vs_main(in: VertexIn) -> VertexOut {
+    \\    let model = mat4x4<f32>(in.model0, in.model1, in.model2, in.model3);
+    \\    var out: VertexOut;
+    \\    out.position = model * vec4<f32>(in.position, 0.0, 1.0);
+    \\    out.uv = in.uv;
+    \\    out.color = in.color;
+    \\    return out;
+    \\}
+    \\@fragment
+    \\fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    \\    let texel = textureSample(quad_texture, quad_sampler, in.uv);
+    \\    return texel * in.color;
+    \\}
+;
