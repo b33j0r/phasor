@@ -4,6 +4,8 @@ pub const Table = struct {
     schema_storage: ?[]meta.TypeId = null,
     columns: []Column,
     entity_ids: std.ArrayListUnmanaged(Entity.Id) = .empty,
+    table_index: usize = 0,
+    hooks: hooks.TableHooks = hooks.TableHooks.none(),
 
     const Self = @This();
 
@@ -108,6 +110,8 @@ pub const Table = struct {
             .schema_storage = null,
             .columns = columns,
             .entity_ids = .empty,
+            .table_index = 0,
+            .hooks = hooks.TableHooks.none(),
         };
     }
 
@@ -118,6 +122,8 @@ pub const Table = struct {
             .schema_storage = @constCast(ids),
             .columns = columns,
             .entity_ids = .empty,
+            .table_index = 0,
+            .hooks = hooks.TableHooks.none(),
         };
     }
 
@@ -173,6 +179,7 @@ pub const Table = struct {
             try self.columns[col_index].pushAs(T, value);
         }
 
+        self.hooks.onRowAdded(self.table_index, row_index, entity_id);
         return row_index;
     }
 
@@ -188,12 +195,17 @@ pub const Table = struct {
         if (row >= self.entity_ids.items.len) return null;
         const last_index = self.entity_ids.items.len - 1;
         const moved_id: ?Entity.Id = if (row != last_index) self.entity_ids.items[last_index] else null;
+        const removed_id = self.entity_ids.items[row];
 
         _ = self.entity_ids.swapRemove(row);
         for (self.columns) |*column| {
             _ = column.swapRemoveDeinit(row);
         }
 
+        self.hooks.onRowRemoved(self.table_index, row, removed_id);
+        if (moved_id) |entity_id| {
+            self.hooks.onRowMoved(self.table_index, last_index, row, entity_id);
+        }
         return moved_id;
     }
 
@@ -242,6 +254,7 @@ pub const Table = struct {
             try dest.columns[dest_index].pushDefault();
         }
 
+        dest.hooks.onRowAdded(dest.table_index, new_row, entity_id);
         return new_row;
     }
 
@@ -393,3 +406,4 @@ const meta = @import("meta.zig");
 const Column = @import("column.zig").Column;
 const Entity = @import("Entity.zig");
 const fixtures = @import("column/fixtures.zig");
+const hooks = @import("hooks.zig");

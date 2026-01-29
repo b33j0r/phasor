@@ -4,6 +4,8 @@ tables: std.ArrayListUnmanaged(Table) = .empty,
 table_index_by_hash: std.AutoArrayHashMapUnmanaged(u64, usize) = .empty,
 entities: std.AutoArrayHashMapUnmanaged(Entity.Id, EntityLocation) = .empty,
 next_entity_id: Entity.Id = 0,
+hooks: ?*const hooks_mod.DatabaseHooks = null,
+table_hooks: hooks_mod.TableHooks = hooks_mod.TableHooks.none(),
 
 const Self = @This();
 
@@ -27,6 +29,8 @@ pub fn init(allocator: std.mem.Allocator) Self {
         .table_index_by_hash = .empty,
         .entities = .empty,
         .next_entity_id = 0,
+        .hooks = null,
+        .table_hooks = hooks_mod.TableHooks.none(),
     };
 }
 
@@ -49,6 +53,8 @@ pub fn getOrCreateTable(self: *Self, comptime Types: anytype) !usize {
     errdefer table.deinit();
 
     const idx = self.tables.items.len;
+    table.table_index = idx;
+    table.hooks = self.table_hooks;
     try self.tables.append(self.allocator, table);
     try self.table_index_by_hash.put(self.allocator, hash, idx);
     return idx;
@@ -81,6 +87,9 @@ pub fn createEntityWithIdInTable(self: *Self, entity_id: Entity.Id, table_index:
         .table_index = table_index,
         .row = row,
     });
+    if (self.hooks) |hooks_ptr| {
+        hooks_ptr.onEntityCreated(entity_id, table_index);
+    }
     if (entity_id >= self.next_entity_id) {
         self.next_entity_id = entity_id + 1;
     }
@@ -190,7 +199,10 @@ fn createTableFromSubset(
 fn insertTable(self: *Self, schema_ids: []const meta.TypeId, table: Table) !usize {
     const hash = hashTypeIds(schema_ids);
     const idx = self.tables.items.len;
-    try self.tables.append(self.allocator, table);
+    var table_with_hooks = table;
+    table_with_hooks.table_index = idx;
+    table_with_hooks.hooks = self.table_hooks;
+    try self.tables.append(self.allocator, table_with_hooks);
     try self.table_index_by_hash.put(self.allocator, hash, idx);
     return idx;
 }
@@ -211,6 +223,9 @@ fn moveEntityToTable(self: *Self, entity_id: Entity.Id, dest_table_index: usize)
         }
     }
 
+    if (self.hooks) |hooks_ptr| {
+        hooks_ptr.onEntityMoved(entity_id, loc.table_index, dest_table_index);
+    }
     loc.table_index = dest_table_index;
     loc.row = new_row;
     return new_row;
@@ -360,12 +375,16 @@ pub fn removeEntity(self: *Self, entity_id: Entity.Id) !void {
         }
     }
     _ = self.entities.swapRemove(entity_id);
+    if (self.hooks) |hooks_ptr| {
+        hooks_ptr.onEntityRemoved(entity_id, loc.table_index);
+    }
 }
 
 /// Move an entity to another table, copying shared components and updating locations.
 pub fn moveEntity(self: *Self, entity_id: Entity.Id, dest_table_index: usize) !void {
     const loc = self.entities.getPtr(entity_id) orelse return Error.EntityNotFound;
-    if (loc.table_index == dest_table_index) return;
+    const from_table = loc.table_index;
+    if (from_table == dest_table_index) return;
 
     const src_table = &self.tables.items[loc.table_index];
     const dst_table = &self.tables.items[dest_table_index];
@@ -381,6 +400,67 @@ pub fn moveEntity(self: *Self, entity_id: Entity.Id, dest_table_index: usize) !v
 
     loc.table_index = dest_table_index;
     loc.row = new_row;
+    if (self.hooks) |hooks_ptr| {
+        hooks_ptr.onEntityMoved(entity_id, from_table, dest_table_index);
+    }
+}
+
+pub fn setHooks(self: *Self, hooks_ptr: *const hooks_mod.DatabaseHooks) void {
+    self.hooks = hooks_ptr;
+    self.table_hooks = self.tableHooksForwarder(hooks_ptr);
+    self.applyTableHooks();
+}
+
+pub fn clearHooks(self: *Self) void {
+    self.hooks = null;
+    self.table_hooks = hooks_mod.TableHooks.none();
+    self.applyTableHooks();
+}
+
+pub fn notifyResourceInserted(self: *Self, type_id: meta.TypeId) void {
+    if (self.hooks) |hooks_ptr| {
+        hooks_ptr.onResourceInserted(type_id);
+    }
+}
+
+pub fn notifyResourceRemoved(self: *Self, type_id: meta.TypeId) void {
+    if (self.hooks) |hooks_ptr| {
+        hooks_ptr.onResourceRemoved(type_id);
+    }
+}
+
+fn tableHooksForwarder(_: *Self, hooks_ptr: *const hooks_mod.DatabaseHooks) hooks_mod.TableHooks {
+    const Forwarder = struct {
+        fn onRowAdded(ctx: *anyopaque, table_index: usize, row: usize, entity_id: Entity.Id) void {
+            const db_hooks: *const hooks_mod.DatabaseHooks = @ptrCast(@alignCast(ctx));
+            db_hooks.onTableRowAdded(table_index, row, entity_id);
+        }
+
+        fn onRowRemoved(ctx: *anyopaque, table_index: usize, row: usize, entity_id: Entity.Id) void {
+            const db_hooks: *const hooks_mod.DatabaseHooks = @ptrCast(@alignCast(ctx));
+            db_hooks.onTableRowRemoved(table_index, row, entity_id);
+        }
+
+        fn onRowMoved(ctx: *anyopaque, table_index: usize, from_row: usize, to_row: usize, entity_id: Entity.Id) void {
+            const db_hooks: *const hooks_mod.DatabaseHooks = @ptrCast(@alignCast(ctx));
+            db_hooks.onTableRowMoved(table_index, from_row, to_row, entity_id);
+        }
+    };
+
+    return hooks_mod.TableHooks{
+        .ctx = @constCast(hooks_ptr),
+        .vtable = .{
+            .on_row_added = Forwarder.onRowAdded,
+            .on_row_removed = Forwarder.onRowRemoved,
+            .on_row_moved = Forwarder.onRowMoved,
+        },
+    };
+}
+
+fn applyTableHooks(self: *Self) void {
+    for (self.tables.items) |*table| {
+        table.hooks = self.table_hooks;
+    }
 }
 
 test "Database moveEntity updates locations" {
@@ -469,3 +549,4 @@ const Column = @import("column/Column.zig");
 const Entity = @import("Entity.zig");
 const meta = @import("meta.zig");
 const fixtures = @import("column/fixtures.zig");
+const hooks_mod = @import("hooks.zig");

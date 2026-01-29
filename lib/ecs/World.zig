@@ -30,12 +30,14 @@ pub fn insertResource(self: *Self, value: anytype) !void {
     const T = @TypeOf(value);
     const id = resources.resourceTypeId(T);
     if (self.resources_map.getPtr(id)) |existing| {
+        self.database.notifyResourceRemoved(id);
         if (existing.deinit_fn) |f| f(self.allocator, existing.ptr);
         _ = self.resources_map.remove(id);
     }
 
     const entry = try resources.resourceEntry(T, self.allocator, value);
     try self.resources_map.put(self.allocator, id, entry);
+    self.database.notifyResourceInserted(id);
 }
 
 pub fn registerEvent(self: *Self, io: *const std.Io, comptime T: type, capacity: usize) !void {
@@ -59,6 +61,7 @@ pub fn removeResource(self: *Self, comptime T: type) bool {
     const entry = self.resources_map.getPtr(id) orelse return false;
     if (entry.deinit_fn) |f| f(self.allocator, entry.ptr);
     _ = self.resources_map.remove(id);
+    self.database.notifyResourceRemoved(id);
     return true;
 }
 
