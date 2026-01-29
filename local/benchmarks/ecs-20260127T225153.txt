@@ -1,4 +1,0 @@
-sine sample_frames=600 sample_s=2.41 fps=248.6 spawned_s=9979.8 removed_s=27521.3 moved_s=0.0
-step sample_frames=600 sample_s=4.36 fps=137.7 spawned_s=29929.4 removed_s=28305.4 moved_s=0.0
-burst sample_frames=600 sample_s=2.30 fps=261.4 spawned_s=1468.3 removed_s=29504.8 moved_s=0.0
-ramp sample_frames=600 sample_s=3.04 fps=197.5 spawned_s=22202.5 removed_s=18432.1 moved_s=0.0

@@ -12,7 +12,7 @@ const std = @import("std");
 const phasor = @import("phasor");
 
 pub fn main(init: std.process.Init) !u8 {
-    var app = phasor.ecs.App.init(init.gpa, &init.io);
+    var app = try phasor.ecs.App.init(init.gpa, &init.io);
     defer app.deinit();
 
     return try app.run();

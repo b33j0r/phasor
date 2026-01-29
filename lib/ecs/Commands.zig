@@ -23,7 +23,7 @@ pub fn deinit(self: *Self) void {
 pub fn apply(self: *Self) !void {
     var first_err: ?anyerror = null;
     for (self.commands.items) |*cmd| {
-        const cmd_value = cmd.*;
+        var cmd_value = cmd.*;
         {
             defer cmd_value.cleanup();
             if (first_err == null) {

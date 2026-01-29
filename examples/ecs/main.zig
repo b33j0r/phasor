@@ -1,5 +1,9 @@
 const ecs = phasor.ecs;
 const resources = ecs.resources;
+const modules = phasor.modules;
+const DeltaTime = modules.TimeModule.DeltaTime;
+const CountdownTimer = modules.TimerModule.CountdownTimer;
+const StopwatchTimer = modules.TimerModule.StopwatchTimer;
 const system_params = ecs.system_params;
 const Query = system_params.Query;
 const Res = system_params.Res;
@@ -8,65 +12,65 @@ const std_options = std.Options{
     .log_level = std.log.Level.debug,
 };
 
-const Position = struct { x: f32, y: f32 };
+const Position = struct { x: f64, y: f64 };
 const Velocity = struct {
-    dx: f32,
-    dy: f32,
+    dx: f64,
+    dy: f64,
     pub const default = @This(){ .dx = 0, .dy = 0 };
 };
-const Lifetime = struct {
-    seconds: f32,
-    pub const default = @This(){ .seconds = 0 };
-};
-const DeltaTime = struct { seconds: f32 };
 
+const SpawnerTag = struct {};
 const ParticleTable = struct { index: usize };
 const SpawnCounter = struct { value: u64 = 0 };
 
 fn setupResources(commands: *ecs.Commands) !void {
     if (!commands.hasResource(SpawnCounter)) {
         try commands.insertResource(SpawnCounter{ .value = 0 });
-    }
-    if (!commands.hasResource(DeltaTime)) {
-        try commands.insertResource(DeltaTime{ .seconds = 1.0 / 60.0 });
+        _ = try commands.createEntity(.{
+            SpawnerTag{},
+            StopwatchTimer{},
+        });
     }
 }
 
-fn spawnParticles(commands: *ecs.Commands) !void {
+fn spawnParticles(commands: *ecs.Commands, spawner_query: Query(.{ SpawnerTag, StopwatchTimer })) !void {
     const counter = commands.getResourceMut(SpawnCounter) orelse return;
     if (counter.value >= 10) return;
     counter.value += 1;
 
-    std.log.debug("Spawning particle #{d}", .{counter.value});
+    var spawner_it = spawner_query.iterator();
+    const spawner_row = spawner_it.next();
+    if (spawner_row) |row| {
+        const stopwatch = row.get(StopwatchTimer).?;
+        std.log.debug("Spawning particle #{d} ({d})", .{ counter.value, stopwatch.elapsed });
+    }
 
     _ = try commands.createEntity(.{
         Position{ .x = @floatFromInt(counter.value), .y = 0 },
         Velocity{ .dx = 1, .dy = 0 },
-        Lifetime{ .seconds = 3 },
+        CountdownTimer{ .remaining = 3.0 },
     });
 }
 
-fn integratePhysics(dt: Res(DeltaTime), query: Query(.{ Position, Velocity, Lifetime })) !void {
+fn integratePhysics(dt: Res(DeltaTime), query: Query(.{ Position, Velocity, CountdownTimer })) !void {
     const step = dt.deref().seconds;
     var it = query.iterator();
     while (it.next()) |row| {
         const pos = row.get(Position).?;
         const vel = row.get(Velocity).?;
-        const life = row.get(Lifetime).?;
         pos.x += vel.dx * step;
         pos.y += vel.dy * step;
-        life.seconds -= step;
     }
 }
 
-fn cullExpired(commands: *ecs.Commands, query: Query(.{ Lifetime })) !void {
+fn cullExpired(commands: *ecs.Commands, query: Query(.{CountdownTimer})) !void {
     var to_remove: std.ArrayListUnmanaged(phasor.db.Entity.Id) = .empty;
     defer to_remove.deinit(commands.allocator);
 
     var it = query.iterator();
     while (it.next()) |row| {
-        const life = row.get(Lifetime).?;
-        if (life.seconds <= 0) {
+        const timer = row.get(CountdownTimer).?;
+        if (timer.finished) {
             try to_remove.append(commands.allocator, row.entity_id);
         }
     }
@@ -76,7 +80,7 @@ fn cullExpired(commands: *ecs.Commands, query: Query(.{ Lifetime })) !void {
     }
 }
 
-fn exitWhenAllDone(commands: *ecs.Commands, query: Query(.{ Lifetime })) !void {
+fn exitWhenAllDone(commands: *ecs.Commands, query: Query(.{CountdownTimer})) !void {
     const counter = commands.getResource(SpawnCounter) orelse return;
     if (counter.value >= 10 and query.count() == 0) {
         std.log.debug("All particles expired, exiting.", .{});
@@ -87,9 +91,11 @@ fn exitWhenAllDone(commands: *ecs.Commands, query: Query(.{ Lifetime })) !void {
 pub fn main(init: std.process.Init) !u8 {
     const allocator = std.heap.c_allocator;
 
-    var app = ecs.App.init(allocator, &init.io);
+    var app = try ecs.App.init(allocator, &init.io);
     defer app.deinit();
 
+    try app.installModule(modules.TimeModule);
+    try app.installModule(modules.TimerModule);
     try app.addSystem(setupResources);
     try app.addSystem(spawnParticles);
     try app.addSystem(integratePhysics);
