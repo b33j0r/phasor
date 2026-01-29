@@ -1,6 +1,7 @@
 const ecs = phasor.ecs;
 const resources = ecs.resources;
 const modules = phasor.modules;
+const PhaseContext = modules.PhasesModule.PhaseContext;
 const DeltaTime = modules.TimeModule.DeltaTime;
 const CountdownTimer = modules.TimerModule.CountdownTimer;
 const StopwatchTimer = modules.TimerModule.StopwatchTimer;
@@ -29,61 +30,100 @@ const ParticleTable = struct { index: usize };
 const SpawnCounter = struct { value: u64 = 0 };
 const ExitRequested = struct { code: u8 };
 
-fn setupResources(commands: *ecs.Commands) !void {
-    if (!commands.hasResource(SpawnCounter)) {
-        try commands.insertResource(SpawnCounter{ .value = 0 });
+const Boot = struct {
+    pub fn enter(_: *Boot, ctx: *PhaseContext) !void {
+        try ctx.addEnterSystem(setupResources);
+        try ctx.addUpdateSystem(advanceToRunning);
+    }
+
+    fn advanceToRunning(commands: *ecs.Commands) !void {
+        try commands.insertResource(Phases.NextPhase{ .phase = AppPhases{ .Running = .{} } });
+    }
+
+    fn setupResources(commands: *ecs.Commands) !void {
+        if (!commands.hasResource(SpawnCounter)) {
+            try commands.insertResource(SpawnCounter{ .value = 0 });
+            _ = try commands.createEntity(.{
+                SpawnerTag{},
+                StopwatchTimer{},
+                CountdownTimer{ .remaining = 3.0 },
+            });
+        }
+    }
+};
+
+const Running = struct {
+    pub fn enter(_: *Running, ctx: *PhaseContext) !void {
+        try ctx.addUpdateSystem(spawnParticles);
+        try ctx.addUpdateSystem(integratePhysics);
+        try ctx.addUpdateSystem(requestExitAfterCountdown);
+        try ctx.addUpdateSystem(handleExitEvent);
+    }
+
+    fn spawnParticles(commands: *ecs.Commands, spawner_query: Query(.{ SpawnerTag, StopwatchTimer })) !void {
+        const counter = commands.getResourceMut(SpawnCounter) orelse return;
+        var spawner_it = spawner_query.iterator();
+        const spawner_row = spawner_it.next() orelse return;
+
+        counter.value += 1;
+        const stopwatch = spawner_row.get(StopwatchTimer).?;
+        if (counter.value % 100 == 0) {
+            std.log.debug("Spawning particle #{d} ({d})", .{ counter.value, stopwatch.elapsed });
+        }
+
         _ = try commands.createEntity(.{
-            SpawnerTag{},
-            StopwatchTimer{},
-            CountdownTimer{ .remaining = 3.0 },
+            ParticleTag{},
+            Position{ .x = @floatFromInt(counter.value), .y = 0 },
+            Velocity{ .dx = 1, .dy = 0 },
         });
     }
-}
 
-fn spawnParticles(commands: *ecs.Commands, spawner_query: Query(.{ SpawnerTag, StopwatchTimer })) !void {
-    const counter = commands.getResourceMut(SpawnCounter) orelse return;
-    var spawner_it = spawner_query.iterator();
-    const spawner_row = spawner_it.next() orelse return;
-
-    counter.value += 1;
-    const stopwatch = spawner_row.get(StopwatchTimer).?;
-    if (counter.value % 100 == 0) {
-        std.log.debug("Spawning particle #{d} ({d})", .{ counter.value, stopwatch.elapsed });
+    fn integratePhysics(dt: Res(DeltaTime), query: Query(.{ Position, Velocity, ParticleTag })) !void {
+        const step = dt.deref().seconds;
+        var it = query.iterator();
+        while (it.next()) |row| {
+            const pos = row.get(Position).?;
+            const vel = row.get(Velocity).?;
+            pos.x += vel.dx * step;
+            pos.y += vel.dy * step;
+        }
     }
 
-    _ = try commands.createEntity(.{
-        ParticleTag{},
-        Position{ .x = @floatFromInt(counter.value), .y = 0 },
-        Velocity{ .dx = 1, .dy = 0 },
-    });
-}
-
-fn integratePhysics(dt: Res(DeltaTime), query: Query(.{ Position, Velocity, ParticleTag })) !void {
-    const step = dt.deref().seconds;
-    var it = query.iterator();
-    while (it.next()) |row| {
-        const pos = row.get(Position).?;
-        const vel = row.get(Velocity).?;
-        pos.x += vel.dx * step;
-        pos.y += vel.dy * step;
+    fn requestExitAfterCountdown(writer: EventWriter(ExitRequested), spawners: Query(.{ SpawnerTag, CountdownTimer })) !void {
+        var spawner_it = spawners.iterator();
+        const spawner_row = spawner_it.next() orelse return;
+        const spawner_timer = spawner_row.get(CountdownTimer).?;
+        if (spawner_timer.finished) {
+            std.log.debug("Exit countdown finished, exiting.", .{});
+            try writer.send(.{ .code = 0 });
+        }
     }
-}
 
-fn requestExitAfterCountdown(writer: EventWriter(ExitRequested), spawners: Query(.{ SpawnerTag, CountdownTimer })) !void {
-    var spawner_it = spawners.iterator();
-    const spawner_row = spawner_it.next() orelse return;
-    const spawner_timer = spawner_row.get(CountdownTimer).?;
-    if (spawner_timer.finished) {
-        std.log.debug("Exit countdown finished, exiting.", .{});
-        try writer.send(.{ .code = 0 });
+    fn handleExitEvent(commands: *ecs.Commands, reader: EventReader(ExitRequested)) !void {
+        while (reader.tryRecv()) |evt| {
+            _ = evt;
+            try commands.insertResource(Phases.NextPhase{ .phase = AppPhases{ .Quit = .{} } });
+        }
     }
-}
+};
 
-fn handleExitEvent(commands: *ecs.Commands, reader: EventReader(ExitRequested)) !void {
-    while (reader.tryRecv()) |evt| {
-        try commands.insertResource(resources.Exit{ .code = evt.code });
+const Quit = struct {
+    pub fn enter(_: *Quit, ctx: *PhaseContext) !void {
+        try ctx.addEnterSystem(insertExitResource);
     }
-}
+
+    fn insertExitResource(commands: *ecs.Commands) !void {
+        try commands.insertResource(resources.Exit{ .code = 0 });
+    }
+};
+
+const AppPhases = union(enum) {
+    Boot: Boot,
+    Running: Running,
+    Quit: Quit,
+};
+
+const Phases = modules.PhasesModule.Definition(AppPhases, AppPhases{ .Boot = .{} });
 
 pub fn main(init: std.process.Init) !u8 {
     const allocator = std.heap.c_allocator;
@@ -94,11 +134,7 @@ pub fn main(init: std.process.Init) !u8 {
     try app.world.registerEvent(&init.io, ExitRequested, 8);
     try app.installModule(modules.TimeModule);
     try app.installModule(modules.TimerModule);
-    try app.addSystem(setupResources);
-    try app.addSystem(spawnParticles);
-    try app.addSystem(integratePhysics);
-    try app.addSystem(requestExitAfterCountdown);
-    try app.addSystem(handleExitEvent);
+    try app.installModule(Phases);
 
     return try app.run();
 }
