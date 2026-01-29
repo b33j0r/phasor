@@ -405,5 +405,5 @@ const std = @import("std");
 const meta = @import("meta.zig");
 const Column = @import("column.zig").Column;
 const Entity = @import("Entity.zig");
-const fixtures = @import("column/fixtures.zig");
+const fixtures = @import("common").fixtures;
 const hooks = @import("hooks.zig");

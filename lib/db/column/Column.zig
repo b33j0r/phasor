@@ -295,4 +295,4 @@ test "Column swapRemoveTake works with enum components" {
 const std = @import("std");
 const meta = @import("../meta.zig");
 const typed_column = @import("typed_column.zig");
-const fixtures = @import("fixtures.zig");
+const fixtures = @import("common").fixtures;

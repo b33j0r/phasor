@@ -1,4 +1,5 @@
 test "import tests" {
+    _ = common;
     _ = db;
     _ = ecs;
     _ = graph;
@@ -7,6 +8,7 @@ test "import tests" {
 }
 
 // Imports
+pub const common = @import("common");
 pub const db = @import("db");
 pub const ecs = @import("ecs");
 pub const graph = @import("graph");

@@ -6,6 +6,5 @@ test "import tests" {
 
 // Imports
 pub const Column = @import("column/Column.zig");
-pub const fixtures = @import("column/fixtures.zig");
 const typed_column = @import("column/typed_column.zig");
 const typed_column_zst = @import("column/typed_column_zst.zig");

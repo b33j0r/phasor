@@ -169,4 +169,4 @@ test "TypeIdSet hash is stable for same items" {
 
 // Imports
 const std = @import("std");
-const fixtures = @import("column/fixtures.zig");
+const fixtures = @import("common").fixtures;

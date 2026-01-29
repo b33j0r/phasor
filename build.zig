@@ -5,9 +5,11 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const ctx = BuildContext.init(b, target, optimize);
 
-    const db = DbModule.build(&ctx);
+    const common = CommonModule.build(&ctx);
+    const db = DbModule.build(&ctx, .{ .common = common.module });
     const graph = GraphModule.build(&ctx);
     const ecs = EcsModule.build(&ctx, .{
+        .common = common.module,
         .db = db.module,
         .graph = graph.module,
     });
@@ -18,6 +20,7 @@ pub fn build(b: *std.Build) void {
         .metrics = metrics.module,
     });
     const phasor = PhasorModule.build(&ctx, .{
+        .common = common.module,
         .db = db.module,
         .ecs = ecs.module,
         .graph = graph.module,
@@ -48,6 +51,7 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run tests");
     addModuleTests(b, test_step, &.{
+        common.tests,
         db.tests,
         ecs.tests,
         graph.tests,
@@ -99,12 +103,29 @@ const ModuleBundle = struct {
     tests: *std.Build.Step.Compile,
 };
 
+const CommonModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    fn build(ctx: *const BuildContext) CommonModule {
+        const bundle = ctx.moduleBundle("lib/common/root.zig", &.{});
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
 const DbModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
 
-    fn build(ctx: *const BuildContext) DbModule {
-        const bundle = ctx.moduleBundle("lib/db/root.zig", &.{});
+    const Deps = struct {
+        common: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) DbModule {
+        const bundle = ctx.moduleBundle("lib/db/root.zig", &.{.{
+            .name = "common",
+            .module = deps.common,
+        }});
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -114,12 +135,14 @@ const EcsModule = struct {
     tests: *std.Build.Step.Compile,
 
     const Deps = struct {
+        common: *std.Build.Module,
         db: *std.Build.Module,
         graph: *std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) EcsModule {
         const bundle = ctx.moduleBundle("lib/ecs/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
             .{ .name = "db", .module = deps.db },
             .{ .name = "graph", .module = deps.graph },
         });
@@ -172,6 +195,7 @@ const PhasorModule = struct {
     tests: *std.Build.Step.Compile,
 
     const Deps = struct {
+        common: *std.Build.Module,
         db: *std.Build.Module,
         ecs: *std.Build.Module,
         graph: *std.Build.Module,
@@ -181,6 +205,7 @@ const PhasorModule = struct {
 
     fn build(ctx: *const BuildContext, deps: Deps) PhasorModule {
         const bundle = ctx.moduleBundle("src/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
             .{ .name = "db", .module = deps.db },
             .{ .name = "ecs", .module = deps.ecs },
             .{ .name = "graph", .module = deps.graph },

@@ -121,4 +121,4 @@ test "QuerySpec builds with/without sets" {
 // Imports
 const std = @import("std");
 const meta = @import("meta.zig");
-const fixtures = @import("column/fixtures.zig");
+const fixtures = @import("common").fixtures;

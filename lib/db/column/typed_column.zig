@@ -187,5 +187,5 @@ test "TypedColumn ZST basics" {
 // Imports
 const std = @import("std");
 const meta = @import("../meta.zig");
-const fixtures = @import("fixtures.zig");
+const fixtures = @import("common").fixtures;
 const zst_impl = @import("typed_column_zst.zig");

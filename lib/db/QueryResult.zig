@@ -149,4 +149,4 @@ const std = @import("std");
 const Database = @import("Database.zig");
 const Entity = @import("Entity.zig");
 const QuerySpec = @import("QuerySpec.zig");
-const fixtures = @import("column/fixtures.zig");
+const fixtures = @import("common").fixtures;

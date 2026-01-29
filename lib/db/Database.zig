@@ -548,5 +548,5 @@ const Table = @import("table.zig").Table;
 const Column = @import("column/Column.zig");
 const Entity = @import("Entity.zig");
 const meta = @import("meta.zig");
-const fixtures = @import("column/fixtures.zig");
+const fixtures = @import("common").fixtures;
 const hooks_mod = @import("hooks.zig");

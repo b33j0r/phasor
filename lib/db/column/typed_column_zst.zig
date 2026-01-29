@@ -121,4 +121,4 @@ test "TypedColumnZst deinit calls deinit when present" {
 // Imports
 const std = @import("std");
 const meta = @import("../meta.zig");
-const fixtures = @import("fixtures.zig");
+const fixtures = @import("common").fixtures;
