@@ -64,7 +64,7 @@ pub fn removeSystem(self: *Self, comptime system_fn: anytype) void {
 }
 
 pub fn appCommands(self: *Self) AppCommands {
-    return AppCommands.init(self.allocator, &self.world, &self.schedule_manager);
+    return AppCommands.init(self.allocator, self.io, &self.world, &self.schedule_manager);
 }
 
 pub fn addSchedule(self: *Self, label: []const u8) !void {
@@ -81,9 +81,9 @@ pub fn insertScheduleBetween(
 }
 
 pub fn installModule(self: *Self, comptime module: anytype) !void {
-    var app_cmds = self.appCommands();
     var commands = Commands.init(self.allocator, &self.world);
     defer commands.deinit();
+    var app_cmds = self.appCommands();
 
     try Module.install(&app_cmds, &commands, module);
     if (!commands.isEmpty()) {
@@ -92,9 +92,9 @@ pub fn installModule(self: *Self, comptime module: anytype) !void {
 }
 
 pub fn uninstallModule(self: *Self, comptime module: anytype) !void {
-    var app_cmds = self.appCommands();
     var commands = Commands.init(self.allocator, &self.world);
     defer commands.deinit();
+    var app_cmds = self.appCommands();
 
     try Module.uninstall(&app_cmds, &commands, module);
     if (!commands.isEmpty()) {

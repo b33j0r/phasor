@@ -348,9 +348,9 @@ test "phase transitions run enter/exit hooks in order" {
     var schedule_manager = try schedule.ScheduleManager.init(allocator);
     defer schedule_manager.deinit(&world);
 
-    var app_cmds = AppCommands.init(allocator, &world, &schedule_manager);
     var commands = Commands.init(allocator, &world);
     defer commands.deinit();
+    var app_cmds = AppCommands.init(allocator, &io, &world, &schedule_manager);
 
     try Module.install(&app_cmds, &commands, TestPhases);
     if (!commands.isEmpty()) {

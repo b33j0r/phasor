@@ -142,6 +142,22 @@ pub fn insertResource(self: *Self, resource: anytype) !void {
     });
 }
 
+pub fn registerEvent(self: *Self, io: *const std.Io, comptime T: type, capacity: usize) !void {
+    const RegisterEventContext = struct {
+        io: *const std.Io,
+        capacity: usize,
+
+        pub fn execute(ctx: *@This(), world: *World) anyerror!void {
+            try world.registerEvent(ctx.io, T, ctx.capacity);
+        }
+    };
+
+    try self.queueContext(RegisterEventContext{
+        .io = io,
+        .capacity = capacity,
+    });
+}
+
 pub fn removeResource(self: *Self, comptime T: type) bool {
     return self.world.removeResource(T);
 }

@@ -1,17 +1,19 @@
 pub const AppCommands = struct {
     allocator: std.mem.Allocator,
+    io: *const std.Io,
     world: *World,
     schedule_manager: *schedule.ScheduleManager,
-
     const Self = @This();
 
     pub fn init(
         allocator: std.mem.Allocator,
+        io: *const std.Io,
         world: *World,
         schedule_manager: *schedule.ScheduleManager,
     ) Self {
         return .{
             .allocator = allocator,
+            .io = io,
             .world = world,
             .schedule_manager = schedule_manager,
         };
@@ -37,6 +39,7 @@ pub const AppCommands = struct {
     ) !void {
         try self.schedule_manager.insertScheduleBetween(before_label, label, after_label);
     }
+
 };
 
 // Imports

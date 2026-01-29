@@ -60,15 +60,19 @@ const Commands = @import("Commands.zig");
 
 test "module install supports pointer params" {
     const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
     var world = World.init(allocator);
     defer world.deinit();
 
     var manager = try schedule.ScheduleManager.init(allocator);
     defer manager.deinit(&world);
 
-    var app_cmds = AppCommands.init(allocator, &world, &manager);
     var commands = Commands.init(allocator, &world);
     defer commands.deinit();
+    var app_cmds = AppCommands.init(allocator, &io, &world, &manager);
 
     const Marker = struct {};
 
@@ -94,15 +98,19 @@ test "module install supports pointer params" {
 
 test "module supports no-arg install and uninstall" {
     const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
     var world = World.init(allocator);
     defer world.deinit();
 
     var manager = try schedule.ScheduleManager.init(allocator);
     defer manager.deinit(&world);
 
-    var app_cmds = AppCommands.init(allocator, &world, &manager);
     var commands = Commands.init(allocator, &world);
     defer commands.deinit();
+    var app_cmds = AppCommands.init(allocator, &io, &world, &manager);
 
     const ModuleDef = struct {
         pub fn install() void {}
@@ -115,15 +123,19 @@ test "module supports no-arg install and uninstall" {
 
 test "module supports app-only install and uninstall" {
     const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
     var world = World.init(allocator);
     defer world.deinit();
 
     var manager = try schedule.ScheduleManager.init(allocator);
     defer manager.deinit(&world);
 
-    var app_cmds = AppCommands.init(allocator, &world, &manager);
     var commands = Commands.init(allocator, &world);
     defer commands.deinit();
+    var app_cmds = AppCommands.init(allocator, &io, &world, &manager);
 
     const system_fn = struct {
         fn run(_: *Commands) void {}
@@ -153,15 +165,19 @@ test "module supports app-only install and uninstall" {
 
 test "module supports commands-only install and uninstall" {
     const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
     var world = World.init(allocator);
     defer world.deinit();
 
     var manager = try schedule.ScheduleManager.init(allocator);
     defer manager.deinit(&world);
 
-    var app_cmds = AppCommands.init(allocator, &world, &manager);
     var commands = Commands.init(allocator, &world);
     defer commands.deinit();
+    var app_cmds = AppCommands.init(allocator, &io, &world, &manager);
 
     const Marker = struct {};
 

@@ -117,7 +117,12 @@ pub fn main(init: std.process.Init) !u8 {
     var app = try ecs.App.init(allocator, &init.io);
     defer app.deinit();
 
-    try app.world.registerEvent(&init.io, ExitRequested, 8);
+    var commands = ecs.Commands.init(allocator, &app.world);
+    defer commands.deinit();
+    try commands.registerEvent(app.io, ExitRequested, 8);
+    if (!commands.isEmpty()) {
+        try commands.apply();
+    }
     try app.installModule(modules.TimeModule);
     try app.installModule(modules.TimerModule);
     try app.installModule(Phases);

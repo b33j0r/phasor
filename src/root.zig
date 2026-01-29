@@ -5,6 +5,7 @@ test "import tests" {
     _ = graph;
     _ = metrics;
     _ = modules;
+    _ = window;
 }
 
 // Imports
@@ -14,3 +15,4 @@ pub const ecs = @import("ecs");
 pub const graph = @import("graph");
 pub const metrics = @import("metrics");
 pub const modules = @import("modules");
+pub const window = @import("window");

@@ -8,6 +8,7 @@ pub fn build(b: *std.Build) void {
     const common = CommonModule.build(&ctx);
     const db = DbModule.build(&ctx, .{ .common = common.module });
     const graph = GraphModule.build(&ctx);
+    const glfw = GlfwModule.build(&ctx);
     const ecs = EcsModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
@@ -19,6 +20,10 @@ pub fn build(b: *std.Build) void {
         .ecs = ecs.module,
         .metrics = metrics.module,
     });
+    const window = WindowModule.build(&ctx, .{
+        .ecs = ecs.module,
+        .glfw = glfw.module,
+    });
     const phasor = PhasorModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
@@ -26,6 +31,7 @@ pub fn build(b: *std.Build) void {
         .graph = graph.module,
         .metrics = metrics.module,
         .modules = modules.module,
+        .window = window.module,
     });
 
     const exe_mod = ctx.module("examples/ecs/main.zig", &.{.{
@@ -40,14 +46,8 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    const run_step = b.step("run", "Run the app");
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_cmd.step);
-
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    _ = addExample(&ctx, phasor.module, "ecs", "examples/ecs/main.zig");
+    _ = addExample(&ctx, phasor.module, "window", "examples/window/main.zig");
 
     const test_step = b.step("test", "Run tests");
     addModuleTests(b, test_step, &.{
@@ -55,9 +55,11 @@ pub fn build(b: *std.Build) void {
         db.tests,
         ecs.tests,
         graph.tests,
+        glfw.tests,
         metrics.tests,
         modules.tests,
         phasor.tests,
+        window.tests,
     });
 
     const exe_tests = b.addTest(.{
@@ -160,6 +162,81 @@ const GraphModule = struct {
     }
 };
 
+const GlfwModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    fn build(ctx: *const BuildContext) GlfwModule {
+        const glfw_dep = ctx.b.dependency("glfw", .{
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+        });
+        const glfw_include = glfw_dep.path("include");
+
+        const glfw_mod = ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("deps/glfw/root.zig"),
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+        });
+        glfw_mod.addIncludePath(glfw_include);
+        if (ctx.target.result.os.tag.isDarwin()) {
+            glfw_mod.addCMacro("_GLFW_COCOA", "1");
+        }
+
+        glfw_mod.addCSourceFiles(.{
+            .root = glfw_dep.path(""),
+            .files = &.{
+                "src/context.c",
+                "src/init.c",
+                "src/input.c",
+                "src/monitor.c",
+                "src/platform.c",
+                "src/vulkan.c",
+                "src/window.c",
+                "src/posix_thread.c",
+                "src/posix_module.c",
+                "src/null_init.c",
+                "src/null_joystick.c",
+                "src/null_monitor.c",
+                "src/null_window.c",
+                "src/egl_context.c",
+                "src/osmesa_context.c",
+            },
+            .flags = &.{
+                "-Wno-deprecated-declarations",
+            },
+        });
+
+        if (ctx.target.result.os.tag.isDarwin()) {
+            glfw_mod.addCSourceFiles(.{
+                .root = glfw_dep.path(""),
+                .files = &.{
+                    "src/cocoa_init.m",
+                    "src/cocoa_joystick.m",
+                    "src/cocoa_monitor.m",
+                    "src/cocoa_window.m",
+                    "src/cocoa_time.c",
+                    "src/nsgl_context.m",
+                },
+                .flags = &.{
+                    "-Wno-deprecated-declarations",
+                },
+            });
+        }
+
+        if (ctx.target.result.os.tag.isDarwin()) {
+            glfw_mod.linkFramework("Cocoa", .{});
+            glfw_mod.linkFramework("IOKit", .{});
+            glfw_mod.linkFramework("CoreVideo", .{});
+        }
+
+        return .{
+            .module = glfw_mod,
+            .tests = ctx.b.addTest(.{ .root_module = glfw_mod }),
+        };
+    }
+};
+
 const MetricsModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
@@ -201,6 +278,7 @@ const PhasorModule = struct {
         graph: *std.Build.Module,
         metrics: *std.Build.Module,
         modules: *std.Build.Module,
+        window: *std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) PhasorModule {
@@ -211,6 +289,25 @@ const PhasorModule = struct {
             .{ .name = "graph", .module = deps.graph },
             .{ .name = "metrics", .module = deps.metrics },
             .{ .name = "modules", .module = deps.modules },
+            .{ .name = "window", .module = deps.window },
+        });
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
+const WindowModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    const Deps = struct {
+        ecs: *std.Build.Module,
+        glfw: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) WindowModule {
+        const bundle = ctx.moduleBundle("lib/window/root.zig", &.{
+            .{ .name = "ecs", .module = deps.ecs },
+            .{ .name = "glfw", .module = deps.glfw },
         });
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
@@ -225,4 +322,28 @@ fn addModuleTests(
         const run = b.addRunArtifact(test_exe);
         test_step.dependOn(&run.step);
     }
+}
+
+fn addExample(
+    ctx: *const BuildContext,
+    phasor_module: *std.Build.Module,
+    name: []const u8,
+    root: []const u8,
+) *std.Build.Step.Compile {
+    const exe_mod = ctx.module(root, &.{.{
+        .name = "phasor",
+        .module = phasor_module,
+    }});
+    const exe = ctx.b.addExecutable(.{
+        .name = name,
+        .root_module = exe_mod,
+    });
+    ctx.b.installArtifact(exe);
+
+    const run_step = ctx.b.step(ctx.b.fmt("run-{s}", .{name}), ctx.b.fmt("Run the {s} example", .{name}));
+    const run_cmd = ctx.b.addRunArtifact(exe);
+    run_cmd.step.dependOn(ctx.b.getInstallStep());
+    run_step.dependOn(&run_cmd.step);
+
+    return exe;
 }
