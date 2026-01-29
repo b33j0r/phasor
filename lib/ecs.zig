@@ -9,6 +9,7 @@ test "import tests" {
     _ = schedule;
     _ = system;
     _ = system_params;
+    _ = events;
     _ = Module;
     _ = resources;
 }
@@ -22,5 +23,6 @@ pub const World = @import("ecs/World.zig");
 pub const schedule = @import("ecs/schedule.zig");
 pub const system = @import("ecs/system.zig");
 pub const system_params = @import("ecs/system_params.zig");
+pub const events = @import("ecs/events.zig");
 pub const Module = @import("ecs/Module.zig");
 pub const resources = @import("ecs/resources.zig");

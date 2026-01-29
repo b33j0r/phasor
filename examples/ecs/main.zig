@@ -7,6 +7,10 @@ const StopwatchTimer = modules.TimerModule.StopwatchTimer;
 const system_params = ecs.system_params;
 const Query = system_params.Query;
 const Res = system_params.Res;
+const events = ecs.events;
+const Events = events.Events;
+const EventWriter = events.EventWriter;
+const EventReader = events.EventReader;
 
 const std_options = std.Options{
     .log_level = std.log.Level.debug,
@@ -23,6 +27,7 @@ const SpawnerTag = struct {};
 const ParticleTag = struct {};
 const ParticleTable = struct { index: usize };
 const SpawnCounter = struct { value: u64 = 0 };
+const ExitRequested = struct { code: u8 };
 
 fn setupResources(commands: *ecs.Commands) !void {
     if (!commands.hasResource(SpawnCounter)) {
@@ -64,13 +69,19 @@ fn integratePhysics(dt: Res(DeltaTime), query: Query(.{ Position, Velocity, Part
     }
 }
 
-fn exitAfterCountdown(commands: *ecs.Commands, spawners: Query(.{ SpawnerTag, CountdownTimer })) !void {
+fn requestExitAfterCountdown(writer: EventWriter(ExitRequested), spawners: Query(.{ SpawnerTag, CountdownTimer })) !void {
     var spawner_it = spawners.iterator();
     const spawner_row = spawner_it.next() orelse return;
     const spawner_timer = spawner_row.get(CountdownTimer).?;
     if (spawner_timer.finished) {
         std.log.debug("Exit countdown finished, exiting.", .{});
-        try commands.insertResource(resources.Exit{ .code = 0 });
+        try writer.send(.{ .code = 0 });
+    }
+}
+
+fn handleExitEvent(commands: *ecs.Commands, reader: EventReader(ExitRequested)) !void {
+    while (reader.tryRecv()) |evt| {
+        try commands.insertResource(resources.Exit{ .code = evt.code });
     }
 }
 
@@ -80,12 +91,14 @@ pub fn main(init: std.process.Init) !u8 {
     var app = try ecs.App.init(allocator, &init.io);
     defer app.deinit();
 
+    try app.world.registerEvent(&init.io, ExitRequested, 8);
     try app.installModule(modules.TimeModule);
     try app.installModule(modules.TimerModule);
     try app.addSystem(setupResources);
     try app.addSystem(spawnParticles);
     try app.addSystem(integratePhysics);
-    try app.addSystem(exitAfterCountdown);
+    try app.addSystem(requestExitAfterCountdown);
+    try app.addSystem(handleExitEvent);
 
     return try app.run();
 }

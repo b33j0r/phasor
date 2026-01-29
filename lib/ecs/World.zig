@@ -38,6 +38,10 @@ pub fn insertResource(self: *Self, value: anytype) !void {
     try self.resources_map.put(self.allocator, id, entry);
 }
 
+pub fn registerEvent(self: *Self, io: *const std.Io, comptime T: type, capacity: usize) !void {
+    try self.insertResource(try events.Events(T).init(self.allocator, io, capacity));
+}
+
 pub fn getResource(self: *Self, comptime T: type) ?*const T {
     const id = resources.resourceTypeId(T);
     const entry = self.resources_map.get(id) orelse return null;
@@ -74,3 +78,4 @@ pub fn dbConst(self: *const Self) *const db.Database {
 const std = @import("std");
 const phasor = @import("../root.zig");
 const resources = @import("resources.zig");
+const events = @import("events.zig");

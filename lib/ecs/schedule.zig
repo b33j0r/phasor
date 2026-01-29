@@ -254,6 +254,7 @@ const graph = @import("../graph.zig");
 const World = @import("World.zig");
 const System = @import("system.zig").System;
 
+// Tests
 test "schedule manager orders default schedules" {
     const allocator = std.testing.allocator;
     var world = World.init(allocator);
