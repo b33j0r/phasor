@@ -4,7 +4,7 @@ pub fn main(init: std.process.Init) !u8 {
     var app = try ecs.App.init(allocator, &init.io);
     defer app.deinit();
 
-    var commands = ecs.Commands.init(allocator, &app.world);
+    var commands = ecs.Commands.init(allocator, app.io, &app.world);
     defer commands.deinit();
 
     try commands.insertResource(window.WindowSettings{

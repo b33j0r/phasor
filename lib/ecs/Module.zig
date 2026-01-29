@@ -70,7 +70,7 @@ test "module install supports pointer params" {
     var manager = try schedule.ScheduleManager.init(allocator);
     defer manager.deinit(&world);
 
-    var commands = Commands.init(allocator, &world);
+    var commands = Commands.init(allocator, &io, &world);
     defer commands.deinit();
     var app_cmds = AppCommands.init(allocator, &io, &world, &manager);
 
@@ -108,7 +108,7 @@ test "module supports no-arg install and uninstall" {
     var manager = try schedule.ScheduleManager.init(allocator);
     defer manager.deinit(&world);
 
-    var commands = Commands.init(allocator, &world);
+    var commands = Commands.init(allocator, &io, &world);
     defer commands.deinit();
     var app_cmds = AppCommands.init(allocator, &io, &world, &manager);
 
@@ -133,7 +133,7 @@ test "module supports app-only install and uninstall" {
     var manager = try schedule.ScheduleManager.init(allocator);
     defer manager.deinit(&world);
 
-    var commands = Commands.init(allocator, &world);
+    var commands = Commands.init(allocator, &io, &world);
     defer commands.deinit();
     var app_cmds = AppCommands.init(allocator, &io, &world, &manager);
 
@@ -175,7 +175,7 @@ test "module supports commands-only install and uninstall" {
     var manager = try schedule.ScheduleManager.init(allocator);
     defer manager.deinit(&world);
 
-    var commands = Commands.init(allocator, &world);
+    var commands = Commands.init(allocator, &io, &world);
     defer commands.deinit();
     var app_cmds = AppCommands.init(allocator, &io, &world, &manager);
 

@@ -1,6 +1,7 @@
 //! `PhasesModule` provides hierarchical phase transitions with enter/update/exit hooks.
 pub const PhaseContext = struct {
     allocator: std.mem.Allocator,
+    io: *const std.Io,
     world: *World,
     schedule_manager: *schedule.ScheduleManager,
     systems: std.ArrayListUnmanaged(SystemSpec) = .empty,
@@ -9,9 +10,15 @@ pub const PhaseContext = struct {
         label: []const u8,
         system: System,
     };
-    pub fn init(allocator: std.mem.Allocator, world: *World, schedule_manager: *schedule.ScheduleManager) PhaseContext {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        io: *const std.Io,
+        world: *World,
+        schedule_manager: *schedule.ScheduleManager,
+    ) PhaseContext {
         return .{
             .allocator = allocator,
+            .io = io,
             .world = world,
             .schedule_manager = schedule_manager,
         };
@@ -43,6 +50,7 @@ pub const PhaseContext = struct {
 pub fn PhaseContextStack(comptime PhasesT: type) type {
     return struct {
         allocator: std.mem.Allocator,
+        io: *const std.Io,
         world: *World,
         schedule_manager: *schedule.ScheduleManager,
         stack: std.ArrayListUnmanaged(*PhaseContext) = .empty,
@@ -50,8 +58,13 @@ pub fn PhaseContextStack(comptime PhasesT: type) type {
         pub const Phases = PhasesT;
         const Self = @This();
 
-        pub fn init(alloc: std.mem.Allocator, world: *World, schedule_manager: *schedule.ScheduleManager) !Self {
-            return .{ .allocator = alloc, .world = world, .schedule_manager = schedule_manager };
+        pub fn init(
+            alloc: std.mem.Allocator,
+            io: *const std.Io,
+            world: *World,
+            schedule_manager: *schedule.ScheduleManager,
+        ) !Self {
+            return .{ .allocator = alloc, .io = io, .world = world, .schedule_manager = schedule_manager };
         }
 
         pub fn deinit(self: *Self) void {
@@ -69,7 +82,7 @@ pub fn PhaseContextStack(comptime PhasesT: type) type {
         pub fn push(self: *Self) !*PhaseContext {
             const ctx = try self.allocator.create(PhaseContext);
             errdefer self.allocator.destroy(ctx);
-            ctx.* = PhaseContext.init(self.allocator, self.world, self.schedule_manager);
+            ctx.* = PhaseContext.init(self.allocator, self.io, self.world, self.schedule_manager);
             try self.stack.append(self.allocator, ctx);
             return ctx;
         }
@@ -121,7 +134,7 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
         };
 
         pub fn install(app: *AppCommands, commands: *Commands) !void {
-            const stack = try Stack.init(commands.allocator, commands.world, app.schedule_manager);
+            const stack = try Stack.init(commands.allocator, commands.io, commands.world, app.schedule_manager);
             try commands.insertResource(PhaseContextStackResource{ .stack = stack });
 
             try app.addSystem(schedule.DefaultSchedule.Startup, handleInitialPhase);
@@ -348,7 +361,7 @@ test "phase transitions run enter/exit hooks in order" {
     var schedule_manager = try schedule.ScheduleManager.init(allocator);
     defer schedule_manager.deinit(&world);
 
-    var commands = Commands.init(allocator, &world);
+    var commands = Commands.init(allocator, &io, &world);
     defer commands.deinit();
     var app_cmds = AppCommands.init(allocator, &io, &world, &schedule_manager);
 
@@ -499,12 +512,12 @@ fn runScheduleOnce(
         const node = schedule_ptr.systemNodeAt(system_index);
         if (!node.enabled) continue;
 
-        var commands = Commands.init(allocator, world);
+        var commands = Commands.init(allocator, io, world);
         defer commands.deinit();
 
         try node.system.run(&commands);
         if (!commands.isEmpty()) {
-            try commands.flushToQueue(io, &command_queue);
+            try commands.flushToQueue(&command_queue);
             var batch = try command_queue.getOneUncancelable(io.*);
             defer batch.deinit();
             try batch.apply(world);

@@ -54,8 +54,8 @@ pub const ContentScaleChanged = struct {
 
 pub const WindowModule = struct {
     pub fn install(app: *AppCommands, cmds: *Commands) !void {
-        try cmds.registerEvent(app.io, WindowResized, 8);
-        try cmds.registerEvent(app.io, ContentScaleChanged, 8);
+        try cmds.registerEvent(WindowResized, 8);
+        try cmds.registerEvent(ContentScaleChanged, 8);
 
         if (!cmds.hasResource(WindowSettings)) {
             try cmds.insertResource(WindowSettings{});

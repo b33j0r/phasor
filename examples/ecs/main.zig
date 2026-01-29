@@ -17,7 +17,7 @@ const ExitRequested = struct { code: u8 };
 
 const Boot = struct {
     pub fn enter(_: *Boot, ctx: *PhaseContext) !void {
-        var commands = ecs.Commands.init(ctx.allocator, ctx.world);
+        var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
         defer commands.deinit();
         try setupResources(&commands);
         if (!commands.isEmpty()) {
@@ -117,9 +117,9 @@ pub fn main(init: std.process.Init) !u8 {
     var app = try ecs.App.init(allocator, &init.io);
     defer app.deinit();
 
-    var commands = ecs.Commands.init(allocator, &app.world);
+    var commands = ecs.Commands.init(allocator, app.io, &app.world);
     defer commands.deinit();
-    try commands.registerEvent(app.io, ExitRequested, 8);
+    try commands.registerEvent(ExitRequested, 8);
     if (!commands.isEmpty()) {
         try commands.apply();
     }

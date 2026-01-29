@@ -81,7 +81,7 @@ pub fn insertScheduleBetween(
 }
 
 pub fn installModule(self: *Self, comptime module: anytype) !void {
-    var commands = Commands.init(self.allocator, &self.world);
+    var commands = Commands.init(self.allocator, self.io, &self.world);
     defer commands.deinit();
     var app_cmds = self.appCommands();
 
@@ -92,7 +92,7 @@ pub fn installModule(self: *Self, comptime module: anytype) !void {
 }
 
 pub fn uninstallModule(self: *Self, comptime module: anytype) !void {
-    var commands = Commands.init(self.allocator, &self.world);
+    var commands = Commands.init(self.allocator, self.io, &self.world);
     defer commands.deinit();
     var app_cmds = self.appCommands();
 
@@ -159,12 +159,12 @@ fn runSchedule(self: *Self, schedule_ptr: *schedule_mod.Schedule, command_queue:
         const node = schedule_ptr.systemNodeAt(system_index);
         if (!node.enabled) continue;
 
-        var commands = Commands.init(self.allocator, &self.world);
+        var commands = Commands.init(self.allocator, self.io, &self.world);
         defer commands.deinit();
 
         try node.system.run(&commands);
         if (!commands.isEmpty()) {
-            try commands.flushToQueue(self.io, command_queue);
+            try commands.flushToQueue(command_queue);
             var batch = try command_queue.getOneUncancelable(self.io.*);
             defer batch.deinit();
             try batch.apply(&self.world);

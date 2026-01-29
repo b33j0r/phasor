@@ -1,13 +1,15 @@
 allocator: std.mem.Allocator,
 commands: std.ArrayListUnmanaged(Command) = .empty,
+io: *const std.Io,
 world: *World,
 
 const Self = @This();
 
-pub fn init(allocator: std.mem.Allocator, world: *World) Self {
+pub fn init(allocator: std.mem.Allocator, io: *const std.Io, world: *World) Self {
     return .{
         .allocator = allocator,
         .commands = .empty,
+        .io = io,
         .world = world,
     };
 }
@@ -142,7 +144,7 @@ pub fn insertResource(self: *Self, resource: anytype) !void {
     });
 }
 
-pub fn registerEvent(self: *Self, io: *const std.Io, comptime T: type, capacity: usize) !void {
+pub fn registerEvent(self: *Self, comptime T: type, capacity: usize) !void {
     const RegisterEventContext = struct {
         io: *const std.Io,
         capacity: usize,
@@ -153,7 +155,7 @@ pub fn registerEvent(self: *Self, io: *const std.Io, comptime T: type, capacity:
     };
 
     try self.queueContext(RegisterEventContext{
-        .io = io,
+        .io = self.io,
         .capacity = capacity,
     });
 }
@@ -218,18 +220,14 @@ pub const CommandBatch = struct {
     }
 };
 
-pub fn flushToQueue(
-    commands: *Self,
-    io: *const std.Io,
-    queue: *std.Io.Queue(CommandBatch),
-) !void {
+pub fn flushToQueue(commands: *Self, queue: *std.Io.Queue(CommandBatch)) !void {
     if (commands.commands.items.len == 0) return;
     const owned = try commands.commands.toOwnedSlice(commands.allocator);
     const batch = CommandBatch{
         .allocator = commands.allocator,
         .commands = owned,
     };
-    queue.putOneUncancelable(io.*, batch) catch |err| {
+    queue.putOneUncancelable(commands.io.*, batch) catch |err| {
         commands.commands = .{
             .items = owned,
             .capacity = owned.len,

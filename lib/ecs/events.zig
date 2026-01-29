@@ -264,12 +264,12 @@ fn runScheduleOnce(
         const node = schedule_ptr.systemNodeAt(system_index);
         if (!node.enabled) continue;
 
-        var commands = Commands.init(allocator, world);
+        var commands = Commands.init(allocator, io, world);
         defer commands.deinit();
 
         try node.system.run(&commands);
         if (!commands.isEmpty()) {
-            try commands.flushToQueue(io, &command_queue);
+            try commands.flushToQueue(&command_queue);
             var batch = try command_queue.getOneUncancelable(io.*);
             defer batch.deinit();
             try batch.apply(world);

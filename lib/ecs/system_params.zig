@@ -78,6 +78,10 @@ pub fn Query(comptime Parts: anytype) type {
 
 test "Query system param executes compiled queries" {
     const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
     var world = World.init(allocator);
     defer world.deinit();
 
@@ -89,7 +93,7 @@ test "Query system param executes compiled queries" {
         fixtures.Velocity{ .dx = 1, .dy = 0 },
     });
 
-    var commands = Commands.init(allocator, &world);
+    var commands = Commands.init(allocator, &io, &world);
     defer commands.deinit();
 
     const sys_fn = struct {
