@@ -211,6 +211,20 @@ pub const Schedule = struct {
         return removed;
     }
 
+    pub fn removeSystemBySystem(self: *Self, world: *World, system: System) usize {
+        var removed: usize = 0;
+        for (self.systems.nodes.items) |*node| {
+            if (!node.enabled) continue;
+            if (node.system.run != system.run) continue;
+            node.system.unregister(world) catch |err| {
+                std.log.err("system unregister failed: {any}", .{err});
+            };
+            node.enabled = false;
+            removed += 1;
+        }
+        return removed;
+    }
+
     pub fn systemCount(self: *const Self) usize {
         return self.systems.nodeCount();
     }

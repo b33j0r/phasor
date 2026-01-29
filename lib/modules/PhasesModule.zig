@@ -2,72 +2,39 @@
 pub const PhaseContext = struct {
     allocator: std.mem.Allocator,
     world: *World,
-    enter_systems: std.ArrayListUnmanaged(System) = .empty,
-    update_systems: std.ArrayListUnmanaged(System) = .empty,
-    exit_systems: std.ArrayListUnmanaged(System) = .empty,
+    schedule_manager: *schedule.ScheduleManager,
+    systems: std.ArrayListUnmanaged(SystemSpec) = .empty,
 
-    pub fn init(allocator: std.mem.Allocator, world: *World) PhaseContext {
+    pub const SystemSpec = struct {
+        label: []const u8,
+        system: System,
+    };
+    pub fn init(allocator: std.mem.Allocator, world: *World, schedule_manager: *schedule.ScheduleManager) PhaseContext {
         return .{
             .allocator = allocator,
             .world = world,
+            .schedule_manager = schedule_manager,
         };
     }
 
     pub fn deinit(self: *PhaseContext) void {
-        unregisterSystems(self.world, self.enter_systems.items);
-        unregisterSystems(self.world, self.update_systems.items);
-        unregisterSystems(self.world, self.exit_systems.items);
-        self.enter_systems.deinit(self.allocator);
-        self.update_systems.deinit(self.allocator);
-        self.exit_systems.deinit(self.allocator);
+        unregisterSystems(self);
+        self.systems.deinit(self.allocator);
         self.* = undefined;
     }
 
-    pub fn addEnterSystem(self: *PhaseContext, comptime system_fn: anytype) !void {
-        try addSystemToList(self, &self.enter_systems, system_fn);
-    }
-
-    pub fn addUpdateSystem(self: *PhaseContext, comptime system_fn: anytype) !void {
-        try addSystemToList(self, &self.update_systems, system_fn);
-    }
-
-    pub fn addExitSystem(self: *PhaseContext, comptime system_fn: anytype) !void {
-        try addSystemToList(self, &self.exit_systems, system_fn);
-    }
-
-    pub fn runEnter(self: *PhaseContext) !void {
-        try runSystems(self, self.enter_systems.items);
-    }
-
-    pub fn runExit(self: *PhaseContext) !void {
-        try runSystems(self, self.exit_systems.items);
-    }
-
-    pub fn update(self: *PhaseContext) !void {
-        try runSystems(self, self.update_systems.items);
-    }
-
-    fn addSystemToList(self: *PhaseContext, list: *std.ArrayListUnmanaged(System), comptime system_fn: anytype) !void {
+    pub fn addSystem(self: *PhaseContext, label: []const u8, comptime system_fn: anytype) !void {
+        const schedule_ptr = self.schedule_manager.schedulePtr(label) orelse return schedule.ScheduleManager.Error.ScheduleNotFound;
         const system = try System.from(system_fn);
-        try system.register(self.world);
-        errdefer system.unregister(self.world) catch {};
-        try list.append(self.allocator, system);
+        try schedule_ptr.addSystem(self.world, system_fn);
+        errdefer _ = schedule_ptr.removeSystemBySystem(self.world, system);
+        try self.systems.append(self.allocator, .{ .label = schedule_ptr.label, .system = system });
     }
 
-    fn runSystems(self: *PhaseContext, systems: []System) !void {
-        for (systems) |system| {
-            var commands = Commands.init(self.allocator, self.world);
-            defer commands.deinit();
-            try system.run(&commands);
-            if (!commands.isEmpty()) {
-                try commands.apply();
-            }
-        }
-    }
-
-    fn unregisterSystems(world: *World, systems: []System) void {
-        for (systems) |system| {
-            system.unregister(world) catch {};
+    fn unregisterSystems(self: *PhaseContext) void {
+        for (self.systems.items) |spec| {
+            const schedule_ptr = self.schedule_manager.schedulePtr(spec.label) orelse continue;
+            _ = schedule_ptr.removeSystemBySystem(self.world, spec.system);
         }
     }
 };
@@ -77,13 +44,14 @@ pub fn PhaseContextStack(comptime PhasesT: type) type {
     return struct {
         allocator: std.mem.Allocator,
         world: *World,
+        schedule_manager: *schedule.ScheduleManager,
         stack: std.ArrayListUnmanaged(*PhaseContext) = .empty,
 
         pub const Phases = PhasesT;
         const Self = @This();
 
-        pub fn init(alloc: std.mem.Allocator, world: *World) !Self {
-            return .{ .allocator = alloc, .world = world };
+        pub fn init(alloc: std.mem.Allocator, world: *World, schedule_manager: *schedule.ScheduleManager) !Self {
+            return .{ .allocator = alloc, .world = world, .schedule_manager = schedule_manager };
         }
 
         pub fn deinit(self: *Self) void {
@@ -101,7 +69,7 @@ pub fn PhaseContextStack(comptime PhasesT: type) type {
         pub fn push(self: *Self) !*PhaseContext {
             const ctx = try self.allocator.create(PhaseContext);
             errdefer self.allocator.destroy(ctx);
-            ctx.* = PhaseContext.init(self.allocator, self.world);
+            ctx.* = PhaseContext.init(self.allocator, self.world, self.schedule_manager);
             try self.stack.append(self.allocator, ctx);
             return ctx;
         }
@@ -153,21 +121,18 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
         };
 
         pub fn install(app: *AppCommands, commands: *Commands) !void {
-            const stack = try Stack.init(commands.allocator, commands.world);
+            const stack = try Stack.init(commands.allocator, commands.world, app.schedule_manager);
             try commands.insertResource(PhaseContextStackResource{ .stack = stack });
 
             try app.addSystem(schedule.DefaultSchedule.Startup, handleInitialPhase);
             try app.addSystem(schedule.DefaultSchedule.BeforeFrame, handlePhaseTransitions);
-            try app.addSystem(schedule.DefaultSchedule.Update, updateCurrentPhaseStack);
         }
 
         pub fn uninstall(app: *AppCommands, commands: *Commands) !void {
             app.removeSystem(handleInitialPhase);
             app.removeSystem(handlePhaseTransitions);
-            app.removeSystem(updateCurrentPhaseStack);
 
-            if (commands.getResourceMut(PhaseContextStackResource)) |res| {
-                try res.stack.forEachReverse(runExitSystems);
+            if (commands.getResourceMut(PhaseContextStackResource)) {
                 _ = commands.removeResource(PhaseContextStackResource);
             }
             _ = commands.removeResource(NextPhase);
@@ -196,13 +161,7 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
                     try enterDiff(&stack_res.stack, cur, next_phase);
                 } else {
                     // Different roots → full teardown and rebuild
-                    try stack_res.stack.forEachReverse(runExitSystems);
-                    while (stack_res.stack.depth() > 0) {
-                        if (stack_res.stack.pop()) |ctx| {
-                            ctx.deinit();
-                            stack_res.stack.allocator.destroy(ctx);
-                        }
-                    }
+                    try exitWhole(&stack_res.stack, cur);
                     try enterWhole(&stack_res.stack, next_phase);
                 }
 
@@ -216,13 +175,6 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
             try clearNextPhase(commands);
         }
 
-        fn updateCurrentPhaseStack(commands: *Commands) !void {
-            if (commands.getResource(CurrentPhase) == null) return;
-            const stack_res = commands.getResourceMut(PhaseContextStackResource) orelse return error.MissingPhaseContextStack;
-            // Update runs root→leaf (each level's active update pipeline)
-            try stack_res.stack.forEach(runUpdateSystems);
-        }
-
         fn getNextPhase(commands: *Commands) ?Phases {
             return if (commands.getResource(NextPhase)) |n| n.phase else null;
         }
@@ -231,18 +183,8 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
             _ = commands.removeResource(NextPhase);
         }
 
-        fn runEnterSystems(ctx: *PhaseContext) !void {
-            try ctx.runEnter();
-        }
-        fn runExitSystems(ctx: *PhaseContext) !void {
-            try ctx.runExit();
-        }
-        fn runUpdateSystems(ctx: *PhaseContext) !void {
-            try ctx.update();
-        }
-
         /// Enter the entire subtree `v` (parent first, then child), pushing
-        /// a PhaseContext for each level and *running* enter systems immediately.
+        /// a PhaseContext for each level and running enter hooks immediately.
         fn enterWhole(stack: *Stack, v: anytype) !void {
             const T = @TypeOf(v);
             switch (@typeInfo(T)) {
@@ -252,7 +194,6 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
                         var copy = v;
                         try T.enter(&copy, ctx);
                     }
-                    try runEnterSystems(ctx);
 
                     switch (v) {
                         inline else => |inner| {
@@ -266,14 +207,13 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
                         var copy = v;
                         try T.enter(&copy, ctx);
                     }
-                    try runEnterSystems(ctx);
                 },
                 else => {},
             }
         }
 
-        /// Exit the entire subtree `v` (child first, then parent), *running*
-        /// exit systems just before popping each PhaseContext.
+        /// Exit the entire subtree `v` (child first, then parent), running
+        /// exit hooks just before popping each PhaseContext.
         fn exitWhole(stack: *Stack, v: anytype) !void {
             const T = @TypeOf(v);
             switch (@typeInfo(T)) {
@@ -289,7 +229,6 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
                         try T.exit(&copy, ctx);
                     }
                     if (stack.pop()) |ctx| {
-                        try runExitSystems(ctx);
                         ctx.deinit();
                         stack.allocator.destroy(ctx);
                     }
@@ -301,7 +240,6 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
                         try T.exit(&copy, ctx);
                     }
                     if (stack.pop()) |ctx| {
-                        try runExitSystems(ctx);
                         ctx.deinit();
                         stack.allocator.destroy(ctx);
                     }
@@ -405,7 +343,6 @@ test "phase transitions run enter/exit hooks in order" {
     var world = World.init(allocator);
     defer world.deinit();
 
-    try world.registerEvent(&io, Logged, 32);
     try world.insertResource(LogBuffer.init(allocator));
 
     var schedule_manager = try schedule.ScheduleManager.init(allocator);
@@ -416,7 +353,6 @@ test "phase transitions run enter/exit hooks in order" {
     defer commands.deinit();
 
     try Module.install(&app_cmds, &commands, TestPhases);
-    try schedule_manager.addSystem(&world, schedule.DefaultSchedule.Update, collectLogs);
     if (!commands.isEmpty()) {
         try commands.apply();
     }
@@ -457,10 +393,6 @@ test "phase transitions run enter/exit hooks in order" {
     try std.testing.expect(cur.phase == MyPhases.Quit);
 }
 
-const Logged = struct {
-    name: []const u8,
-};
-
 const LogBuffer = struct {
     allocator: std.mem.Allocator,
     items: std.ArrayListUnmanaged([]const u8) = .empty,
@@ -482,17 +414,12 @@ const MyPhases = union(enum) {
 
 const MainMenu = struct {
     pub fn enter(_: *MainMenu, ctx: *PhaseContext) !void {
-        try ctx.addEnterSystem(log_enter);
-        try ctx.addExitSystem(log_exit);
-        try ctx.addUpdateSystem(transition_to_in_game);
+        try logPhase(ctx, "MainMenu.enter");
+        try ctx.addSystem(schedule.DefaultSchedule.Update, transition_to_in_game);
     }
 
-    fn log_enter(logger: EventWriter(Logged)) !void {
-        try logger.send(.{ .name = "MainMenu.enter" });
-    }
-
-    fn log_exit(logger: EventWriter(Logged)) !void {
-        try logger.send(.{ .name = "MainMenu.exit" });
+    pub fn exit(_: *MainMenu, ctx: *PhaseContext) !void {
+        try logPhase(ctx, "MainMenu.exit");
     }
 
     fn transition_to_in_game(commands: *Commands) !void {
@@ -505,32 +432,22 @@ const InGame = union(enum) {
     Paused: Paused,
 
     pub fn enter(_: *InGame, ctx: *PhaseContext) !void {
-        try ctx.addEnterSystem(log_enter);
-        try ctx.addExitSystem(log_exit);
+        try logPhase(ctx, "InGame.enter");
     }
 
-    fn log_enter(logger: EventWriter(Logged)) !void {
-        try logger.send(.{ .name = "InGame.enter" });
-    }
-
-    fn log_exit(logger: EventWriter(Logged)) !void {
-        try logger.send(.{ .name = "InGame.exit" });
+    pub fn exit(_: *InGame, ctx: *PhaseContext) !void {
+        try logPhase(ctx, "InGame.exit");
     }
 };
 
 const Playing = struct {
     pub fn enter(_: *Playing, ctx: *PhaseContext) !void {
-        try ctx.addEnterSystem(log_enter);
-        try ctx.addExitSystem(log_exit);
-        try ctx.addUpdateSystem(to_paused);
+        try logPhase(ctx, "Playing.enter");
+        try ctx.addSystem(schedule.DefaultSchedule.Update, to_paused);
     }
 
-    fn log_enter(logger: EventWriter(Logged)) !void {
-        try logger.send(.{ .name = "Playing.enter" });
-    }
-
-    fn log_exit(logger: EventWriter(Logged)) !void {
-        try logger.send(.{ .name = "Playing.exit" });
+    pub fn exit(_: *Playing, ctx: *PhaseContext) !void {
+        try logPhase(ctx, "Playing.exit");
     }
 
     fn to_paused(commands: *Commands) !void {
@@ -540,17 +457,12 @@ const Playing = struct {
 
 const Paused = struct {
     pub fn enter(_: *Paused, ctx: *PhaseContext) !void {
-        try ctx.addEnterSystem(log_enter);
-        try ctx.addExitSystem(log_exit);
-        try ctx.addUpdateSystem(to_quit);
+        try logPhase(ctx, "Paused.enter");
+        try ctx.addSystem(schedule.DefaultSchedule.Update, to_quit);
     }
 
-    fn log_enter(logger: EventWriter(Logged)) !void {
-        try logger.send(.{ .name = "Paused.enter" });
-    }
-
-    fn log_exit(logger: EventWriter(Logged)) !void {
-        try logger.send(.{ .name = "Paused.exit" });
+    pub fn exit(_: *Paused, ctx: *PhaseContext) !void {
+        try logPhase(ctx, "Paused.exit");
     }
 
     fn to_quit(commands: *Commands) !void {
@@ -560,21 +472,15 @@ const Paused = struct {
 
 const Quit = struct {
     pub fn enter(_: *Quit, ctx: *PhaseContext) !void {
-        try ctx.addEnterSystem(log_enter);
-    }
-
-    fn log_enter(logger: EventWriter(Logged)) !void {
-        try logger.send(.{ .name = "Quit.enter" });
+        try logPhase(ctx, "Quit.enter");
     }
 };
 
 const TestPhases = Definition(MyPhases, MyPhases{ .MainMenu = .{} });
 
-fn collectLogs(reader: EventReader(Logged), buffer: ResMut(LogBuffer)) !void {
-    const log = buffer.deref();
-    while (reader.tryRecv()) |evt| {
-        try log.items.append(log.allocator, evt.name);
-    }
+fn logPhase(ctx: *PhaseContext, name: []const u8) !void {
+    const log = ctx.world.getResourceMut(LogBuffer) orelse return error.MissingLogBuffer;
+    try log.items.append(log.allocator, name);
 }
 
 /// Internal for tests. Run a schedule once, applying commands immediately.
@@ -613,9 +519,6 @@ const AppCommands = phasor.ecs.AppCommands;
 const Commands = phasor.ecs.Commands;
 const CommandBatch = phasor.ecs.CommandBatch;
 const Module = phasor.ecs.Module;
-const ResMut = phasor.ecs.system_params.ResMut;
-const EventReader = phasor.ecs.events.EventReader;
-const EventWriter = phasor.ecs.events.EventWriter;
 const World = phasor.ecs.World;
 const System = phasor.ecs.system.System;
 const schedule = phasor.ecs.schedule;

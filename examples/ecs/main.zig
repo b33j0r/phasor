@@ -1,18 +1,3 @@
-const ecs = phasor.ecs;
-const resources = ecs.resources;
-const modules = phasor.modules;
-const PhaseContext = modules.PhasesModule.PhaseContext;
-const DeltaTime = modules.TimeModule.DeltaTime;
-const CountdownTimer = modules.TimerModule.CountdownTimer;
-const StopwatchTimer = modules.TimerModule.StopwatchTimer;
-const system_params = ecs.system_params;
-const Query = system_params.Query;
-const Res = system_params.Res;
-const events = ecs.events;
-const Events = events.Events;
-const EventWriter = events.EventWriter;
-const EventReader = events.EventReader;
-
 const std_options = std.Options{
     .log_level = std.log.Level.debug,
 };
@@ -32,8 +17,13 @@ const ExitRequested = struct { code: u8 };
 
 const Boot = struct {
     pub fn enter(_: *Boot, ctx: *PhaseContext) !void {
-        try ctx.addEnterSystem(setupResources);
-        try ctx.addUpdateSystem(advanceToRunning);
+        var commands = ecs.Commands.init(ctx.allocator, ctx.world);
+        defer commands.deinit();
+        try setupResources(&commands);
+        if (!commands.isEmpty()) {
+            try commands.apply();
+        }
+        try ctx.addSystem(schedule.DefaultSchedule.Update, advanceToRunning);
     }
 
     fn advanceToRunning(commands: *ecs.Commands) !void {
@@ -54,10 +44,10 @@ const Boot = struct {
 
 const Running = struct {
     pub fn enter(_: *Running, ctx: *PhaseContext) !void {
-        try ctx.addUpdateSystem(spawnParticles);
-        try ctx.addUpdateSystem(integratePhysics);
-        try ctx.addUpdateSystem(requestExitAfterCountdown);
-        try ctx.addUpdateSystem(handleExitEvent);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, spawnParticles);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, integratePhysics);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, requestExitAfterCountdown);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, handleExitEvent);
     }
 
     fn spawnParticles(commands: *ecs.Commands, spawner_query: Query(.{ SpawnerTag, StopwatchTimer })) !void {
@@ -109,11 +99,7 @@ const Running = struct {
 
 const Quit = struct {
     pub fn enter(_: *Quit, ctx: *PhaseContext) !void {
-        try ctx.addEnterSystem(insertExitResource);
-    }
-
-    fn insertExitResource(commands: *ecs.Commands) !void {
-        try commands.insertResource(resources.Exit{ .code = 0 });
+        try ctx.world.insertResource(resources.Exit{ .code = 0 });
     }
 };
 
@@ -142,3 +128,18 @@ pub fn main(init: std.process.Init) !u8 {
 // Imports
 const std = @import("std");
 const phasor = @import("phasor");
+const ecs = phasor.ecs;
+const resources = ecs.resources;
+const modules = phasor.modules;
+const PhaseContext = modules.PhasesModule.PhaseContext;
+const DeltaTime = modules.TimeModule.DeltaTime;
+const CountdownTimer = modules.TimerModule.CountdownTimer;
+const StopwatchTimer = modules.TimerModule.StopwatchTimer;
+const schedule = ecs.schedule;
+const system_params = ecs.system_params;
+const Query = system_params.Query;
+const Res = system_params.Res;
+const events = ecs.events;
+const Events = events.Events;
+const EventWriter = events.EventWriter;
+const EventReader = events.EventReader;
