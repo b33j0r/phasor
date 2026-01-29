@@ -1,4 +1,4 @@
-const db = phasor.db;
+const db = @import("db");
 
 const Self = @This();
 
@@ -79,6 +79,5 @@ pub fn dbConst(self: *const Self) *const db.Database {
 
 // Imports
 const std = @import("std");
-const phasor = @import("../root.zig");
 const resources = @import("resources.zig");
 const events = @import("events.zig");

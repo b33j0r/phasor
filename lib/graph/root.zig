@@ -3,4 +3,4 @@ test "import tests" {
 }
 
 // Imports
-pub const csr = @import("graph/csr.zig");
+pub const csr = @import("csr.zig");

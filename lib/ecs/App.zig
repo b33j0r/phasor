@@ -39,9 +39,7 @@ pub fn initWithConfig(allocator: std.mem.Allocator, io: *const std.Io, config: I
 }
 
 pub fn default(allocator: std.mem.Allocator, io: *const std.Io) !Self {
-    var app = try init(allocator, io);
-    try app.installModule(phasor.modules.TimeModule);
-    return app;
+    return init(allocator, io);
 }
 
 pub fn deinit(self: *Self) void {
@@ -176,7 +174,6 @@ fn runSchedule(self: *Self, schedule_ptr: *schedule_mod.Schedule, command_queue:
 
 // Imports
 const std = @import("std");
-const phasor = @import("../root.zig");
 const World = @import("World.zig");
 const schedule_mod = @import("schedule.zig");
 const AppCommands = @import("AppCommands.zig").AppCommands;

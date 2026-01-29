@@ -43,8 +43,8 @@ fn updateTimeSystem(
 
 // Imports
 const std = @import("std");
-const phasor = @import("../root.zig");
-const AppCommands = phasor.ecs.AppCommands;
-const Commands = phasor.ecs.Commands;
-const ResMut = phasor.ecs.system_params.ResMut;
-const schedule = phasor.ecs.schedule;
+const ecs = @import("ecs");
+const AppCommands = ecs.AppCommands;
+const Commands = ecs.Commands;
+const ResMut = ecs.system_params.ResMut;
+const schedule = ecs.schedule;

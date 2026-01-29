@@ -398,6 +398,6 @@ test "events trySend reports full queues" {
 const std = @import("std");
 const Commands = @import("Commands.zig");
 const World = @import("World.zig");
-const meta = @import("../db/meta.zig");
+const meta = @import("db").meta;
 const schedule_mod = @import("schedule.zig");
 const CommandBatch = @import("Commands.zig").CommandBatch;

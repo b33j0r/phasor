@@ -38,4 +38,4 @@ pub fn resourceTypeId(comptime T: type) meta.TypeId {
 
 // Imports
 const std = @import("std");
-const meta = @import("../db/meta.zig");
+const meta = @import("db").meta;

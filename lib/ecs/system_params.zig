@@ -110,5 +110,5 @@ test "Query system param executes compiled queries" {
 const std = @import("std");
 const Commands = @import("Commands.zig");
 const World = @import("World.zig");
-const db = @import("../db.zig");
-const fixtures = @import("../db/column/fixtures.zig");
+const db = @import("db");
+const fixtures = db.column.fixtures;

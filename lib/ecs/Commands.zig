@@ -226,6 +226,6 @@ const Entity = db.Entity;
 
 // Imports
 const std = @import("std");
-const db = @import("../db.zig");
+const db = @import("db");
 const Command = @import("Command.zig");
 const World = @import("World.zig");

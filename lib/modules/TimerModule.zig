@@ -43,10 +43,10 @@ fn updateTimers(dt_res: Res(TimeModule.DeltaTime), countdowns: Query(.{Countdown
 }
 
 // Imports
-const phasor = @import("../root.zig");
-const AppCommands = phasor.ecs.AppCommands;
-const Commands = phasor.ecs.Commands;
-const Query = phasor.ecs.system_params.Query;
-const Res = phasor.ecs.system_params.Res;
-const schedule = phasor.ecs.schedule;
-const TimeModule = phasor.modules.TimeModule;
+const ecs = @import("ecs");
+const AppCommands = ecs.AppCommands;
+const Commands = ecs.Commands;
+const Query = ecs.system_params.Query;
+const Res = ecs.system_params.Res;
+const schedule = ecs.schedule;
+const TimeModule = @import("TimeModule.zig");

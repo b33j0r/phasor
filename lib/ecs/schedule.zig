@@ -264,7 +264,7 @@ const SystemGraph = graph.csr.Graph(SystemNode, void);
 
 // Imports
 const std = @import("std");
-const graph = @import("../graph.zig");
+const graph = @import("graph");
 const World = @import("World.zig");
 const System = @import("system.zig").System;
 

@@ -514,11 +514,11 @@ fn runScheduleOnce(
 
 // Imports
 const std = @import("std");
-const phasor = @import("../root.zig");
-const AppCommands = phasor.ecs.AppCommands;
-const Commands = phasor.ecs.Commands;
-const CommandBatch = phasor.ecs.CommandBatch;
-const Module = phasor.ecs.Module;
-const World = phasor.ecs.World;
-const System = phasor.ecs.system.System;
-const schedule = phasor.ecs.schedule;
+const ecs = @import("ecs");
+const AppCommands = ecs.AppCommands;
+const Commands = ecs.Commands;
+const CommandBatch = ecs.CommandBatch;
+const Module = ecs.Module;
+const World = ecs.World;
+const System = ecs.system.System;
+const schedule = ecs.schedule;

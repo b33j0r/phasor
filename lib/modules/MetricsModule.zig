@@ -49,11 +49,12 @@ fn beginFrame(res: ResMut(metrics.Metrics)) void {
 }
 
 // Imports
-const phasor = @import("../root.zig");
-const metrics = phasor.metrics;
-const hooks = phasor.ecs.hooks;
-const schedule = phasor.ecs.schedule;
-const Entity = phasor.db.Entity;
-const AppCommands = phasor.ecs.AppCommands;
-const Commands = phasor.ecs.Commands;
-const ResMut = phasor.ecs.system_params.ResMut;
+const metrics = @import("metrics");
+const db = @import("db");
+const ecs = @import("ecs");
+const hooks = db.hooks;
+const schedule = ecs.schedule;
+const Entity = db.Entity;
+const AppCommands = ecs.AppCommands;
+const Commands = ecs.Commands;
+const ResMut = ecs.system_params.ResMut;
