@@ -1,25 +1,3 @@
-const std = @import("std");
-const builtin = @import("builtin");
-const phasor = @import("phasor");
-
-const is_wasm = builtin.target.cpu.arch.isWasm();
-const wasm = if (is_wasm) @import("wasm") else struct {
-    pub fn io() std.Io {
-        return undefined;
-    }
-};
-
-const ecs = phasor.ecs;
-const modules = phasor.modules;
-const render = phasor.renderer;
-const common = phasor.common;
-const window = if (is_wasm) struct {} else phasor.window;
-
-const RenderSurface = modules.RenderModule.RenderSurface;
-const RenderState = modules.RenderModule.RenderState;
-const ViewportSize = modules.RenderModule.ViewportSize;
-const DeltaTime = modules.TimeModule.DeltaTime;
-
 const Ball = struct {
     radius: f32,
 };
@@ -242,6 +220,27 @@ fn resolveBounds(
 }
 
 // Imports
+const std = @import("std");
+const builtin = @import("builtin");
+const phasor = @import("phasor");
+
+const is_wasm = builtin.target.cpu.arch.isWasm();
+const wasm = if (is_wasm) @import("wasm") else struct {
+    pub fn io() std.Io {
+        return undefined;
+    }
+};
+
+const ecs = phasor.ecs;
+const modules = phasor.modules;
+const render = phasor.renderer;
+const common = phasor.common;
+const window = if (is_wasm) struct {} else phasor.window;
+
+const RenderSurface = modules.RenderModule.RenderSurface;
+const RenderState = modules.RenderModule.RenderState;
+const ViewportSize = modules.RenderModule.ViewportSize;
+const DeltaTime = modules.TimeModule.DeltaTime;
 const system_params = ecs.system_params;
 const Query = system_params.Query;
 const Res = system_params.Res;
