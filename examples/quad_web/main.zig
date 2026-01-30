@@ -43,7 +43,7 @@ pub export fn wasmResize(width: u32, height: u32) void {
 
 pub export fn wasmFrame() void {
     if (g_renderer) |*renderer| {
-        var frame = renderer.beginFrame(.{ .r = 0.04, .g = 0.06, .b = 0.09, .a = 1.0 }) catch return;
+        var frame = renderer.beginFrame(common.Color.rgb(10, 15, 23)) catch return;
         const transform = common.Mat4.scale(1.2, 1.2, 1.0);
         frame.draw(.{ .textured_quad = .{
             .mesh = g_mesh,

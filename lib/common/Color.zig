@@ -3,9 +3,6 @@ const meta = @import("meta.zig");
 const resolveStructType = meta.resolveStructType;
 const structHasField = meta.structHasField;
 
-// ============================
-// File-as-struct (like Bounds)
-// ============================
 r: u8 = 255,
 g: u8 = 255,
 b: u8 = 255,

@@ -5,6 +5,8 @@ schedule_manager: schedule_mod.ScheduleManager,
 command_queue: ?std.Io.Queue(CommandBatch) = null,
 command_queue_buffer: ?[]CommandBatch = null,
 command_queue_capacity: usize = 64,
+startup_run: bool = false,
+shutdown_run: bool = false,
 
 const Self = @This();
 
@@ -103,25 +105,47 @@ pub fn uninstallModule(self: *Self, comptime module: anytype) !void {
 }
 
 pub fn run(self: *Self) !u8 {
+    try self.start();
+    while (true) {
+        if (try self.step()) |exit_code| {
+            return exit_code;
+        }
+    }
+}
+
+pub fn start(self: *Self) !void {
+    if (self.startup_run) return;
+    const command_queue = try self.ensureCommandQueue();
+    try self.runScheduleByLabel(schedule_mod.DefaultSchedule.Startup, command_queue);
+    self.startup_run = true;
+}
+
+pub fn step(self: *Self) !?u8 {
+    if (!self.startup_run) {
+        try self.start();
+    }
+    const command_queue = try self.ensureCommandQueue();
+    try self.runSchedules(command_queue, .{
+        .skip_startup = true,
+        .skip_shutdown = true,
+    });
+    if (self.world.getResource(resources.Exit)) |exit| {
+        if (!self.shutdown_run) {
+            try self.runScheduleByLabel(schedule_mod.DefaultSchedule.Shutdown, command_queue);
+            self.shutdown_run = true;
+        }
+        return exit.code;
+    }
+    return null;
+}
+
+fn ensureCommandQueue(self: *Self) !*std.Io.Queue(CommandBatch) {
     if (self.command_queue == null) {
         const buffer = try self.allocator.alloc(CommandBatch, self.command_queue_capacity);
         self.command_queue_buffer = buffer;
         self.command_queue = std.Io.Queue(CommandBatch).init(buffer);
     }
-    const command_queue = &self.command_queue.?;
-
-    try self.runScheduleByLabel(schedule_mod.DefaultSchedule.Startup, command_queue);
-
-    while (true) {
-        try self.runSchedules(command_queue, .{
-            .skip_startup = true,
-            .skip_shutdown = true,
-        });
-        if (self.world.getResource(resources.Exit)) |exit| {
-            try self.runScheduleByLabel(schedule_mod.DefaultSchedule.Shutdown, command_queue);
-            return exit.code;
-        }
-    }
+    return &self.command_queue.?;
 }
 
 fn runScheduleByLabel(

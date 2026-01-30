@@ -15,17 +15,19 @@ pub fn build(b: *std.Build) void {
         .graph = graph.module,
     });
     const metrics = MetricsModule.build(&ctx);
+    const renderer = RenderModule.build(&ctx, .{
+        .common = common.module,
+        .glfw = glfw.module,
+    });
     const modules = ModulesModule.build(&ctx, .{
+        .common = common.module,
         .db = db.module,
         .ecs = ecs.module,
         .metrics = metrics.module,
+        .render = renderer.module,
     });
     const window = WindowModule.build(&ctx, .{
         .ecs = ecs.module,
-        .glfw = glfw.module,
-    });
-    const renderer = RenderModule.build(&ctx, .{
-        .common = common.module,
         .glfw = glfw.module,
     });
     const phasor = PhasorModule.build(&ctx, .{
@@ -53,10 +55,7 @@ pub fn build(b: *std.Build) void {
 
     _ = addExample(&ctx, phasor.module, "ecs", "examples/ecs/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "window", "examples/window/main.zig", &.{});
-    _ = addExample(&ctx, phasor.module, "triangle-native", "examples/triangle_native.zig", &.{.{
-        .name = "glfw",
-        .module = glfw.module,
-    }});
+    _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
 
     addWebExample(&ctx, phasor.module);
 
@@ -264,16 +263,20 @@ const ModulesModule = struct {
     tests: *std.Build.Step.Compile,
 
     const Deps = struct {
+        common: *std.Build.Module,
         db: *std.Build.Module,
         ecs: *std.Build.Module,
         metrics: *std.Build.Module,
+        render: *std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) ModulesModule {
         const bundle = ctx.moduleBundle("lib/modules/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
             .{ .name = "db", .module = deps.db },
             .{ .name = "ecs", .module = deps.ecs },
             .{ .name = "metrics", .module = deps.metrics },
+            .{ .name = "render", .module = deps.render },
         });
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
@@ -424,24 +427,73 @@ fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
         .target = wasm_target,
         .optimize = ctx.optimize,
     });
+    const wasm_db = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/db/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{.{ .name = "common", .module = wasm_common }},
+    });
+    const wasm_graph = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/graph/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+    });
+    const wasm_ecs = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/ecs/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "common", .module = wasm_common },
+            .{ .name = "db", .module = wasm_db },
+            .{ .name = "graph", .module = wasm_graph },
+        },
+    });
+    const wasm_metrics = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/metrics/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+    });
     const wasm_render = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/render/root.zig"),
         .target = wasm_target,
         .optimize = ctx.optimize,
         .imports = &.{.{ .name = "common", .module = wasm_common }},
     });
-    const wasm_mod = ctx.b.createModule(.{
-        .root_source_file = ctx.b.path("examples/quad_web.zig"),
+    const wasm_modules = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/modules/root.zig"),
         .target = wasm_target,
         .optimize = ctx.optimize,
         .imports = &.{
-            .{ .name = "render", .module = wasm_render },
             .{ .name = "common", .module = wasm_common },
+            .{ .name = "db", .module = wasm_db },
+            .{ .name = "ecs", .module = wasm_ecs },
+            .{ .name = "metrics", .module = wasm_metrics },
+            .{ .name = "render", .module = wasm_render },
         },
+    });
+    const wasm_phasor = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("src/root_wasm.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "common", .module = wasm_common },
+            .{ .name = "db", .module = wasm_db },
+            .{ .name = "ecs", .module = wasm_ecs },
+            .{ .name = "graph", .module = wasm_graph },
+            .{ .name = "metrics", .module = wasm_metrics },
+            .{ .name = "modules", .module = wasm_modules },
+            .{ .name = "render", .module = wasm_render },
+        },
+    });
+    const wasm_mod = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("examples/triangle/main.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{.{ .name = "phasor", .module = wasm_phasor }},
     });
 
     const wasm_exe = ctx.b.addExecutable(.{
-        .name = "quad_web",
+        .name = "triangle_web",
         .root_module = wasm_mod,
     });
     wasm_exe.entry = .disabled;
@@ -450,8 +502,8 @@ fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
     const install_wasm = ctx.b.addInstallArtifact(wasm_exe, .{
         .dest_dir = .{ .override = .{ .custom = "web" } },
     });
-    const install_html = ctx.b.addInstallFile(ctx.b.path("examples/web/index.html"), "web/index.html");
-    const install_js = ctx.b.addInstallFile(ctx.b.path("examples/web/webgpu.js"), "web/webgpu.js");
+    const install_html = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/index.html"), "web/index.html");
+    const install_js = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/webgpu.js"), "web/webgpu.js");
 
     const web_step = ctx.b.step("web", "Build the web example");
     web_step.dependOn(&install_wasm.step);

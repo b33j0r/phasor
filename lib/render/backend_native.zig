@@ -3,7 +3,7 @@ const wgpu = @import("wgpu");
 const utils = @import("utils.zig");
 const common = @import("common");
 
-const Color = utils.Color;
+const Color = common.Color;
 const Size = utils.Size;
 const SurfaceTarget = utils.SurfaceTarget;
 const NativeSurface = utils.NativeSurface;
@@ -177,6 +177,7 @@ pub const Renderer = struct {
 
     fn initResources(self: *Renderer) !void {
         self.triangle_vertex_buffer = try createBufferWithData(
+            self.allocator,
             self.device,
             self.queue,
             wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
@@ -184,12 +185,14 @@ pub const Renderer = struct {
         );
 
         self.quad_vertex_buffer = try createBufferWithData(
+            self.allocator,
             self.device,
             self.queue,
             wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
             std.mem.asBytes(&defaultQuadVertices),
         );
         self.quad_index_buffer = try createBufferWithData(
+            self.allocator,
             self.device,
             self.queue,
             wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
@@ -249,6 +252,7 @@ pub const Renderer = struct {
     }
 
     pub fn beginFrame(self: *Renderer, clear: Color) !Frame {
+        const clear_f = Color.F32.fromColor(clear);
         self.instance_ring.reset();
         var surface_texture: wgpu.SurfaceTexture = undefined;
         self.surface.getCurrentTexture(&surface_texture);
@@ -266,7 +270,12 @@ pub const Renderer = struct {
             .view = view,
             .load_op = .clear,
             .store_op = .store,
-            .clear_value = wgpu.Color{ .r = clear.r, .g = clear.g, .b = clear.b, .a = clear.a },
+            .clear_value = wgpu.Color{
+                .r = clear_f.r,
+                .g = clear_f.g,
+                .b = clear_f.b,
+                .a = clear_f.a,
+            },
         };
         const attachments = [_]wgpu.ColorAttachment{color_attachment};
         const render_pass = encoder.beginRenderPass(&wgpu.RenderPassDescriptor{
@@ -316,7 +325,7 @@ pub const Renderer = struct {
         if (aligned_bpr != bytes_per_row) {
             const total = aligned_bpr * height;
             const padded = try self.allocator.alloc(u8, total);
-            std.mem.set(u8, padded, 0);
+            @memset(padded, 0);
             for (0..height) |row| {
                 const src_off = row * bytes_per_row;
                 const dst_off = row * aligned_bpr;
@@ -381,12 +390,14 @@ pub const Renderer = struct {
 
     pub fn createMesh(self: *Renderer, vertices: []const VertexUv, indices: []const u16) !Mesh {
         const vertex_buf = try createBufferWithData(
+            self.allocator,
             self.device,
             self.queue,
             wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
             std.mem.sliceAsBytes(vertices),
         );
         const index_buf = try createBufferWithData(
+            self.allocator,
             self.device,
             self.queue,
             wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
@@ -603,9 +614,25 @@ fn createEmptyBuffer(device: *wgpu.Device, usage: wgpu.BufferUsage, size: u64) !
     return Buffer{ .buffer = buffer, .size = size };
 }
 
-fn createBufferWithData(device: *wgpu.Device, queue: *wgpu.Queue, usage: wgpu.BufferUsage, data: []const u8) !Buffer {
-    const buffer = try createEmptyBuffer(device, usage, @intCast(data.len));
-    queue.writeBuffer(buffer.buffer, 0, data.ptr, data.len);
+fn createBufferWithData(
+    allocator: std.mem.Allocator,
+    device: *wgpu.Device,
+    queue: *wgpu.Queue,
+    usage: wgpu.BufferUsage,
+    data: []const u8,
+) !Buffer {
+    const aligned_len = std.mem.alignForward(usize, data.len, 4);
+    const buffer = try createEmptyBuffer(device, usage, @intCast(aligned_len));
+    if (aligned_len == data.len) {
+        queue.writeBuffer(buffer.buffer, 0, data.ptr, data.len);
+        return buffer;
+    }
+
+    const padded = try allocator.alloc(u8, aligned_len);
+    defer allocator.free(padded);
+    @memset(padded, 0);
+    std.mem.copyForwards(u8, padded[0..data.len], data);
+    queue.writeBuffer(buffer.buffer, 0, padded.ptr, padded.len);
     return buffer;
 }
 

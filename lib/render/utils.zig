@@ -1,12 +1,5 @@
 const std = @import("std");
 
-pub const Color = struct {
-    r: f32 = 0.0,
-    g: f32 = 0.0,
-    b: f32 = 0.0,
-    a: f32 = 1.0,
-};
-
 pub const Size = struct {
     width: u32,
     height: u32,

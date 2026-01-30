@@ -1,4 +1,4 @@
-const wasmUrl = new URL("quad_web.wasm", import.meta.url);
+const wasmUrl = new URL("triangle_web.wasm", import.meta.url);
 
 const ctxs = new Map();
 let nextCtxId = 1;

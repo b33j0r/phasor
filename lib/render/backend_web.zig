@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const utils = @import("utils.zig");
 const common = @import("common");
 
-const Color = utils.Color;
+const Color = common.Color;
 const Size = utils.Size;
 const SurfaceTarget = utils.SurfaceTarget;
 
@@ -120,7 +120,8 @@ pub const Renderer = struct {
     }
 
     pub fn beginFrame(self: *Renderer, clear: Color) !Frame {
-        webgpu_begin_frame(self.ctx, clear.r, clear.g, clear.b, clear.a);
+        const clear_f = Color.F32.fromColor(clear);
+        webgpu_begin_frame(self.ctx, clear_f.r, clear_f.g, clear_f.b, clear_f.a);
         return Frame{ .renderer = self };
     }
 
