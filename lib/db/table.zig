@@ -218,6 +218,12 @@ pub const Table = struct {
 
     /// Copy a row into another table using a precomputed MovePlan.
     pub fn copyRowToPlan(self: *Self, row: usize, dest: *Self, plan: *const MovePlan) !usize {
+        return self.copyRowToPlanWith(row, dest, plan, .{});
+    }
+
+    /// Copy a row into another table using a precomputed MovePlan, filling dest-only
+    /// columns from the provided components when available.
+    pub fn copyRowToPlanWith(self: *Self, row: usize, dest: *Self, plan: *const MovePlan, components: anytype) !usize {
         if (row >= self.entity_ids.items.len) return error.IndexOutOfBounds;
 
         const entity_id = self.entity_ids.items[row];
@@ -251,11 +257,28 @@ pub const Table = struct {
                 map_index += 1;
                 continue;
             }
+            const dest_id = dest.schema.items[dest_index];
+            if (try pushColumnFromComponents(&dest.columns[dest_index], dest_id, components)) {
+                continue;
+            }
             try dest.columns[dest_index].pushDefault();
         }
 
         dest.hooks.onRowAdded(dest.table_index, new_row, entity_id);
         return new_row;
+    }
+
+    fn pushColumnFromComponents(dest_column: *Column, dest_id: meta.TypeId, components: anytype) !bool {
+        const fields = std.meta.fields(@TypeOf(components));
+        inline for (fields) |field| {
+            const value = @field(components, field.name);
+            const T = @TypeOf(value);
+            if (meta.typeId(T) == dest_id) {
+                try dest_column.pushAs(T, value);
+                return true;
+            }
+        }
+        return false;
     }
 
     fn getColumnIndex(self: *const Self, id: meta.TypeId) ?usize {

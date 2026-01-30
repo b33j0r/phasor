@@ -126,7 +126,7 @@ pub fn addComponents(self: *Self, entity_id: Entity.Id, components: anytype) !vo
         dest_index = try self.createTableFromUnion(src_table, union_ids, components);
     }
 
-    const new_row = try moveEntityToTable(self, entity_id, dest_index.?);
+    const new_row = try moveEntityToTableWithComponents(self, entity_id, dest_index.?, components);
     const dest_table = &self.tables.items[dest_index.?];
     try setComponentsInTable(dest_table, new_row, components);
 }
@@ -208,6 +208,15 @@ fn insertTable(self: *Self, schema_ids: []const meta.TypeId, table: Table) !usiz
 }
 
 fn moveEntityToTable(self: *Self, entity_id: Entity.Id, dest_table_index: usize) !usize {
+    return moveEntityToTableWithComponents(self, entity_id, dest_table_index, .{});
+}
+
+fn moveEntityToTableWithComponents(
+    self: *Self,
+    entity_id: Entity.Id,
+    dest_table_index: usize,
+    components: anytype,
+) !usize {
     const loc = self.entities.getPtr(entity_id) orelse return Error.EntityNotFound;
     if (loc.table_index == dest_table_index) return loc.row;
 
@@ -215,7 +224,7 @@ fn moveEntityToTable(self: *Self, entity_id: Entity.Id, dest_table_index: usize)
     const dest_table = &self.tables.items[dest_table_index];
     var plan = try Table.MovePlan.build(self.allocator, src_table, dest_table);
     defer plan.deinit();
-    const new_row = try src_table.copyRowToPlan(loc.row, dest_table, &plan);
+    const new_row = try src_table.copyRowToPlanWith(loc.row, dest_table, &plan, components);
     const moved = src_table.swapRemove(loc.row);
     if (moved) |moved_id| {
         if (self.entities.getPtr(moved_id)) |moved_loc| {
@@ -517,6 +526,21 @@ test "Database addComponents moves entity and preserves existing data" {
     const vel = table.getComponentPtr(loc.row, fixtures.Velocity).?;
     try std.testing.expectEqual(@as(f32, 3), vel.dx);
     try std.testing.expectEqual(@as(f32, 4), vel.dy);
+}
+
+test "Database addComponents accepts non-default components" {
+
+    var db = init(std.testing.allocator);
+    defer db.deinit();
+
+    const entity_id = try db.createEntityWithId(1, .{fixtures.Velocity{ .dx = 1, .dy = 2 }});
+    try db.addComponents(entity_id, .{fixtures.Position{ .x = 3, .y = 4 }});
+
+    const loc = db.entities.get(entity_id).?;
+    const table = &db.tables.items[loc.table_index];
+    const pos = table.getComponentPtr(loc.row, fixtures.Position).?;
+    try std.testing.expectEqual(@as(f32, 3), pos.x);
+    try std.testing.expectEqual(@as(f32, 4), pos.y);
 }
 
 test "Database removeComponents moves entity and removes components" {
