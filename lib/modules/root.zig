@@ -8,7 +8,7 @@ test "import tests" {
 
 // Imports
 pub const PhasesModule = @import("PhasesModule.zig");
-pub const MetricsModule = @import("MetricsModule.zig");
+pub const MetricsModule = @import("MetricsModule.zig").MetricsModule;
 pub const TimeModule = @import("TimeModule.zig");
 pub const TimerModule = @import("TimerModule.zig");
 pub const RenderModule = @import("RenderModule.zig");

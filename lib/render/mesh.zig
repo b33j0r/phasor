@@ -14,6 +14,11 @@ pub const MeshHandle = struct {
 pub const MeshInstance = struct {
     mesh_handle: MeshHandle = MeshHandle.invalid(),
     color: common.Color = common.Color.WHITE,
+
+    pub const default: MeshInstance = .{
+        .mesh_handle = MeshHandle.invalid(),
+        .color = common.Color.WHITE,
+    };
 };
 
 pub const MeshLibrary = struct {

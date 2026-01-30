@@ -7,6 +7,7 @@ pub const MeshDraw = struct {
     mesh_handle: mesh.MeshHandle,
     transform: common.Mat4,
     color: common.Color,
+    material: ?backend.Material = null,
 };
 
 pub const RenderQueue = struct {
@@ -36,6 +37,23 @@ pub const RenderQueue = struct {
                 .mesh_handle = instance.mesh_handle,
                 .transform = transform,
                 .color = instance.color,
+                .material = null,
+            },
+        });
+    }
+
+    pub fn pushMeshInstanceWithMaterial(
+        self: *RenderQueue,
+        instance: mesh.MeshInstance,
+        transform: common.Mat4,
+        material: backend.Material,
+    ) !void {
+        try self.items.append(self.allocator, .{
+            .mesh = .{
+                .mesh_handle = instance.mesh_handle,
+                .transform = transform,
+                .color = instance.color,
+                .material = material,
             },
         });
     }

@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
     const db = DbModule.build(&ctx, .{ .common = common.module });
     const graph = GraphModule.build(&ctx);
     const glfw = GlfwModule.build(&ctx);
+    const stb = StbModule.build(&ctx);
     const ecs = EcsModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
@@ -18,6 +19,7 @@ pub fn build(b: *std.Build) void {
     const renderer = RenderModule.build(&ctx, .{
         .common = common.module,
         .glfw = glfw.module,
+        .stb = stb.module,
     });
     const modules = ModulesModule.build(&ctx, .{
         .common = common.module,
@@ -68,6 +70,7 @@ pub fn build(b: *std.Build) void {
         ecs.tests,
         graph.tests,
         glfw.tests,
+        stb.tests,
         metrics.tests,
         modules.tests,
         renderer.tests,
@@ -250,6 +253,36 @@ const GlfwModule = struct {
     }
 };
 
+const StbModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    fn build(ctx: *const BuildContext) StbModule {
+        const stb_dep = ctx.b.dependency("stb", .{
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+        });
+        const stb_include = stb_dep.path("");
+
+        const stb_mod = ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("deps/stb/root.zig"),
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+            .link_libc = true,
+        });
+        stb_mod.addIncludePath(stb_include);
+        stb_mod.addCSourceFiles(.{
+            .root = ctx.b.path("deps/stb"),
+            .files = &.{"stb_truetype.c"},
+        });
+
+        return .{
+            .module = stb_mod,
+            .tests = ctx.b.addTest(.{ .root_module = stb_mod }),
+        };
+    }
+};
+
 const MetricsModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
@@ -321,6 +354,7 @@ const RenderModule = struct {
     const Deps = struct {
         common: *std.Build.Module,
         glfw: *std.Build.Module,
+        stb: *std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) RenderModule {
@@ -329,6 +363,7 @@ const RenderModule = struct {
         var imports: std.ArrayList(std.Build.Module.Import) = .empty;
         defer imports.deinit(ctx.b.allocator);
         imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "stb", .module = deps.stb }) catch unreachable;
         if (!is_wasm) {
             imports.append(ctx.b.allocator, .{ .name = "glfw", .module = deps.glfw }) catch unreachable;
         }
@@ -542,11 +577,29 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .target = wasm_target,
         .optimize = ctx.optimize,
     });
+    const wasm_stb_dep = ctx.b.dependency("stb", .{
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+    });
+    const wasm_stb = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("deps/stb/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .link_libc = true,
+    });
+    wasm_stb.addIncludePath(wasm_stb_dep.path(""));
+    wasm_stb.addCSourceFiles(.{
+        .root = ctx.b.path("deps/stb"),
+        .files = &.{"stb_truetype.c"},
+    });
     const wasm_render = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/render/root.zig"),
         .target = wasm_target,
         .optimize = ctx.optimize,
-        .imports = &.{.{ .name = "common", .module = wasm_common }},
+        .imports = &.{
+            .{ .name = "common", .module = wasm_common },
+            .{ .name = "stb", .module = wasm_stb },
+        },
     });
     const wasm_modules = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/modules/root.zig"),

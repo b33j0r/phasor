@@ -7,6 +7,10 @@
             .url = "https://github.com/glfw/glfw/archive/refs/tags/3.4.tar.gz",
             .hash = "N-V-__8AAL40TADEbrysYHBl-UIZO4KiG4chP8pLDVDINGH4",
         },
+        .stb = .{
+            .url = "https://github.com/nothings/stb/archive/refs/heads/master.tar.gz",
+            .hash = "N-V-__8AABQ7TgCnPlp8MP4YA8znrjd6E-ZjpF1rvrS8J_2I",
+        },
         .wgpu_native_zig = .{
             .path = "../wgpu_native_zig",
         },

@@ -1,13 +1,13 @@
 pub fn install(app_cmds: *AppCommands, commands: *Commands, comptime module: anytype) !void {
     const ModuleType = moduleType(module);
     if (!@hasDecl(ModuleType, "install")) return;
-    try invokeFn(ModuleType.install, app_cmds, commands);
+    try invokeFn(ModuleType.install, app_cmds, commands, module);
 }
 
 pub fn uninstall(app_cmds: *AppCommands, commands: *Commands, comptime module: anytype) !void {
     const ModuleType = moduleType(module);
     if (!@hasDecl(ModuleType, "uninstall")) return;
-    try invokeFn(ModuleType.uninstall, app_cmds, commands);
+    try invokeFn(ModuleType.uninstall, app_cmds, commands, module);
 }
 
 fn moduleType(comptime module: anytype) type {
@@ -18,7 +18,13 @@ fn moduleType(comptime module: anytype) type {
     };
 }
 
-fn invokeFn(comptime func: anytype, app_cmds: *AppCommands, commands: *Commands) !void {
+fn invokeFn(comptime func: anytype, app_cmds: *AppCommands, commands: *Commands, comptime module: anytype) !void {
+    const ModuleType = moduleType(module);
+    const module_info = @typeInfo(@TypeOf(module));
+    const module_is_type = module_info == .type;
+    var module_value: ModuleType = undefined;
+    var module_value_set = false;
+
     const fn_info = @typeInfo(@TypeOf(func)).@"fn";
     const return_type = fn_info.return_type orelse void;
     const return_info = @typeInfo(return_type);
@@ -39,6 +45,16 @@ fn invokeFn(comptime func: anytype, app_cmds: *AppCommands, commands: *Commands)
             args_tuple[i] = app_cmds;
         } else if (ParamType == *Commands) {
             args_tuple[i] = commands;
+        } else if (ParamType == ModuleType or ParamType == *ModuleType or ParamType == *const ModuleType) {
+            if (!module_value_set) {
+                module_value = if (module_is_type) ModuleType{} else module;
+                module_value_set = true;
+            }
+            if (ParamType == ModuleType) {
+                args_tuple[i] = module_value;
+            } else {
+                args_tuple[i] = &module_value;
+            }
         } else if (ParamType == AppCommands or ParamType == Commands) {
             @compileError("Module parameters must be pointers; use *AppCommands or *Commands");
         } else {
@@ -161,6 +177,43 @@ test "module supports app-only install and uninstall" {
 
     try uninstall(&app_cmds, &commands, ModuleDef);
     try std.testing.expect(!update_schedule.systemNodeAt(order[0]).enabled);
+}
+
+test "module supports self params" {
+    const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var world = World.init(allocator);
+    defer world.deinit();
+
+    var manager = try schedule.ScheduleManager.init(allocator);
+    defer manager.deinit(&world);
+
+    var commands = Commands.init(allocator, &io, &world);
+    defer commands.deinit();
+    var app_cmds = AppCommands.init(allocator, &io, &world, &manager);
+
+    const Value = struct {
+        value: i32,
+    };
+
+    const ModuleDef = struct {
+        value: i32 = 0,
+
+        pub fn install(self: *const @This(), cmds: *Commands) !void {
+            try cmds.insertResource(Value{ .value = self.value });
+        }
+    };
+
+    try install(&app_cmds, &commands, ModuleDef{ .value = 7 });
+    if (!commands.isEmpty()) {
+        try commands.apply();
+    }
+
+    const res = world.getResource(Value).?;
+    try std.testing.expectEqual(@as(i32, 7), res.value);
 }
 
 test "module supports commands-only install and uninstall" {

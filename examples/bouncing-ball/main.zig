@@ -94,6 +94,7 @@ fn configureApp(app: *ecs.App) !void {
 
     try app.installModule(modules.TimeModule);
     try app.installModule(modules.RenderModule);
+    try app.installModule(modules.MetricsModule{ .font_size = 60.0 });
 
     try app.addSystemTo(ecs.schedule.DefaultSchedule.Startup, setupSurface);
     try app.addSystemTo(ecs.schedule.DefaultSchedule.BeforeFrame, setupScene);
