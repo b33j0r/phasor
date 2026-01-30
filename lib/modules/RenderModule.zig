@@ -295,6 +295,7 @@ fn renderSystem(
                 frame.draw(.{ .triangle = draw_tri });
             },
             .mesh => |instance| {
+                if (instance.blend) continue;
                 const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
                 const model = if (viewport_matrix) |vp|
                     common.Mat4.mul(vp, instance.transform)
@@ -312,8 +313,37 @@ fn renderSystem(
                     .mesh = mesh.*,
                     .material = material,
                     .instance = gpu_instance,
+                    .blend = instance.blend,
                 } });
             },
+        }
+    }
+
+    for (queue.ptr.items.items) |item| {
+        switch (item) {
+            .mesh => |instance| {
+                if (!instance.blend) continue;
+                const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
+                const model = if (viewport_matrix) |vp|
+                    common.Mat4.mul(vp, instance.transform)
+                else
+                    instance.transform;
+
+                const color_f = common.Color.F32.fromColor(instance.color);
+                const gpu_instance = render.BackendMeshInstance{
+                    .transform = model,
+                    .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
+                };
+
+                const material = instance.material orelse state.default_material;
+                frame.draw(.{ .textured_quad = .{
+                    .mesh = mesh.*,
+                    .material = material,
+                    .instance = gpu_instance,
+                    .blend = instance.blend,
+                } });
+            },
+            else => {},
         }
     }
 

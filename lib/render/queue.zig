@@ -8,6 +8,7 @@ pub const MeshDraw = struct {
     transform: common.Mat4,
     color: common.Color,
     material: ?backend.Material = null,
+    blend: bool = false,
 };
 
 pub const RenderQueue = struct {
@@ -38,6 +39,7 @@ pub const RenderQueue = struct {
                 .transform = transform,
                 .color = instance.color,
                 .material = null,
+                .blend = instance.color.a < 255,
             },
         });
     }
@@ -54,6 +56,7 @@ pub const RenderQueue = struct {
                 .transform = transform,
                 .color = instance.color,
                 .material = material,
+                .blend = true,
             },
         });
     }

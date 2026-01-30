@@ -134,7 +134,7 @@ fn setupScene(
     var factory = render.MeshFactory.init(commands.allocator, mesh_library);
     const mesh_handle = try factory.circle(&state.renderer, radius, 48);
 
-    const start = common.Vec3{ .x = bounds.width * 0.5, .y = bounds.height * 0.5, .z = 0.0 };
+    const start = common.Vec3{ .x = bounds.width * 0.5, .y = bounds.height * 0.5, .z = -10.0 };
     _ = try commands.createEntity(.{
         Ball{ .radius = radius },
         Velocity{ .v = .{ .x = 220.0, .y = 160.0 } },

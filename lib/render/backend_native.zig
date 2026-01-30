@@ -12,6 +12,13 @@ const CacheKey = utils.CacheKey;
 const hashCacheKey = utils.hashCacheKey;
 const RingBuffer = utils.RingBuffer;
 
+const DepthTarget = struct {
+    texture: *wgpu.Texture,
+    view: *wgpu.TextureView,
+};
+
+const depth_format = wgpu.TextureFormat.depth24_plus;
+
 pub const RendererConfig = struct {
     present_mode: ?wgpu.PresentMode = null,
     enable_validation: bool = false,
@@ -71,6 +78,7 @@ pub const TexturedQuad = struct {
     mesh: Mesh,
     material: Material,
     instance: MeshInstance,
+    blend: bool = false,
 };
 
 pub const DrawCmd = union(enum) {
@@ -110,7 +118,8 @@ pub const Renderer = struct {
     present_mode: wgpu.PresentMode,
 
     triangle_pipeline: *wgpu.RenderPipeline,
-    quad_pipeline: *wgpu.RenderPipeline,
+    quad_pipeline_opaque: *wgpu.RenderPipeline,
+    quad_pipeline_blend: *wgpu.RenderPipeline,
     quad_bind_group_layout: *wgpu.BindGroupLayout,
 
     triangle_vertex_buffer: Buffer,
@@ -118,6 +127,7 @@ pub const Renderer = struct {
     quad_index_buffer: Buffer,
     instance_buffer: Buffer,
     instance_ring: RingBuffer,
+    depth_target: DepthTarget,
 
     pipeline_cache: PipelineCache,
 
@@ -161,13 +171,15 @@ pub const Renderer = struct {
             .surface_size = surface_size,
             .present_mode = present_mode,
             .triangle_pipeline = undefined,
-            .quad_pipeline = undefined,
+            .quad_pipeline_opaque = undefined,
+            .quad_pipeline_blend = undefined,
             .quad_bind_group_layout = undefined,
             .triangle_vertex_buffer = undefined,
             .quad_vertex_buffer = undefined,
             .quad_index_buffer = undefined,
             .instance_buffer = undefined,
             .instance_ring = RingBuffer.init(256 * 1024),
+            .depth_target = undefined,
             .pipeline_cache = pipeline_cache,
         };
 
@@ -205,6 +217,8 @@ pub const Renderer = struct {
             self.instance_ring.size,
         );
 
+        self.depth_target = try createDepthTarget(self.device, self.surface_size.width, self.surface_size.height);
+
         const shader_triangle = self.device.createShaderModule(&wgpu.shaderModuleWGSLDescriptor(.{
             .code = triangleShaderWGSL,
         })) orelse return error.ShaderCreationFailed;
@@ -217,24 +231,44 @@ pub const Renderer = struct {
 
         const triangle_key = CacheKey{ .a = 1, .b = 0, .c = 0 };
         _ = hashCacheKey(triangle_key);
-        self.triangle_pipeline = try createTrianglePipeline(self.device, shader_triangle, self.surface_format);
+        self.triangle_pipeline = try createTrianglePipeline(self.device, shader_triangle, self.surface_format, depth_format);
 
         const quad_key = CacheKey{ .a = 2, .b = 0, .c = 0 };
         _ = hashCacheKey(quad_key);
-        const quad_bundle = try createQuadPipeline(self.device, shader_quad, self.surface_format);
-        self.quad_pipeline = quad_bundle.pipeline;
-        self.quad_bind_group_layout = quad_bundle.bind_group_layout;
+        const quad_bind_group_layout = try createQuadBindGroupLayout(self.device);
+        self.quad_bind_group_layout = quad_bind_group_layout;
+        self.quad_pipeline_opaque = try createQuadPipeline(
+            self.device,
+            shader_quad,
+            self.surface_format,
+            depth_format,
+            quad_bind_group_layout,
+            false,
+            true,
+        );
+        self.quad_pipeline_blend = try createQuadPipeline(
+            self.device,
+            shader_quad,
+            self.surface_format,
+            depth_format,
+            quad_bind_group_layout,
+            true,
+            false,
+        );
     }
 
     pub fn deinit(self: *Renderer) void {
         self.triangle_pipeline.release();
-        self.quad_pipeline.release();
+        self.quad_pipeline_opaque.release();
+        self.quad_pipeline_blend.release();
         self.quad_bind_group_layout.release();
 
         self.triangle_vertex_buffer.buffer.release();
         self.quad_vertex_buffer.buffer.release();
         self.quad_index_buffer.buffer.release();
         self.instance_buffer.buffer.release();
+        self.depth_target.view.release();
+        self.depth_target.texture.release();
 
         self.pipeline_cache.deinit();
 
@@ -249,6 +283,10 @@ pub const Renderer = struct {
         if (width == 0 or height == 0) return;
         self.surface_size = .{ .width = width, .height = height };
         configureSurface(self.device, self.surface, self.surface_format, width, height, self.present_mode);
+        const new_depth = createDepthTarget(self.device, width, height) catch return;
+        self.depth_target.view.release();
+        self.depth_target.texture.release();
+        self.depth_target = new_depth;
     }
 
     pub fn beginFrame(self: *Renderer, clear: Color) !Frame {
@@ -277,10 +315,17 @@ pub const Renderer = struct {
                 .a = clear_f.a,
             },
         };
+        const depth_attachment = wgpu.DepthStencilAttachment{
+            .view = self.depth_target.view,
+            .depth_load_op = .clear,
+            .depth_store_op = .store,
+            .depth_clear_value = 1.0,
+        };
         const attachments = [_]wgpu.ColorAttachment{color_attachment};
         const render_pass = encoder.beginRenderPass(&wgpu.RenderPassDescriptor{
             .color_attachment_count = attachments.len,
             .color_attachments = attachments[0..].ptr,
+            .depth_stencil_attachment = &depth_attachment,
         }) orelse return error.RenderPassFailed;
 
         return Frame{
@@ -444,7 +489,8 @@ pub const Frame = struct {
         const offset = self.renderer.instance_ring.allocate(@sizeOf(InstanceData), 256);
         self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, offset, instance_bytes.ptr, instance_bytes.len);
 
-        self.render_pass.setPipeline(self.renderer.quad_pipeline);
+        const pipeline = if (quad.blend) self.renderer.quad_pipeline_blend else self.renderer.quad_pipeline_opaque;
+        self.render_pass.setPipeline(pipeline);
         self.render_pass.setBindGroup(0, quad.material.bind_group, 0, null);
         self.render_pass.setVertexBuffer(0, quad.mesh.vertex_buffer.buffer, 0, quad.mesh.vertex_buffer.size);
         self.render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, @sizeOf(InstanceData));
@@ -636,7 +682,12 @@ fn createBufferWithData(
     return buffer;
 }
 
-fn createTrianglePipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, format: wgpu.TextureFormat) !*wgpu.RenderPipeline {
+fn createTrianglePipeline(
+    device: *wgpu.Device,
+    shader: *wgpu.ShaderModule,
+    format: wgpu.TextureFormat,
+    depth_format_param: wgpu.TextureFormat,
+) !*wgpu.RenderPipeline {
     const attributes = [_]wgpu.VertexAttribute{
         .{ .format = .float32x2, .offset = 0, .shader_location = 0 },
         .{ .format = .float32x3, .offset = @sizeOf([2]f32), .shader_location = 1 },
@@ -650,6 +701,13 @@ fn createTrianglePipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, form
     const color_targets = [_]wgpu.ColorTargetState{wgpu.ColorTargetState{
         .format = format,
     }};
+    const depth_state = wgpu.DepthStencilState{
+        .format = depth_format_param,
+        .depth_write_enabled = .true,
+        .depth_compare = .less_equal,
+        .stencil_front = .{},
+        .stencil_back = .{},
+    };
     const pipeline = device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
         .vertex = wgpu.VertexState{
             .module = shader,
@@ -660,6 +718,7 @@ fn createTrianglePipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, form
         .primitive = wgpu.PrimitiveState{
             .topology = .triangle_list,
         },
+        .depth_stencil = &depth_state,
         .fragment = &wgpu.FragmentState{
             .module = shader,
             .entry_point = wgpu.StringView.fromSlice("fs_main"),
@@ -671,7 +730,7 @@ fn createTrianglePipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, form
     return pipeline;
 }
 
-fn createQuadPipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, format: wgpu.TextureFormat) !struct { pipeline: *wgpu.RenderPipeline, bind_group_layout: *wgpu.BindGroupLayout } {
+fn createQuadBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
     const bind_group_layout = device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
         .entry_count = 2,
         .entries = &[_]wgpu.BindGroupLayoutEntry{
@@ -691,7 +750,18 @@ fn createQuadPipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, format: 
             },
         },
     }) orelse return error.BindGroupLayoutFailed;
+    return bind_group_layout;
+}
 
+fn createQuadPipeline(
+    device: *wgpu.Device,
+    shader: *wgpu.ShaderModule,
+    format: wgpu.TextureFormat,
+    depth_format_param: wgpu.TextureFormat,
+    bind_group_layout: *wgpu.BindGroupLayout,
+    enable_blend: bool,
+    depth_write_enabled: bool,
+) !*wgpu.RenderPipeline {
     const pipeline_layout = device.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
         .bind_group_layout_count = 1,
         .bind_group_layouts = &[_]*wgpu.BindGroupLayout{bind_group_layout},
@@ -723,21 +793,32 @@ fn createQuadPipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, format: 
             .step_mode = .instance,
         },
     };
+    const blend_state = wgpu.BlendState{
+        .color = .{
+            .operation = .add,
+            .src_factor = .src_alpha,
+            .dst_factor = .one_minus_src_alpha,
+        },
+        .alpha = .{
+            .operation = .add,
+            .src_factor = .one,
+            .dst_factor = .one_minus_src_alpha,
+        },
+    };
     const color_targets = [_]wgpu.ColorTargetState{wgpu.ColorTargetState{
         .format = format,
-        .blend = &wgpu.BlendState{
-            .color = .{
-                .operation = .add,
-                .src_factor = .src_alpha,
-                .dst_factor = .one_minus_src_alpha,
-            },
-            .alpha = .{
-                .operation = .add,
-                .src_factor = .one,
-                .dst_factor = .one_minus_src_alpha,
-            },
-        },
+        .blend = if (enable_blend) &blend_state else null,
     }};
+    const depth_state = wgpu.DepthStencilState{
+        .format = depth_format_param,
+        .depth_write_enabled = switch (depth_write_enabled) {
+            true => .true,
+            false => .false,
+        },
+        .depth_compare = .less_equal,
+        .stencil_front = .{},
+        .stencil_back = .{},
+    };
 
     const pipeline = device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
         .layout = pipeline_layout,
@@ -750,6 +831,7 @@ fn createQuadPipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, format: 
         .primitive = wgpu.PrimitiveState{
             .topology = .triangle_list,
         },
+        .depth_stencil = &depth_state,
         .fragment = &wgpu.FragmentState{
             .module = shader,
             .entry_point = wgpu.StringView.fromSlice("fs_main"),
@@ -758,8 +840,25 @@ fn createQuadPipeline(device: *wgpu.Device, shader: *wgpu.ShaderModule, format: 
         },
         .multisample = wgpu.MultisampleState{},
     }) orelse return error.PipelineCreationFailed;
+    return pipeline;
+}
 
-    return .{ .pipeline = pipeline, .bind_group_layout = bind_group_layout };
+fn createDepthTarget(device: *wgpu.Device, width: u32, height: u32) !DepthTarget {
+    const texture = device.createTexture(&wgpu.TextureDescriptor{
+        .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
+        .format = depth_format,
+        .usage = wgpu.TextureUsages.render_attachment,
+        .mip_level_count = 1,
+        .sample_count = 1,
+        .dimension = .@"2d",
+    }) orelse return error.TextureCreationFailed;
+    errdefer texture.release();
+
+    const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.TextureViewFailed;
+    return .{
+        .texture = texture,
+        .view = view,
+    };
 }
 
 const defaultTriangleVertices = [_]VertexColor{

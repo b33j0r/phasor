@@ -43,6 +43,18 @@ function createBufferWithData(device, data, usage) {
   return buffer;
 }
 
+function createDepthTexture(ctx, width, height) {
+  if (ctx.depthTexture) {
+    ctx.depthTexture.destroy();
+  }
+  ctx.depthTexture = ctx.device.createTexture({
+    size: { width, height },
+    format: "depth24plus",
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  ctx.depthView = ctx.depthTexture.createView();
+}
+
 async function loadShaders() {
   if (shaderSources) return shaderSources;
   const [triangleShader, quadShader] = await Promise.all([
@@ -59,6 +71,16 @@ function createPipelines(ctx) {
   }
   const triangleShader = shaderSources.triangleShader;
   const quadShader = shaderSources.quadShader;
+  const depthState = {
+    format: "depth24plus",
+    depthWriteEnabled: true,
+    depthCompare: "less-equal",
+  };
+  const depthStateBlend = {
+    format: "depth24plus",
+    depthWriteEnabled: false,
+    depthCompare: "less-equal",
+  };
 
   const triangleModule = ctx.device.createShaderModule({ code: triangleShader });
   const quadModule = ctx.device.createShaderModule({ code: quadShader });
@@ -81,6 +103,7 @@ function createPipelines(ctx) {
       entryPoint: "fs_main",
       targets: [{ format: ctx.format }],
     },
+    depthStencil: depthState,
     primitive: { topology: "triangle-list" },
   });
 
@@ -93,7 +116,44 @@ function createPipelines(ctx) {
   const quadPipelineLayout = ctx.device.createPipelineLayout({
     bindGroupLayouts: [ctx.quadBindGroupLayout],
   });
-  ctx.quadPipeline = ctx.device.createRenderPipeline({
+  ctx.quadPipelineOpaque = ctx.device.createRenderPipeline({
+    layout: quadPipelineLayout,
+    vertex: {
+      module: quadModule,
+      entryPoint: "vs_main",
+      buffers: [
+        {
+          arrayStride: 16,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x2" },
+            { shaderLocation: 1, offset: 8, format: "float32x2" },
+          ],
+        },
+        {
+          arrayStride: 80,
+          stepMode: "instance",
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: "float32x4" },
+            { shaderLocation: 3, offset: 16, format: "float32x4" },
+            { shaderLocation: 4, offset: 32, format: "float32x4" },
+            { shaderLocation: 5, offset: 48, format: "float32x4" },
+            { shaderLocation: 6, offset: 64, format: "float32x4" },
+          ],
+        },
+      ],
+    },
+    fragment: {
+      module: quadModule,
+      entryPoint: "fs_main",
+      targets: [{
+        format: ctx.format,
+      }],
+    },
+    depthStencil: depthState,
+    primitive: { topology: "triangle-list" },
+  });
+
+  ctx.quadPipelineBlend = ctx.device.createRenderPipeline({
     layout: quadPipelineLayout,
     vertex: {
       module: quadModule,
@@ -130,6 +190,7 @@ function createPipelines(ctx) {
         },
       }],
     },
+    depthStencil: depthStateBlend,
     primitive: { topology: "triangle-list" },
   });
 }
@@ -156,9 +217,12 @@ function createContext(canvas) {
     materials: [null],
     instanceBufferSize: 256 * 1024,
     instanceOffset: 0,
+    depthTexture: null,
+    depthView: null,
   };
 
   createPipelines(ctx);
+  createDepthTexture(ctx, size.width, size.height);
 
   ctx.instanceBuffer = device.createBuffer({
     size: ctx.instanceBufferSize,
@@ -359,6 +423,7 @@ const imports = {
         format: ctx.format,
         alphaMode: "premultiplied",
       });
+      createDepthTexture(ctx, width, height);
     },
     webgpu_begin_frame(ctxId, r, g, b, a) {
       const ctx = ctxs.get(ctxId);
@@ -373,6 +438,12 @@ const imports = {
           storeOp: "store",
           clearValue: { r, g, b, a },
         }],
+        depthStencilAttachment: {
+          view: ctx.depthView,
+          depthLoadOp: "clear",
+          depthStoreOp: "store",
+          depthClearValue: 1.0,
+        },
       });
       ctx.encoder = encoder;
       ctx.pass = pass;
@@ -384,7 +455,7 @@ const imports = {
       ctx.pass.setVertexBuffer(0, ctx.triangleVertexBuffer);
       ctx.pass.draw(3, 1, 0, 0);
     },
-    webgpu_draw_textured_quad(ctxId, meshHandle, materialHandle, instancePtr) {
+    webgpu_draw_textured_quad(ctxId, meshHandle, materialHandle, instancePtr, blend) {
       const ctx = ctxs.get(ctxId);
       const mesh = ctx.meshes[meshHandle];
       const material = ctx.materials[materialHandle];
@@ -399,7 +470,8 @@ const imports = {
       ctx.instanceOffset = offset + stride;
       ctx.queue.writeBuffer(ctx.instanceBuffer, offset, instanceData);
 
-      ctx.pass.setPipeline(ctx.quadPipeline);
+      const pipeline = blend ? ctx.quadPipelineBlend : ctx.quadPipelineOpaque;
+      ctx.pass.setPipeline(pipeline);
       ctx.pass.setBindGroup(0, material.bindGroup);
       ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
       ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, stride);

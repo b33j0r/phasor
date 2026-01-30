@@ -62,6 +62,7 @@ pub const TexturedQuad = struct {
     mesh: Mesh,
     material: Material,
     instance: MeshInstance,
+    blend: bool = false,
 };
 
 pub const DrawCmd = union(enum) {
@@ -82,7 +83,7 @@ extern "env" fn webgpu_deinit(ctx: u32) void;
 extern "env" fn webgpu_resize(ctx: u32, width: u32, height: u32) void;
 extern "env" fn webgpu_begin_frame(ctx: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
 extern "env" fn webgpu_draw_triangle(ctx: u32) void;
-extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: *const InstanceData) void;
+extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: *const InstanceData, blend: u32) void;
 extern "env" fn webgpu_end_frame(ctx: u32) void;
 extern "env" fn webgpu_create_sampler(ctx: u32) u32;
 extern "env" fn webgpu_destroy_sampler(ctx: u32, handle: u32) void;
@@ -187,7 +188,8 @@ pub const Frame = struct {
 
     fn drawTexturedQuad(self: *Frame, quad: TexturedQuad) void {
         const instance = buildInstanceData(quad.instance);
-        webgpu_draw_textured_quad(self.renderer.ctx, quad.mesh.handle, quad.material.handle, &instance);
+        const blend: u32 = if (quad.blend) 1 else 0;
+        webgpu_draw_textured_quad(self.renderer.ctx, quad.mesh.handle, quad.material.handle, &instance, blend);
     }
 
     pub fn endFrame(self: *Frame) !void {
