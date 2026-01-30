@@ -1,4 +1,6 @@
 const wasmUrl = new URL("triangle_web.wasm", import.meta.url);
+const triangleShaderUrl = new URL("shaders/triangle.wgsl", import.meta.url);
+const quadShaderUrl = new URL("shaders/quad.wgsl", import.meta.url);
 
 const ctxs = new Map();
 let nextCtxId = 1;
@@ -6,6 +8,7 @@ let wasm = null;
 let memory = null;
 let device = null;
 let wasmApp = 0;
+let shaderSources = null;
 
 const textDecoder = new TextDecoder("utf-8");
 
@@ -40,59 +43,22 @@ function createBufferWithData(device, data, usage) {
   return buffer;
 }
 
-function createPipelines(ctx) {
-  const triangleShader = `
-struct VertexIn {
-  @location(0) position: vec2<f32>,
-  @location(1) color: vec3<f32>,
-};
-struct VertexOut {
-  @builtin(position) position: vec4<f32>,
-  @location(0) color: vec3<f32>,
-};
-@vertex
-fn vs_main(in: VertexIn) -> VertexOut {
-  var out: VertexOut;
-  out.position = vec4<f32>(in.position, 0.0, 1.0);
-  out.color = in.color;
-  return out;
+async function loadShaders() {
+  if (shaderSources) return shaderSources;
+  const [triangleShader, quadShader] = await Promise.all([
+    fetch(triangleShaderUrl).then((resp) => resp.text()),
+    fetch(quadShaderUrl).then((resp) => resp.text()),
+  ]);
+  shaderSources = { triangleShader, quadShader };
+  return shaderSources;
 }
-@fragment
-fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-  return vec4<f32>(in.color, 1.0);
-}`;
 
-  const quadShader = `
-struct VertexIn {
-  @location(0) position: vec2<f32>,
-  @location(1) uv: vec2<f32>,
-  @location(2) model0: vec4<f32>,
-  @location(3) model1: vec4<f32>,
-  @location(4) model2: vec4<f32>,
-  @location(5) model3: vec4<f32>,
-  @location(6) color: vec4<f32>,
-};
-struct VertexOut {
-  @builtin(position) position: vec4<f32>,
-  @location(0) uv: vec2<f32>,
-  @location(1) color: vec4<f32>,
-};
-@group(0) @binding(0) var quad_sampler: sampler;
-@group(0) @binding(1) var quad_texture: texture_2d<f32>;
-@vertex
-fn vs_main(in: VertexIn) -> VertexOut {
-  let model = mat4x4<f32>(in.model0, in.model1, in.model2, in.model3);
-  var out: VertexOut;
-  out.position = model * vec4<f32>(in.position, 0.0, 1.0);
-  out.uv = in.uv;
-  out.color = in.color;
-  return out;
-}
-@fragment
-fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-  let texel = textureSample(quad_texture, quad_sampler, in.uv);
-  return texel * in.color;
-}`;
+function createPipelines(ctx) {
+  if (!shaderSources) {
+    throw new Error("Shaders not loaded");
+  }
+  const triangleShader = shaderSources.triangleShader;
+  const quadShader = shaderSources.quadShader;
 
   const triangleModule = ctx.device.createShaderModule({ code: triangleShader });
   const quadModule = ctx.device.createShaderModule({ code: quadShader });
@@ -557,6 +523,7 @@ async function start() {
     return;
   }
   device = await adapter.requestDevice();
+  await loadShaders();
 
   const response = await fetch(wasmUrl);
   const bytes = await response.arrayBuffer();

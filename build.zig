@@ -516,12 +516,22 @@ fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
     const install_html = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/index.html"), "web/index.html");
     const install_js = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/webgpu.js"), "web/webgpu.js");
     const install_favicon = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/favicon.svg"), "web/favicon.svg");
+    const install_triangle_shader = ctx.b.addInstallFile(
+        ctx.b.path("lib/render/shaders/triangle.wgsl"),
+        "web/shaders/triangle.wgsl",
+    );
+    const install_quad_shader = ctx.b.addInstallFile(
+        ctx.b.path("lib/render/shaders/quad.wgsl"),
+        "web/shaders/quad.wgsl",
+    );
 
     const web_step = ctx.b.step("web", "Build the web example");
     web_step.dependOn(&install_wasm.step);
     web_step.dependOn(&install_html.step);
     web_step.dependOn(&install_js.step);
     web_step.dependOn(&install_favicon.step);
+    web_step.dependOn(&install_triangle_shader.step);
+    web_step.dependOn(&install_quad_shader.step);
 
     const server_mod = ctx.module("lib/web/wasm_server.zig", &.{});
     const server_exe = ctx.b.addExecutable(.{
@@ -536,6 +546,8 @@ fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
     run_server.step.dependOn(&install_html.step);
     run_server.step.dependOn(&install_js.step);
     run_server.step.dependOn(&install_favicon.step);
+    run_server.step.dependOn(&install_triangle_shader.step);
+    run_server.step.dependOn(&install_quad_shader.step);
 
     const run_step = ctx.b.step("run-triangle-wasm", "Run the triangle wasm example");
     run_step.dependOn(&run_server.step);

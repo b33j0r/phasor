@@ -67,14 +67,11 @@ fn handleConnection(
     var connection_writer = stream.writer(init.io, &send_buffer);
     var server: http.Server = .init(&connection_reader.interface, &connection_writer.interface);
 
-    while (true) {
-        var request = server.receiveHead() catch |err| switch (err) {
-            error.HttpConnectionClosing => return,
-            else => return err,
-        };
-
-        try serveRequest(init, root_dir, &request, index_file);
-    }
+    var request = server.receiveHead() catch |err| switch (err) {
+        error.HttpConnectionClosing => return,
+        else => return err,
+    };
+    try serveRequest(init, root_dir, &request, index_file);
 }
 
 fn serveRequest(
@@ -87,12 +84,12 @@ fn serveRequest(
     const path_end = std.mem.indexOfScalar(u8, target, '?') orelse target.len;
     const raw_path = target[0..path_end];
     const rel_path = normalizePath(raw_path, index_file) orelse {
-        try request.respond("Bad Request", .{ .status = .bad_request });
+        try respondWithStatus(request, "Bad Request", .bad_request);
         return;
     };
 
     var file = std.Io.Dir.openFile(root_dir, init.io, rel_path, .{}) catch {
-        try request.respond("Not Found", .{ .status = .not_found });
+        try respondWithStatus(request, "Not Found", .not_found);
         return;
     };
     defer file.close(init.io);
@@ -108,9 +105,26 @@ fn serveRequest(
     const content_type = guessContentType(rel_path);
     const headers = [_]http.Header{
         .{ .name = "content-type", .value = content_type },
+        .{ .name = "cache-control", .value = "no-store, no-cache, must-revalidate, max-age=0" },
+        .{ .name = "pragma", .value = "no-cache" },
+        .{ .name = "expires", .value = "0" },
+        .{ .name = "connection", .value = "close" },
     };
 
     try request.respond(data, .{
+        .extra_headers = &headers,
+    });
+}
+
+fn respondWithStatus(request: *http.Server.Request, message: []const u8, status: http.Status) !void {
+    const headers = [_]http.Header{
+        .{ .name = "cache-control", .value = "no-store, no-cache, must-revalidate, max-age=0" },
+        .{ .name = "pragma", .value = "no-cache" },
+        .{ .name = "expires", .value = "0" },
+        .{ .name = "connection", .value = "close" },
+    };
+    try request.respond(message, .{
+        .status = status,
         .extra_headers = &headers,
     });
 }

@@ -28,6 +28,9 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(common.ClearColor)) {
         try commands.insertResource(common.ClearColor{});
     }
+    if (!commands.hasResource(render.RenderQueue)) {
+        try commands.insertResource(render.RenderQueue.init(commands.allocator));
+    }
     try commands.registerEvent(common.WindowResized, 8);
     if (!commands.isEmpty()) {
         try commands.apply();
@@ -35,6 +38,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
 
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, initSystem);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, handleViewportResize);
+    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, extractSystem);
     try app.addSystem(schedule.DefaultSchedule.AfterFrame, renderSystem);
     try app.addSystem(schedule.DefaultSchedule.Shutdown, shutdownSystem);
 }
@@ -42,6 +46,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
 pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(initSystem);
     app.removeSystem(handleViewportResize);
+    app.removeSystem(extractSystem);
     app.removeSystem(renderSystem);
     app.removeSystem(shutdownSystem);
 }
@@ -77,11 +82,30 @@ fn initSystem(commands: *Commands) !void {
     }
 }
 
-fn renderSystem(
-    commands: *Commands,
-    clear_opt: ResOpt(common.ClearColor),
+fn extractSystem(
+    queue: ResMut(render.RenderQueue),
     mesh_query: Query(.{ render.MeshInstance }),
     triangle_query: Query(.{ render.Triangle }),
+) !void {
+    queue.ptr.reset();
+
+    var tri_it = triangle_query.iterator();
+    while (tri_it.next()) |row| {
+        const tri = row.get(render.Triangle) orelse continue;
+        try queue.ptr.pushTriangle(tri.*);
+    }
+
+    var it = mesh_query.iterator();
+    while (it.next()) |row| {
+        const instance = row.get(render.MeshInstance) orelse continue;
+        try queue.ptr.pushMeshInstance(instance.*);
+    }
+}
+
+fn renderSystem(
+    commands: *Commands,
+    queue: ResMut(render.RenderQueue),
+    clear_opt: ResOpt(common.ClearColor),
     camera_opt: ResOpt(common.Camera3d),
     viewport_opt: ResOpt(ViewportSize),
 ) !void {
@@ -106,32 +130,31 @@ fn renderSystem(
     else
         surface_size;
 
-    var tri_it = triangle_query.iterator();
-    while (tri_it.next()) |row| {
-        const tri = row.get(render.Triangle) orelse continue;
-        const draw_tri = if (viewport) |vp|
-            applyViewport(tri.*, vp, viewport_size)
-        else
-            tri.*;
-        frame.draw(.{ .triangle = draw_tri });
-    }
+    for (queue.ptr.items.items) |item| {
+        switch (item) {
+            .triangle => |tri| {
+                const draw_tri = if (viewport) |vp|
+                    applyViewport(tri, vp, viewport_size)
+                else
+                    tri;
+                frame.draw(.{ .triangle = draw_tri });
+            },
+            .mesh => |instance| {
+                const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
 
-    var it = mesh_query.iterator();
-    while (it.next()) |row| {
-        const instance = row.get(render.MeshInstance) orelse continue;
-        const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
+                const color_f = common.Color.F32.fromColor(instance.color);
+                const gpu_instance = render.BackendMeshInstance{
+                    .transform = instance.transform,
+                    .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
+                };
 
-        const color_f = common.Color.F32.fromColor(instance.color);
-        const gpu_instance = render.BackendMeshInstance{
-            .transform = instance.transform,
-            .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
-        };
-
-        frame.draw(.{ .textured_quad = .{
-            .mesh = mesh.*,
-            .material = state.default_material,
-            .instance = gpu_instance,
-        } });
+                frame.draw(.{ .textured_quad = .{
+                    .mesh = mesh.*,
+                    .material = state.default_material,
+                    .instance = gpu_instance,
+                } });
+            },
+        }
     }
 
     try frame.endFrame();
@@ -201,6 +224,7 @@ fn positionToNdcCenter(pos: [2]f32, size: render.Size) [2]f32 {
 fn shutdownSystem(commands: *Commands) void {
     const state = commands.getResourceMut(RenderState) orelse {
         _ = commands.removeResource(render.MeshLibrary);
+        _ = commands.removeResource(render.RenderQueue);
         return;
     };
 
@@ -209,6 +233,7 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.MeshLibrary);
     }
 
+    _ = commands.removeResource(render.RenderQueue);
     _ = commands.removeResource(RenderState);
 }
 
@@ -221,6 +246,7 @@ const Commands = ecs.Commands;
 const schedule = ecs.schedule;
 const system_params = ecs.system_params;
 const Query = system_params.Query;
+const ResMut = system_params.ResMut;
 const ResOpt = system_params.ResOpt;
 const events = ecs.events;
 const EventReader = events.EventReader;

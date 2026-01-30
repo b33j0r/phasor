@@ -1,39 +1,49 @@
-const std = @import("std");
-const builtin = @import("builtin");
-const common = @import("common");
+pub const MeshHandle = struct {
+    index: u32,
+    generation: u32,
 
-const backend = if (builtin.target.cpu.arch.isWasm())
-    @import("backend_web.zig")
-else
-    @import("backend_native.zig");
+    pub fn invalid() MeshHandle {
+        return .{ .index = std.math.maxInt(u32), .generation = 0 };
+    }
 
-pub const MeshHandle = u32;
+    pub fn isValid(self: MeshHandle) bool {
+        return self.index != std.math.maxInt(u32);
+    }
+};
 
 pub const MeshInstance = struct {
-    mesh_handle: MeshHandle,
+    mesh_handle: MeshHandle = MeshHandle.invalid(),
     transform: common.Mat4 = common.Mat4.identity(),
     color: common.Color = common.Color.WHITE,
 };
 
 pub const MeshLibrary = struct {
     allocator: std.mem.Allocator,
-    meshes: std.ArrayListUnmanaged(backend.Mesh) = .empty,
+    slots: std.ArrayListUnmanaged(MeshSlot) = .empty,
+    free_list: std.ArrayListUnmanaged(u32) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) MeshLibrary {
         return .{
             .allocator = allocator,
-            .meshes = .empty,
+            .slots = .empty,
+            .free_list = .empty,
         };
     }
 
     pub fn deinit(self: *MeshLibrary) void {
-        self.meshes.deinit(self.allocator);
+        self.slots.deinit(self.allocator);
+        self.free_list.deinit(self.allocator);
         self.* = undefined;
     }
 
     pub fn destroyMeshes(self: *MeshLibrary, renderer: *backend.Renderer) void {
-        for (self.meshes.items) |*mesh| {
-            renderer.destroyMesh(mesh);
+        self.free_list.clearRetainingCapacity();
+        for (self.slots.items, 0..) |*slot, index| {
+            if (!slot.alive) continue;
+            renderer.destroyMesh(&slot.mesh);
+            slot.alive = false;
+            slot.generation +%= 1;
+            _ = self.free_list.append(self.allocator, @intCast(index)) catch {};
         }
     }
 
@@ -44,15 +54,60 @@ pub const MeshLibrary = struct {
         indices: []const u16,
     ) !MeshHandle {
         const mesh = try renderer.createMesh(vertices, indices);
-        try self.meshes.append(self.allocator, mesh);
-        return @intCast(self.meshes.items.len - 1);
+        if (self.free_list.items.len > 0) {
+            const index = self.free_list.pop();
+            var slot = &self.slots.items[@intCast(index)];
+            slot.mesh = mesh;
+            slot.alive = true;
+            return .{ .index = index, .generation = slot.generation };
+        }
+
+        const index: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(self.allocator, .{
+            .mesh = mesh,
+            .generation = 1,
+            .alive = true,
+        });
+        return .{ .index = index, .generation = 1 };
     }
 
     pub fn get(self: *MeshLibrary, handle: MeshHandle) ?*backend.Mesh {
-        if (handle >= self.meshes.items.len) return null;
-        return &self.meshes.items[handle];
+        const slot = self.slotPtr(handle) orelse return null;
+        return &slot.mesh;
+    }
+
+    pub fn destroyMesh(self: *MeshLibrary, renderer: *backend.Renderer, handle: MeshHandle) bool {
+        const slot = self.slotPtr(handle) orelse return false;
+        renderer.destroyMesh(&slot.mesh);
+        slot.alive = false;
+        slot.generation +%= 1;
+        _ = self.free_list.append(self.allocator, handle.index) catch {};
+        return true;
+    }
+
+    fn slotPtr(self: *MeshLibrary, handle: MeshHandle) ?*MeshSlot {
+        if (!handle.isValid()) return null;
+        const index: usize = @intCast(handle.index);
+        if (index >= self.slots.items.len) return null;
+        const slot = &self.slots.items[index];
+        if (!slot.alive or slot.generation != handle.generation) return null;
+        return slot;
     }
 };
+
+const MeshSlot = struct {
+    mesh: backend.Mesh,
+    generation: u32,
+    alive: bool,
+};
+
+const std = @import("std");
+const builtin = @import("builtin");
+const common = @import("common");
+const backend = if (builtin.target.cpu.arch.isWasm())
+    @import("backend_web.zig")
+else
+    @import("backend_native.zig");
 
 pub const MeshFactory = struct {
     allocator: std.mem.Allocator,
