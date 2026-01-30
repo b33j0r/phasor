@@ -1,1 +1,5 @@
-pub const io = @import("io.zig").io;
+const std = @import("std");
+
+pub fn io() std.Io {
+    return std.Io.Threaded.global_single_threaded.ioBasic();
+}
