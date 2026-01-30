@@ -423,7 +423,7 @@ fn addExample(
 fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
     const wasm_target = ctx.b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
-        .os_tag = .freestanding,
+        .os_tag = .wasi,
     });
     const wasm_common = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/common/root.zig"),
@@ -488,11 +488,19 @@ fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
             .{ .name = "render", .module = wasm_render },
         },
     });
+    const wasm_support = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/wasm/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+    });
     const wasm_mod = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("examples/triangle/main.zig"),
         .target = wasm_target,
         .optimize = ctx.optimize,
-        .imports = &.{.{ .name = "phasor", .module = wasm_phasor }},
+        .imports = &.{
+            .{ .name = "phasor", .module = wasm_phasor },
+            .{ .name = "wasm", .module = wasm_support },
+        },
     });
 
     const wasm_exe = ctx.b.addExecutable(.{
@@ -507,9 +515,28 @@ fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
     });
     const install_html = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/index.html"), "web/index.html");
     const install_js = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/webgpu.js"), "web/webgpu.js");
+    const install_favicon = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/favicon.svg"), "web/favicon.svg");
 
     const web_step = ctx.b.step("web", "Build the web example");
     web_step.dependOn(&install_wasm.step);
     web_step.dependOn(&install_html.step);
     web_step.dependOn(&install_js.step);
+    web_step.dependOn(&install_favicon.step);
+
+    const server_mod = ctx.module("lib/web/wasm_server.zig", &.{});
+    const server_exe = ctx.b.addExecutable(.{
+        .name = "wasm_server",
+        .root_module = server_mod,
+    });
+    ctx.b.installArtifact(server_exe);
+
+    const run_server = ctx.b.addRunArtifact(server_exe);
+    run_server.setCwd(ctx.b.path("."));
+    run_server.step.dependOn(&install_wasm.step);
+    run_server.step.dependOn(&install_html.step);
+    run_server.step.dependOn(&install_js.step);
+    run_server.step.dependOn(&install_favicon.step);
+
+    const run_step = ctx.b.step("run-triangle-wasm", "Run the triangle wasm example");
+    run_step.dependOn(&run_server.step);
 }

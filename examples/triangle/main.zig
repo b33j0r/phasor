@@ -2,6 +2,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const phasor = @import("phasor");
 
+const is_wasm = builtin.target.cpu.arch.isWasm();
+const wasm = if (is_wasm) @import("wasm") else struct {
+    pub fn io() std.Io {
+        return undefined;
+    }
+};
+
 const ecs = phasor.ecs;
 const modules = phasor.modules;
 const render = phasor.renderer;
@@ -13,13 +20,19 @@ const RenderState = modules.RenderModule.RenderState;
 
 const SceneReady = struct {};
 
-const Runner = struct {
-    app: ecs.App,
-    io_threaded: std.Io.Threaded,
-    io: std.Io,
-};
+const Runner = if (is_wasm)
+    struct {
+        app: ecs.App,
+        io: std.Io,
+    }
+else
+    struct {
+        app: ecs.App,
+        io_threaded: std.Io.Threaded,
+        io: std.Io,
+    };
 
-pub fn main(init: std.process.Init) !u8 {
+fn nativeMain(init: std.process.Init) !u8 {
     const allocator = std.heap.c_allocator;
 
     var app = try ecs.App.init(allocator, &init.io);
@@ -30,19 +43,20 @@ pub fn main(init: std.process.Init) !u8 {
     return try app.run();
 }
 
+fn wasmMain() u8 {
+    return 0;
+}
+
+pub const main = if (is_wasm) wasmMain else nativeMain;
+
 pub export fn wasmCreate() u32 {
-    if (!builtin.target.cpu.arch.isWasm()) return 0;
+    if (!is_wasm) return 0;
 
     const allocator = std.heap.page_allocator;
     const runner = allocator.create(Runner) catch return 0;
     errdefer allocator.destroy(runner);
 
-    runner.io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty }) catch {
-        return 0;
-    };
-    errdefer runner.io_threaded.deinit();
-
-    runner.io = runner.io_threaded.io();
+    runner.io = wasm.io();
     runner.app = ecs.App.init(allocator, &runner.io) catch {
         return 0;
     };
@@ -59,7 +73,7 @@ pub export fn wasmCreate() u32 {
 }
 
 pub export fn wasmFrame(handle: u32) void {
-    if (!builtin.target.cpu.arch.isWasm()) return;
+    if (!is_wasm) return;
     if (handle == 0) return;
 
     const runner: *Runner = @ptrFromInt(handle);
@@ -67,13 +81,12 @@ pub export fn wasmFrame(handle: u32) void {
 }
 
 pub export fn wasmDeinit(handle: u32) void {
-    if (!builtin.target.cpu.arch.isWasm()) return;
+    if (!is_wasm) return;
     if (handle == 0) return;
 
     const allocator = std.heap.page_allocator;
     const runner: *Runner = @ptrFromInt(handle);
     runner.app.deinit();
-    runner.io_threaded.deinit();
     allocator.destroy(runner);
 }
 

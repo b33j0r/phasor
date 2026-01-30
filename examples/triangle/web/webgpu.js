@@ -213,7 +213,153 @@ function createContext(canvas) {
   return ctx;
 }
 
+const wasiBase = {
+  args_sizes_get(argcPtr, argvBufSizePtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    view.setUint32(argcPtr, 0, true);
+    view.setUint32(argvBufSizePtr, 0, true);
+    return 0;
+  },
+  args_get() {
+    return 0;
+  },
+  environ_sizes_get(environCountPtr, environBufSizePtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    view.setUint32(environCountPtr, 0, true);
+    view.setUint32(environBufSizePtr, 0, true);
+    return 0;
+  },
+  environ_get() {
+    return 0;
+  },
+  fd_close() {
+    return 0;
+  },
+  fd_seek(fd, offset, whence, newOffsetPtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    view.setBigUint64(newOffsetPtr, 0n, true);
+    return 0;
+  },
+  fd_fdstat_get(fd, statPtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    // Pretend it's a character device.
+    view.setUint8(statPtr, 2);
+    return 0;
+  },
+  fd_write(fd, iovsPtr, iovsLen, nwrittenPtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    let written = 0;
+    for (let i = 0; i < iovsLen; i += 1) {
+      const base = view.getUint32(iovsPtr + i * 8, true);
+      const len = view.getUint32(iovsPtr + i * 8 + 4, true);
+      const bytes = new Uint8Array(memory.buffer, base, len);
+      written += len;
+      if (fd === 1 || fd === 2) {
+        console.log(textDecoder.decode(bytes));
+      }
+    }
+    view.setUint32(nwrittenPtr, written, true);
+    return 0;
+  },
+  fd_read(fd, iovsPtr, iovsLen, nreadPtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    view.setUint32(nreadPtr, 0, true);
+    return 0;
+  },
+  fd_prestat_get(fd, prestatPtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    view.setUint8(prestatPtr, 0);
+    view.setUint32(prestatPtr + 4, 0, true);
+    return 0;
+  },
+  fd_prestat_dir_name() {
+    return 0;
+  },
+  path_create_directory() {
+    return 0;
+  },
+  path_remove_directory() {
+    return 0;
+  },
+  path_unlink_file() {
+    return 0;
+  },
+  path_rename() {
+    return 0;
+  },
+  path_readlink(fd, pathPtr, pathLen, bufPtr, bufLen, outLenPtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    view.setUint32(outLenPtr, 0, true);
+    return 0;
+  },
+  path_filestat_get(fd, flags, pathPtr, pathLen, bufPtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    // Zero out the filestat struct.
+    for (let i = 0; i < 64; i += 4) {
+      view.setUint32(bufPtr + i, 0, true);
+    }
+    return 0;
+  },
+  path_open(
+    fd,
+    dirflags,
+    pathPtr,
+    pathLen,
+    oflags,
+    fsRightsBase,
+    fsRightsInheriting,
+    fsFlags,
+    fdOutPtr,
+  ) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    view.setUint32(fdOutPtr, 3, true);
+    return 0;
+  },
+  fd_readdir(fd, bufPtr, bufLen, cookie, outLenPtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    view.setUint32(outLenPtr, 0, true);
+    return 0;
+  },
+  clock_time_get(clockId, precision, timePtr) {
+    if (!memory) return 0;
+    const view = new DataView(memory.buffer);
+    const now = BigInt(Date.now()) * 1000000n;
+    view.setBigUint64(timePtr, now, true);
+    return 0;
+  },
+  random_get(bufPtr, bufLen) {
+    if (!memory) return 0;
+    const bytes = new Uint8Array(memory.buffer, bufPtr, bufLen);
+    crypto.getRandomValues(bytes);
+    return 0;
+  },
+  proc_exit(code) {
+    throw new Error(`WASI exit ${code}`);
+  },
+};
+
+const wasi = new Proxy(wasiBase, {
+  get(target, prop) {
+    if (typeof prop === "symbol" || prop in target) {
+      return target[prop];
+    }
+    return () => 0;
+  },
+});
+
 const imports = {
+  wasi_snapshot_preview1: wasi,
   env: {
     webgpu_canvas_size(canvasPtr, canvasLen, outW, outH) {
       const id = readString(canvasPtr, canvasLen);

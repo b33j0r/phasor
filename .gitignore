@@ -5,3 +5,4 @@ zig-out/
 *.tmp
 .DS_Store
 local/
+*.wasm
