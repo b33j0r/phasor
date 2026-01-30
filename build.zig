@@ -57,8 +57,9 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "ecs", "examples/ecs/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "window", "examples/window/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
+    _ = addExample(&ctx, phasor.module, "bouncing-ball", "examples/bouncing-ball/main.zig", &.{});
 
-    addWebExample(&ctx, phasor.module);
+    addWebExamples(&ctx);
 
     const test_step = b.step("test", "Run tests");
     addModuleTests(b, test_step, &.{
@@ -420,7 +421,92 @@ fn addExample(
     return exe;
 }
 
-fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
+const WasmExample = struct {
+    name: []const u8,
+    root: []const u8,
+};
+
+const WasmModules = struct {
+    target: std.Build.ResolvedTarget,
+    phasor: *std.Build.Module,
+    support: *std.Build.Module,
+};
+
+fn sanitizeName(allocator: std.mem.Allocator, name: []const u8) []const u8 {
+    var out = allocator.alloc(u8, name.len) catch unreachable;
+    for (name, 0..) |c, i| {
+        out[i] = if (c == '-') '_' else c;
+    }
+    return out;
+}
+
+fn addWasmExample(
+    ctx: *const BuildContext,
+    wasm: WasmModules,
+    server_exe: *std.Build.Step.Compile,
+    web_all: *std.Build.Step,
+    ex: WasmExample,
+) void {
+    const wasm_mod = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path(ex.root),
+        .target = wasm.target,
+        .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "phasor", .module = wasm.phasor },
+            .{ .name = "wasm", .module = wasm.support },
+        },
+    });
+
+    const exe_name = ctx.b.fmt("{s}_web", .{sanitizeName(ctx.b.allocator, ex.name)});
+    const wasm_exe = ctx.b.addExecutable(.{
+        .name = exe_name,
+        .root_module = wasm_mod,
+    });
+    wasm_exe.entry = .disabled;
+    wasm_exe.rdynamic = true;
+
+    const web_dir = ctx.b.fmt("web/{s}", .{ex.name});
+    const install_wasm = ctx.b.addInstallFile(wasm_exe.getEmittedBin(), ctx.b.fmt("{s}/app.wasm", .{web_dir}));
+    const install_html = ctx.b.addInstallFile(ctx.b.path("assets/web/index.html"), ctx.b.fmt("{s}/index.html", .{web_dir}));
+    const install_js = ctx.b.addInstallFile(ctx.b.path("assets/web/webgpu.js"), ctx.b.fmt("{s}/webgpu.js", .{web_dir}));
+    const install_favicon = ctx.b.addInstallFile(ctx.b.path("assets/web/favicon.svg"), ctx.b.fmt("{s}/favicon.svg", .{web_dir}));
+    const install_triangle_shader = ctx.b.addInstallFile(
+        ctx.b.path("lib/render/shaders/triangle.wgsl"),
+        ctx.b.fmt("{s}/shaders/triangle.wgsl", .{web_dir}),
+    );
+    const install_quad_shader = ctx.b.addInstallFile(
+        ctx.b.path("lib/render/shaders/quad.wgsl"),
+        ctx.b.fmt("{s}/shaders/quad.wgsl", .{web_dir}),
+    );
+
+    const web_step = ctx.b.step(ctx.b.fmt("web-{s}", .{ex.name}), ctx.b.fmt("Build the {s} web example", .{ex.name}));
+    web_step.dependOn(&install_wasm.step);
+    web_step.dependOn(&install_html.step);
+    web_step.dependOn(&install_js.step);
+    web_step.dependOn(&install_favicon.step);
+    web_step.dependOn(&install_triangle_shader.step);
+    web_step.dependOn(&install_quad_shader.step);
+
+    web_all.dependOn(web_step);
+
+    const run_server = ctx.b.addRunArtifact(server_exe);
+    run_server.setCwd(ctx.b.path("."));
+    run_server.addArg("--root");
+    run_server.addArg(ctx.b.fmt("zig-out/{s}", .{web_dir}));
+    run_server.addArg("--index");
+    run_server.addArg("index.html");
+    run_server.step.dependOn(&install_wasm.step);
+    run_server.step.dependOn(&install_html.step);
+    run_server.step.dependOn(&install_js.step);
+    run_server.step.dependOn(&install_favicon.step);
+    run_server.step.dependOn(&install_triangle_shader.step);
+    run_server.step.dependOn(&install_quad_shader.step);
+
+    const run_step = ctx.b.step(ctx.b.fmt("run-{s}-wasm", .{ex.name}), ctx.b.fmt("Run the {s} wasm example", .{ex.name}));
+    run_step.dependOn(&run_server.step);
+}
+
+fn addWebExamples(ctx: *const BuildContext) void {
     const wasm_target = ctx.b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
@@ -493,45 +579,11 @@ fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
         .target = wasm_target,
         .optimize = ctx.optimize,
     });
-    const wasm_mod = ctx.b.createModule(.{
-        .root_source_file = ctx.b.path("examples/triangle/main.zig"),
-        .target = wasm_target,
-        .optimize = ctx.optimize,
-        .imports = &.{
-            .{ .name = "phasor", .module = wasm_phasor },
-            .{ .name = "wasm", .module = wasm_support },
-        },
-    });
 
-    const wasm_exe = ctx.b.addExecutable(.{
-        .name = "triangle_web",
-        .root_module = wasm_mod,
-    });
-    wasm_exe.entry = .disabled;
-    wasm_exe.rdynamic = true;
-
-    const install_wasm = ctx.b.addInstallArtifact(wasm_exe, .{
-        .dest_dir = .{ .override = .{ .custom = "web" } },
-    });
-    const install_html = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/index.html"), "web/index.html");
-    const install_js = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/webgpu.js"), "web/webgpu.js");
-    const install_favicon = ctx.b.addInstallFile(ctx.b.path("examples/triangle/web/favicon.svg"), "web/favicon.svg");
-    const install_triangle_shader = ctx.b.addInstallFile(
-        ctx.b.path("lib/render/shaders/triangle.wgsl"),
-        "web/shaders/triangle.wgsl",
-    );
-    const install_quad_shader = ctx.b.addInstallFile(
-        ctx.b.path("lib/render/shaders/quad.wgsl"),
-        "web/shaders/quad.wgsl",
-    );
-
-    const web_step = ctx.b.step("web", "Build the web example");
-    web_step.dependOn(&install_wasm.step);
-    web_step.dependOn(&install_html.step);
-    web_step.dependOn(&install_js.step);
-    web_step.dependOn(&install_favicon.step);
-    web_step.dependOn(&install_triangle_shader.step);
-    web_step.dependOn(&install_quad_shader.step);
+    const wasm_examples = [_]WasmExample{
+        .{ .name = "bouncing-ball", .root = "examples/bouncing-ball/main.zig" },
+        .{ .name = "triangle", .root = "examples/triangle/main.zig" },
+    };
 
     const server_mod = ctx.module("lib/web/wasm_server.zig", &.{});
     const server_exe = ctx.b.addExecutable(.{
@@ -540,15 +592,14 @@ fn addWebExample(ctx: *const BuildContext, _: *std.Build.Module) void {
     });
     ctx.b.installArtifact(server_exe);
 
-    const run_server = ctx.b.addRunArtifact(server_exe);
-    run_server.setCwd(ctx.b.path("."));
-    run_server.step.dependOn(&install_wasm.step);
-    run_server.step.dependOn(&install_html.step);
-    run_server.step.dependOn(&install_js.step);
-    run_server.step.dependOn(&install_favicon.step);
-    run_server.step.dependOn(&install_triangle_shader.step);
-    run_server.step.dependOn(&install_quad_shader.step);
+    const web_all = ctx.b.step("web", "Build all web examples");
+    const wasm = WasmModules{
+        .target = wasm_target,
+        .phasor = wasm_phasor,
+        .support = wasm_support,
+    };
 
-    const run_step = ctx.b.step("run-triangle-wasm", "Run the triangle wasm example");
-    run_step.dependOn(&run_server.step);
+    for (wasm_examples) |ex| {
+        addWasmExample(ctx, wasm, server_exe, web_all, ex);
+    }
 }

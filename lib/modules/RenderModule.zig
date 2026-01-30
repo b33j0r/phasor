@@ -84,7 +84,7 @@ fn initSystem(commands: *Commands) !void {
 
 fn extractSystem(
     queue: ResMut(render.RenderQueue),
-    mesh_query: Query(.{ render.MeshInstance }),
+    mesh_query: Query(.{ render.MeshInstance, common.Transform }),
     triangle_query: Query(.{ render.Triangle }),
 ) !void {
     queue.ptr.reset();
@@ -98,7 +98,8 @@ fn extractSystem(
     var it = mesh_query.iterator();
     while (it.next()) |row| {
         const instance = row.get(render.MeshInstance) orelse continue;
-        try queue.ptr.pushMeshInstance(instance.*);
+        const transform = row.get(common.Transform) orelse continue;
+        try queue.ptr.pushMeshInstance(instance.*, transform.toMat4());
     }
 }
 
@@ -129,6 +130,10 @@ fn renderSystem(
         render.Size{ .width = @intFromFloat(vp.width), .height = @intFromFloat(vp.height) }
     else
         surface_size;
+    const viewport_matrix = if (viewport) |vp|
+        viewportMatrix(vp, viewport_size)
+    else
+        null;
 
     for (queue.ptr.items.items) |item| {
         switch (item) {
@@ -141,10 +146,14 @@ fn renderSystem(
             },
             .mesh => |instance| {
                 const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
+                const model = if (viewport_matrix) |vp|
+                    common.Mat4.mul(vp, instance.transform)
+                else
+                    instance.transform;
 
                 const color_f = common.Color.F32.fromColor(instance.color);
                 const gpu_instance = render.BackendMeshInstance{
-                    .transform = instance.transform,
+                    .transform = model,
                     .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
                 };
 
@@ -189,6 +198,16 @@ fn handleViewportResize(
             try commands.insertResource(ViewportSize{ .width = bounds.width, .height = bounds.height });
         }
     }
+}
+
+fn viewportMatrix(vp: anytype, size: render.Size) common.Mat4 {
+    const w = @as(f32, @floatFromInt(size.width));
+    const h = @as(f32, @floatFromInt(size.height));
+    if (w == 0.0 or h == 0.0) return common.Mat4.identity();
+    return switch (vp.mode) {
+        .TopLeft => common.Mat4.orthographic(0.0, w, h, 0.0, vp.near, vp.far),
+        .Center => common.Mat4.orthographic(-w * 0.5, w * 0.5, -h * 0.5, h * 0.5, vp.near, vp.far),
+    };
 }
 
 fn applyViewport(tri: render.Triangle, vp: anytype, size: render.Size) render.Triangle {

@@ -2,10 +2,10 @@ const std_options = std.Options{
     .log_level = std.log.Level.debug,
 };
 
-const Position = struct { x: f64, y: f64 };
+const Position = struct { x: f32, y: f32 };
 const Velocity = struct {
-    dx: f64,
-    dy: f64,
+    dx: f32,
+    dy: f32,
     pub const default = @This(){ .dx = 0, .dy = 0 };
 };
 
@@ -69,7 +69,7 @@ const Running = struct {
     }
 
     fn integratePhysics(dt: Res(DeltaTime), query: Query(.{ Position, Velocity, ParticleTag })) !void {
-        const step = dt.deref().seconds;
+        const step: f32 = @floatCast(dt.deref().seconds);
         var it = query.iterator();
         while (it.next()) |row| {
             const pos = row.get(Position).?;

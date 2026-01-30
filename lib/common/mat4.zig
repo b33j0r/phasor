@@ -1,12 +1,6 @@
 //! 4x4 Matrix for homogeneous 3D transformations.
 //! Column-major layout for compatibility with WebGPU.
 
-const std = @import("std");
-const root = @import("root.zig");
-const Vec2 = root.Vec2;
-const Vec3 = root.Vec3;
-const Quat = root.Quat;
-
 pub const Mat4 = extern struct {
     // Column-major storage: m[column][row].
     m: [4][4]f32,
@@ -229,3 +223,9 @@ test "Mat4 multiply" {
     try std.testing.expectEqual(@as(f32, 2.0), v_res.y);
     try std.testing.expectEqual(@as(f32, 2.0), v_res.z);
 }
+
+// Imports
+const std = @import("std");
+const Vec2 = @import("vec.zig").Vec2;
+const Vec3 = @import("vec.zig").Vec3;
+const Quat = @import("quat.zig").Quat;

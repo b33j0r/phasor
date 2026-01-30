@@ -1,4 +1,4 @@
-const wasmUrl = new URL("triangle_web.wasm", import.meta.url);
+const wasmUrl = new URL("app.wasm", import.meta.url);
 const triangleShaderUrl = new URL("shaders/triangle.wgsl", import.meta.url);
 const quadShaderUrl = new URL("shaders/quad.wgsl", import.meta.url);
 

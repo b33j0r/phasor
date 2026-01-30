@@ -13,7 +13,6 @@ pub const MeshHandle = struct {
 
 pub const MeshInstance = struct {
     mesh_handle: MeshHandle = MeshHandle.invalid(),
-    transform: common.Mat4 = common.Mat4.identity(),
     color: common.Color = common.Color.WHITE,
 };
 
@@ -55,7 +54,7 @@ pub const MeshLibrary = struct {
     ) !MeshHandle {
         const mesh = try renderer.createMesh(vertices, indices);
         if (self.free_list.items.len > 0) {
-            const index = self.free_list.pop();
+            const index = self.free_list.pop() orelse unreachable;
             var slot = &self.slots.items[@intCast(index)];
             slot.mesh = mesh;
             slot.alive = true;

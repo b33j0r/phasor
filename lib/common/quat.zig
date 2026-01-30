@@ -1,7 +1,7 @@
 //! Quaternion for 3D rotations.
 
 const std = @import("std");
-const Vec3 = @import("root.zig").Vec3;
+const Vec3 = @import("vec.zig").Vec3;
 
 pub const Quat = extern struct {
     w: f32 = 1.0,
