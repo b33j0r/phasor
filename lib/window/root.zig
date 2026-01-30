@@ -23,34 +23,12 @@ pub const Window = struct {
     flags: u32,
 };
 
-pub const WindowBounds = struct {
-    width: u32,
-    height: u32,
-};
-
-pub const RenderBounds = struct {
-    width: f32,
-    height: f32,
-};
-
-pub const TargetFps = struct {
-    value: i32,
-};
-
-pub const ContentScale = struct {
-    x: f32,
-    y: f32,
-};
-
-pub const WindowResized = struct {
-    width: u32,
-    height: u32,
-};
-
-pub const ContentScaleChanged = struct {
-    x: f32,
-    y: f32,
-};
+pub const WindowBounds = common.WindowBounds;
+pub const RenderBounds = common.RenderBounds;
+pub const TargetFps = common.TargetFps;
+pub const ContentScale = common.ContentScale;
+pub const WindowResized = common.WindowResized;
+pub const ContentScaleChanged = common.ContentScaleChanged;
 
 pub const WindowModule = struct {
     pub fn install(app: *AppCommands, cmds: *Commands) !void {
@@ -217,6 +195,7 @@ fn shutdownSystem(window_opt: ResOpt(Window)) void {
 const std = @import("std");
 const glfw = @import("glfw").c;
 const ecs = @import("ecs");
+const common = @import("common");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const schedule = ecs.schedule;

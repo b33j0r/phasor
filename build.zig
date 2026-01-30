@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
         .render = renderer.module,
     });
     const window = WindowModule.build(&ctx, .{
+        .common = common.module,
         .ecs = ecs.module,
         .glfw = glfw.module,
     });
@@ -361,12 +362,14 @@ const WindowModule = struct {
     tests: *std.Build.Step.Compile,
 
     const Deps = struct {
+        common: *std.Build.Module,
         ecs: *std.Build.Module,
         glfw: *std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) WindowModule {
         const bundle = ctx.moduleBundle("lib/window/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
             .{ .name = "ecs", .module = deps.ecs },
             .{ .name = "glfw", .module = deps.glfw },
         });

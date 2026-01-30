@@ -5,6 +5,7 @@ let nextCtxId = 1;
 let wasm = null;
 let memory = null;
 let device = null;
+let wasmApp = 0;
 
 const textDecoder = new TextDecoder("utf-8");
 
@@ -417,8 +418,8 @@ async function start() {
   wasm = result.instance;
   memory = wasm.exports.memory;
 
-  if (wasm.exports.wasmInit) {
-    wasm.exports.wasmInit();
+  if (wasm.exports.wasmCreate) {
+    wasmApp = wasm.exports.wasmCreate();
   }
 
   function resizeAndNotify() {
@@ -433,11 +434,18 @@ async function start() {
 
   function frame() {
     if (wasm.exports.wasmFrame) {
-      wasm.exports.wasmFrame();
+      wasm.exports.wasmFrame(wasmApp);
     }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  window.addEventListener("beforeunload", () => {
+    if (wasm.exports.wasmDeinit && wasmApp) {
+      wasm.exports.wasmDeinit(wasmApp);
+      wasmApp = 0;
+    }
+  });
 }
 
 start();

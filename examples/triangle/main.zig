@@ -13,9 +13,11 @@ const RenderState = modules.RenderModule.RenderState;
 
 const SceneReady = struct {};
 
-var g_app: ?ecs.App = null;
-var g_io_threaded: ?std.Io.Threaded = null;
-var g_io: ?std.Io = null;
+const Runner = struct {
+    app: ecs.App,
+    io_threaded: std.Io.Threaded,
+    io: std.Io,
+};
 
 pub fn main(init: std.process.Init) !u8 {
     const allocator = std.heap.c_allocator;
@@ -28,45 +30,51 @@ pub fn main(init: std.process.Init) !u8 {
     return try app.run();
 }
 
-pub export fn wasmInit() void {
-    if (!builtin.target.cpu.arch.isWasm()) return;
-    if (g_app != null) return;
+pub export fn wasmCreate() u32 {
+    if (!builtin.target.cpu.arch.isWasm()) return 0;
 
     const allocator = std.heap.page_allocator;
-    g_io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty }) catch return;
-    g_io = g_io_threaded.?.io();
-    var app = ecs.App.init(allocator, &g_io.?) catch {
-        g_io_threaded.?.deinit();
-        g_io_threaded = null;
-        g_io = null;
-        return;
-    };
-    errdefer app.deinit();
+    const runner = allocator.create(Runner) catch return 0;
+    errdefer allocator.destroy(runner);
 
-    configureApp(&app) catch {
-        app.deinit();
-        g_io_threaded.?.deinit();
-        g_io_threaded = null;
-        g_io = null;
-        return;
+    runner.io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty }) catch {
+        return 0;
     };
+    errdefer runner.io_threaded.deinit();
 
-    app.start() catch {
-        app.deinit();
-        g_io_threaded.?.deinit();
-        g_io_threaded = null;
-        g_io = null;
-        return;
+    runner.io = runner.io_threaded.io();
+    runner.app = ecs.App.init(allocator, &runner.io) catch {
+        return 0;
+    };
+    errdefer runner.app.deinit();
+
+    configureApp(&runner.app) catch {
+        return 0;
+    };
+    runner.app.start() catch {
+        return 0;
     };
 
-    g_app = app;
+    return @intCast(@intFromPtr(runner));
 }
 
-pub export fn wasmFrame() void {
+pub export fn wasmFrame(handle: u32) void {
     if (!builtin.target.cpu.arch.isWasm()) return;
-    if (g_app) |*app| {
-        _ = app.step() catch {};
-    }
+    if (handle == 0) return;
+
+    const runner: *Runner = @ptrFromInt(handle);
+    _ = runner.app.step() catch {};
+}
+
+pub export fn wasmDeinit(handle: u32) void {
+    if (!builtin.target.cpu.arch.isWasm()) return;
+    if (handle == 0) return;
+
+    const allocator = std.heap.page_allocator;
+    const runner: *Runner = @ptrFromInt(handle);
+    runner.app.deinit();
+    runner.io_threaded.deinit();
+    allocator.destroy(runner);
 }
 
 fn configureApp(app: *ecs.App) !void {
@@ -100,13 +108,14 @@ fn setupScene(commands: *ecs.Commands) !void {
     _ = try commands.createEntity(.{
         render.Triangle{
             .vertices = .{
-                .{ .position = .{ 0.0, 0.6 }, .color = .{ 1.0, 0.2, 0.2 } },
-                .{ .position = .{ -0.6, -0.6 }, .color = .{ 0.2, 1.0, 0.2 } },
-                .{ .position = .{ 0.6, -0.6 }, .color = .{ 0.2, 0.4, 1.0 } },
+                .{ .position = .{ 0.0, 160.0 }, .color = .{ 1.0, 0.2, 0.2 } },
+                .{ .position = .{ -160.0, -140.0 }, .color = .{ 0.2, 1.0, 0.2 } },
+                .{ .position = .{ 160.0, -140.0 }, .color = .{ 0.2, 0.4, 1.0 } },
             },
         },
     });
 
     try commands.insertResource(common.ClearColor{ .color = common.Color.BLACK });
+    try commands.insertResource(common.Camera3d{ .Viewport = .{ .mode = .Center } });
     try commands.insertResource(SceneReady{});
 }

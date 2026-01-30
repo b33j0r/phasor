@@ -24,3 +24,40 @@ pub const Camera3d = camera.Camera3d;
 pub const ClearColor = struct {
     color: Color = Color.BSOD,
 };
+
+pub const RenderBounds = struct {
+    width: f32,
+    height: f32,
+
+    pub fn widthInt(self: RenderBounds) i32 {
+        return @intFromFloat(self.width);
+    }
+
+    pub fn heightInt(self: RenderBounds) i32 {
+        return @intFromFloat(self.height);
+    }
+};
+
+pub const WindowBounds = struct {
+    width: u32,
+    height: u32,
+};
+
+pub const TargetFps = struct {
+    value: i32,
+};
+
+pub const ContentScale = struct {
+    x: f32,
+    y: f32,
+};
+
+pub const WindowResized = struct {
+    width: u32,
+    height: u32,
+};
+
+pub const ContentScaleChanged = struct {
+    x: f32,
+    y: f32,
+};

@@ -19,18 +19,29 @@ pub const RenderState = struct {
     }
 };
 
+pub const ViewportSize = struct {
+    width: f32,
+    height: f32,
+};
+
 pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(common.ClearColor)) {
         try commands.insertResource(common.ClearColor{});
     }
+    try commands.registerEvent(common.WindowResized, 8);
+    if (!commands.isEmpty()) {
+        try commands.apply();
+    }
 
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, initSystem);
+    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, handleViewportResize);
     try app.addSystem(schedule.DefaultSchedule.AfterFrame, renderSystem);
     try app.addSystem(schedule.DefaultSchedule.Shutdown, shutdownSystem);
 }
 
 pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(initSystem);
+    app.removeSystem(handleViewportResize);
     app.removeSystem(renderSystem);
     app.removeSystem(shutdownSystem);
 }
@@ -71,6 +82,8 @@ fn renderSystem(
     clear_opt: ResOpt(common.ClearColor),
     mesh_query: Query(.{ render.MeshInstance }),
     triangle_query: Query(.{ render.Triangle }),
+    camera_opt: ResOpt(common.Camera3d),
+    viewport_opt: ResOpt(ViewportSize),
 ) !void {
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
@@ -84,10 +97,23 @@ fn renderSystem(
     const clear = if (clear_opt.ptr) |c| c.color else common.Color.BSOD;
     var frame = try state.renderer.beginFrame(clear);
 
+    const viewport = if (camera_opt.ptr) |cam| switch (cam.*) {
+        .Viewport => |vp| vp,
+        else => null,
+    } else null;
+    const viewport_size = if (viewport_opt.ptr) |vp|
+        render.Size{ .width = @intFromFloat(vp.width), .height = @intFromFloat(vp.height) }
+    else
+        surface_size;
+
     var tri_it = triangle_query.iterator();
     while (tri_it.next()) |row| {
         const tri = row.get(render.Triangle) orelse continue;
-        frame.draw(.{ .triangle = tri.* });
+        const draw_tri = if (viewport) |vp|
+            applyViewport(tri.*, vp, viewport_size)
+        else
+            tri.*;
+        frame.draw(.{ .triangle = draw_tri });
     }
 
     var it = mesh_query.iterator();
@@ -109,6 +135,67 @@ fn renderSystem(
     }
 
     try frame.endFrame();
+}
+
+fn handleViewportResize(
+    commands: *Commands,
+    reader: EventReader(common.WindowResized),
+    window_bounds_opt: ResOpt(common.WindowBounds),
+    render_bounds_opt: ResOpt(common.RenderBounds),
+) !void {
+    var latest: ?common.WindowResized = null;
+    while (reader.tryRecv()) |evt| {
+        latest = evt;
+    }
+
+    if (latest) |evt| {
+        try commands.insertResource(ViewportSize{
+            .width = @floatFromInt(evt.width),
+            .height = @floatFromInt(evt.height),
+        });
+        return;
+    }
+
+    if (!commands.hasResource(ViewportSize)) {
+        if (window_bounds_opt.ptr) |bounds| {
+            try commands.insertResource(ViewportSize{
+                .width = @floatFromInt(bounds.width),
+                .height = @floatFromInt(bounds.height),
+            });
+        } else if (render_bounds_opt.ptr) |bounds| {
+            try commands.insertResource(ViewportSize{ .width = bounds.width, .height = bounds.height });
+        }
+    }
+}
+
+fn applyViewport(tri: render.Triangle, vp: anytype, size: render.Size) render.Triangle {
+    var out = tri;
+    for (&out.vertices) |*v| {
+        const ndc = switch (vp.mode) {
+            .TopLeft => positionToNdcTopLeft(v.position, size),
+            .Center => positionToNdcCenter(v.position, size),
+        };
+        v.position = ndc;
+    }
+    return out;
+}
+
+fn positionToNdcTopLeft(pos: [2]f32, size: render.Size) [2]f32 {
+    const w = @as(f32, @floatFromInt(size.width));
+    const h = @as(f32, @floatFromInt(size.height));
+    if (w == 0.0 or h == 0.0) return pos;
+    const x = (pos[0] / w) * 2.0 - 1.0;
+    const y = 1.0 - (pos[1] / h) * 2.0;
+    return .{ x, y };
+}
+
+fn positionToNdcCenter(pos: [2]f32, size: render.Size) [2]f32 {
+    const w = @as(f32, @floatFromInt(size.width));
+    const h = @as(f32, @floatFromInt(size.height));
+    if (w == 0.0 or h == 0.0) return pos;
+    const x = pos[0] / (w * 0.5);
+    const y = pos[1] / (h * 0.5);
+    return .{ x, y };
 }
 
 fn shutdownSystem(commands: *Commands) void {
@@ -135,3 +222,5 @@ const schedule = ecs.schedule;
 const system_params = ecs.system_params;
 const Query = system_params.Query;
 const ResOpt = system_params.ResOpt;
+const events = ecs.events;
+const EventReader = events.EventReader;
