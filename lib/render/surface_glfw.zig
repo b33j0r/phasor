@@ -13,8 +13,13 @@ extern "c" fn glfwGetWin32Window(window: ?*anyopaque) ?*anyopaque;
 extern "c" fn glfwGetX11Display() ?*anyopaque;
 extern "c" fn glfwGetX11Window(window: ?*anyopaque) u64;
 extern "c" fn createMetalLayer(ns_window: ?*anyopaque) ?*anyopaque;
+extern "c" fn createMetalLayerWithVsync(ns_window: ?*anyopaque, vsync: i32) ?*anyopaque;
 
 pub fn fromGlfwWindow(window: *glfw.GLFWwindow) !SurfaceTarget {
+    return fromGlfwWindowWithVsync(window, true);
+}
+
+pub fn fromGlfwWindowWithVsync(window: *glfw.GLFWwindow, vsync: bool) !SurfaceTarget {
     var fb_w: i32 = 0;
     var fb_h: i32 = 0;
     glfw.glfwGetFramebufferSize(window, &fb_w, &fb_h);
@@ -28,7 +33,8 @@ pub fn fromGlfwWindow(window: *glfw.GLFWwindow) !SurfaceTarget {
     if (builtin.os.tag == .macos) {
         // GLFW provides the NSWindow; we attach a CAMetalLayer for WebGPU.
         const ns_window = glfwGetCocoaWindow(@ptrCast(window)) orelse return error.GlfwNativeWindowError;
-        const layer = createMetalLayer(ns_window) orelse return error.MetalLayerCreationFailed;
+        const vsync_flag: i32 = if (vsync) 1 else 0;
+        const layer = createMetalLayerWithVsync(ns_window, vsync_flag) orelse return error.MetalLayerCreationFailed;
         return SurfaceTarget{
             .native = NativeSurface{
                 .kind = .metal,

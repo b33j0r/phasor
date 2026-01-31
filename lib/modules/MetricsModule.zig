@@ -107,6 +107,9 @@ fn updateFpsText(
 
     const fps = @as(f32, @floatFromInt(state.ptr.frames)) / @as(f32, @floatCast(state.ptr.timer));
     metrics_res.ptr.fps = fps;
+    if (fps > metrics_res.ptr.max_fps) {
+        metrics_res.ptr.max_fps = fps;
+    }
     state.ptr.timer = 0.0;
     state.ptr.frames = 0;
 

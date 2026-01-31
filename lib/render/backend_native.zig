@@ -10,6 +10,10 @@ pub const RendererConfig = struct {
     enable_validation: bool = false,
 };
 
+pub fn configForVsync(vsync: bool) RendererConfig {
+    return .{ .present_mode = if (vsync) .fifo else .immediate };
+}
+
 pub const Buffer = struct {
     buffer: *wgpu.Buffer,
     size: u64,
@@ -139,7 +143,21 @@ pub const Renderer = struct {
         const capabilities = try getSurfaceCapabilities(surface, adapter);
         defer capabilities.freeMembers();
         const surface_format = selectSurfaceFormat(capabilities);
+        if (config.present_mode) |requested| {
+            const modes = capabilities.present_modes[0..capabilities.present_mode_count];
+            var supported = false;
+            for (modes) |mode| {
+                if (mode == requested) {
+                    supported = true;
+                    break;
+                }
+            }
+            if (!supported) {
+                std.log.warn("Requested present mode {s} not supported; falling back", .{@tagName(requested)});
+            }
+        }
         const present_mode = selectPresentMode(capabilities, config.present_mode);
+        std.log.info("Renderer present mode: {s}", .{@tagName(present_mode)});
 
         const surface_size = native.size;
         configureSurface(device, surface, surface_format, surface_size.width, surface_size.height, present_mode);

@@ -59,7 +59,15 @@ fn initSystem(commands: *Commands) !void {
     if (commands.getResource(RenderState) != null) return;
 
     const surface_res = commands.getResource(RenderSurface) orelse return;
-    const config = if (commands.getResource(render.RendererConfig)) |cfg| cfg.* else render.RendererConfig{};
+    var config = if (commands.getResource(render.RendererConfig)) |cfg|
+        cfg.*
+    else
+        render.RendererConfig{};
+    if (commands.getResource(render.VSync)) |vsync| {
+        if (config.present_mode == null) {
+            config.present_mode = render.configForVsync(vsync.enabled).present_mode;
+        }
+    }
 
     var renderer = try render.Renderer.init(commands.allocator, surface_res.target, config);
     errdefer renderer.deinit();

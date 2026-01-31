@@ -607,6 +607,11 @@ async function start() {
     wasmApp = wasm.exports.wasmCreate();
   }
 
+  let useVsync = true;
+  if (wasm.exports.wasmVsyncEnabled) {
+    useVsync = Boolean(wasm.exports.wasmVsyncEnabled());
+  }
+
   function resizeAndNotify() {
     const canvas = document.querySelector("#canvas");
     const size = resizeCanvas(canvas);
@@ -621,9 +626,17 @@ async function start() {
     if (wasm.exports.wasmFrame) {
       wasm.exports.wasmFrame(wasmApp);
     }
-    requestAnimationFrame(frame);
+    if (useVsync) {
+      requestAnimationFrame(frame);
+    } else {
+      setTimeout(frame, 0);
+    }
   }
-  requestAnimationFrame(frame);
+  if (useVsync) {
+    requestAnimationFrame(frame);
+  } else {
+    setTimeout(frame, 0);
+  }
 
   window.addEventListener("beforeunload", () => {
     if (wasm.exports.wasmDeinit && wasmApp) {

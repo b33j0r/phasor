@@ -3,6 +3,10 @@ pub const RendererConfig = struct {
     enable_validation: bool = false,
 };
 
+pub fn configForVsync(_: bool) RendererConfig {
+    return .{};
+}
+
 pub const Buffer = struct {
     handle: u32 = 0,
     size: u64 = 0,

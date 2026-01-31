@@ -105,14 +105,6 @@ const MeshSlot = struct {
     alive: bool,
 };
 
-const std = @import("std");
-const builtin = @import("builtin");
-const common = @import("common");
-const backend = if (builtin.target.cpu.arch.isWasm())
-    @import("backend_web.zig")
-else
-    @import("backend_native.zig");
-
 pub const MeshFactory = struct {
     allocator: std.mem.Allocator,
     library: *MeshLibrary,
@@ -193,3 +185,12 @@ pub const MeshFactory = struct {
         return error.UnsupportedShape;
     }
 };
+
+// Imports
+const std = @import("std");
+const builtin = @import("builtin");
+const common = @import("common");
+const backend = if (builtin.target.cpu.arch.isWasm())
+    @import("backend_web.zig")
+else
+    @import("backend_native.zig");

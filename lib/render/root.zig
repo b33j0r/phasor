@@ -27,6 +27,9 @@ pub const MeshLibrary = mesh.MeshLibrary;
 pub const MeshFactory = mesh.MeshFactory;
 pub const RenderItem = queue.RenderItem;
 pub const RenderQueue = queue.RenderQueue;
+pub const VSync = struct {
+    enabled: bool = true,
+};
 pub const VertexColor = backend.VertexColor;
 pub const VertexUv = backend.VertexUv;
 pub const Triangle = backend.Triangle;
@@ -41,6 +44,10 @@ pub const textLayoutHash = text.layoutHash;
 pub const buildTextMesh = text.buildMesh;
 pub const Sprite = sprite.Sprite;
 pub const spriteSizeHash = sprite.sizeHash;
+
+pub fn configForVsync(vsync: bool) RendererConfig {
+    return backend.configForVsync(vsync);
+}
 
 pub const surface_glfw = if (builtin.target.cpu.arch.isWasm())
     struct {}

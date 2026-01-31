@@ -9,11 +9,11 @@ const is_wasm = builtin.target.cpu.arch.isWasm();
 
 pub const WindowFlags = common.WindowFlags;
 pub const WindowSettings = common.WindowSettings;
-pub const WindowConfig = WindowSettings;
 
 pub const Options = struct {
     canvas_id: []const u8 = "#canvas",
     window: WindowSettings = .{},
+    vsync: ?bool = false,
     install_window_module: bool = true,
     auto_surface: bool = true,
 };
@@ -72,6 +72,11 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             return @intCast(@intFromPtr(runner));
         }
 
+        pub fn wasmVsyncEnabled() callconv(.c) bool {
+            if (!is_wasm) return true;
+            return options.vsync orelse true;
+        }
+
         pub fn wasmFrame(handle: u32) callconv(.c) void {
             if (!is_wasm) return;
             if (handle == 0) return;
@@ -97,6 +102,10 @@ pub fn EntryPoint(comptime AppSpec: type) type {
 
             if (!is_wasm and options.install_window_module) {
                 try installWindowModule(app, options.window);
+            }
+
+            if (options.vsync) |vsync| {
+                try installVsyncResource(app, vsync);
             }
 
             if (options.auto_surface) {
@@ -131,6 +140,18 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             }
         }
 
+        fn installVsyncResource(app: *ecs.App, enabled: bool) !void {
+            var commands = ecs.Commands.init(app.allocator, app.io, &app.world);
+            defer commands.deinit();
+
+            if (!commands.hasResource(render.VSync)) {
+                try commands.insertResource(render.VSync{ .enabled = enabled });
+            }
+            if (!commands.isEmpty()) {
+                try commands.apply();
+            }
+        }
+
         fn setupSurface(commands: *ecs.Commands) !void {
             if (commands.hasResource(RenderSurface)) return;
 
@@ -141,7 +162,11 @@ pub fn EntryPoint(comptime AppSpec: type) type {
                 const window = @import("window");
                 const window_res = commands.getResource(window.Window) orelse return;
                 const handle = window_res.handle orelse return;
-                const surface = try render.surface_glfw.fromGlfwWindow(handle);
+                const vsync = if (commands.getResource(render.VSync)) |vsync_res|
+                    vsync_res.enabled
+                else
+                    true;
+                const surface = try render.surface_glfw.fromGlfwWindowWithVsync(handle, vsync);
                 try commands.insertResource(RenderSurface{ .target = surface });
             }
         }
@@ -152,6 +177,7 @@ pub fn exportWasm(comptime AppSpec: type) void {
     if (!builtin.target.cpu.arch.isWasm()) return;
     const Entry = EntryPoint(AppSpec);
     @export(&Entry.wasmCreate, .{ .name = "wasmCreate" });
+    @export(&Entry.wasmVsyncEnabled, .{ .name = "wasmVsyncEnabled" });
     @export(&Entry.wasmFrame, .{ .name = "wasmFrame" });
     @export(&Entry.wasmDeinit, .{ .name = "wasmDeinit" });
 }
