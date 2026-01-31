@@ -8,10 +8,7 @@ pub fn TypedColumn(comptime T: type) type {
 
         const Self = @This();
 
-        const has_deinit = switch (@typeInfo(T)) {
-            .@"struct", .@"enum", .@"union", .@"opaque" => @hasDecl(T, "deinit"),
-            else => false,
-        };
+        const has_deinit = traits.hasDeinit(T);
 
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{ .allocator = allocator };
@@ -63,7 +60,7 @@ pub fn TypedColumn(comptime T: type) type {
         }
 
         /// Removes by swapping with the last element.
-        /// Calls `deinit` on the removed value iff `T` has a `deinit` decl.
+        /// Calls `deinit` on the removed value iff `T` declares the Deinit trait.
         pub fn swapRemoveDeinit(self: *Self, index: usize) bool {
             if (index >= self.data.items.len) return false;
 
@@ -114,7 +111,7 @@ test "TypedColumn swapRemoveDeinit swaps and removes" {
 
 test "TypedColumn swapRemoveDeinit calls deinit when present" {
     var deinit_count: usize = 0;
-    const R = fixtures.DeinitCounterForTests(16);
+    const R = DeinitCounter(16);
 
     const C = TypedColumn(R);
     var col = C.init(std.testing.allocator);
@@ -132,7 +129,7 @@ test "TypedColumn swapRemoveDeinit calls deinit when present" {
 
 test "TypedColumn swapRemoveTake doesn't call deinit" {
     var deinit_count: usize = 0;
-    const R = fixtures.DeinitCounterForTests(8);
+    const R = DeinitCounter(8);
 
     const C = TypedColumn(R);
     var col = C.init(std.testing.allocator);
@@ -154,7 +151,7 @@ test "TypedColumn swapRemoveTake doesn't call deinit" {
 test "TypedColumn deinit calls deinit when present" {
     var deinit_count: usize = 0;
 
-    const Component = fixtures.DeinitCounterForTests(8);
+    const Component = DeinitCounter(8);
     const C = TypedColumn(Component);
     var col = C.init(std.testing.allocator);
     try col.push(try Component.init(std.testing.allocator, &deinit_count));
@@ -184,8 +181,35 @@ test "TypedColumn ZST basics" {
     try std.testing.expectEqual(@as(usize, 0), col.len());
 }
 
+fn DeinitCounter(comptime N: usize) type {
+    return struct {
+        allocator: std.mem.Allocator,
+        data: []u8,
+        counter: *usize,
+
+        pub const __traits__ = .{
+            struct { pub const __trait__ = traits.Deinit; },
+        };
+
+        pub fn init(allocator: std.mem.Allocator, counter: *usize) !@This() {
+            return .{
+                .allocator = allocator,
+                .data = try allocator.alloc(u8, N),
+                .counter = counter,
+            };
+        }
+
+        pub fn deinit(self: *@This()) void {
+            self.allocator.free(self.data);
+            self.counter.* += 1;
+            self.* = undefined;
+        }
+    };
+}
+
 // Imports
 const std = @import("std");
 const meta = @import("../meta.zig");
 const fixtures = @import("common").fixtures;
+const traits = @import("../Trait.zig");
 const zst_impl = @import("typed_column_zst.zig");

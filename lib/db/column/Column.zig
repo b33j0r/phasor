@@ -4,7 +4,7 @@ column: *anyopaque,
 type_id: meta.TypeId,
 size: usize,
 alignment: usize,
-trait: ?Trait,
+group_traits: []const traits.GroupTrait,
 vtable: *const VTable,
 
 const Self = @This();
@@ -90,7 +90,7 @@ pub fn init(comptime T: type, allocator: std.mem.Allocator) !Self {
         .type_id = meta.typeId(T),
         .size = @sizeOf(T),
         .alignment = @alignOf(T),
-        .trait = Trait.maybeFrom(T),
+        .group_traits = traits.groupTraits(T),
         .vtable = &.{
             .destroy = vt.destroy,
             .create_empty = vt.createEmpty,
@@ -114,7 +114,7 @@ pub fn deinit(self: *Self) void {
         .type_id = 0,
         .size = 0,
         .alignment = 0,
-        .trait = null,
+        .group_traits = &.{},
         .vtable = undefined,
     };
 }
@@ -127,7 +127,7 @@ pub fn cloneEmpty(self: *const Self, allocator: std.mem.Allocator) !Self {
         .type_id = self.type_id,
         .size = self.size,
         .alignment = self.alignment,
-        .trait = self.trait,
+        .group_traits = self.group_traits,
         .vtable = self.vtable,
     };
 }
@@ -232,7 +232,7 @@ test "Column pushFromPtr rejects misaligned pointer" {
 
 test "Column swapRemoveTake doesn't call deinit" {
     var deinit_count: usize = 0;
-    const R = fixtures.DeinitCounterForTests(16);
+    const R = DeinitCounter(16);
 
     var col = try Self.init(R, std.testing.allocator);
     errdefer col.deinit();
@@ -265,7 +265,7 @@ test "Column swapRemoveTake rejects misaligned out_ptr" {
 
 test "Column swapRemoveDeinit calls deinit when present" {
     var deinit_count: usize = 0;
-    const R = fixtures.DeinitCounterForTests(16);
+    const R = DeinitCounter(16);
 
     var col = try Self.init(R, std.testing.allocator);
     errdefer col.deinit();
@@ -295,9 +295,35 @@ test "Column swapRemoveTake works with enum components" {
     try std.testing.expectEqual(@as(usize, 1), col.len());
 }
 
+fn DeinitCounter(comptime N: usize) type {
+    return struct {
+        allocator: std.mem.Allocator,
+        data: []u8,
+        counter: *usize,
+
+        pub const __traits__ = .{
+            struct { pub const __trait__ = traits.Deinit; },
+        };
+
+        pub fn init(allocator: std.mem.Allocator, counter: *usize) !@This() {
+            return .{
+                .allocator = allocator,
+                .data = try allocator.alloc(u8, N),
+                .counter = counter,
+            };
+        }
+
+        pub fn deinit(self: *@This()) void {
+            self.allocator.free(self.data);
+            self.counter.* += 1;
+            self.* = undefined;
+        }
+    };
+}
+
 // Imports
 const std = @import("std");
 const meta = @import("../meta.zig");
-const Trait = @import("../Trait.zig");
+const traits = @import("../Trait.zig");
 const typed_column = @import("typed_column.zig");
 const fixtures = @import("common").fixtures;

@@ -304,7 +304,7 @@ fn updateTextMeshes(
 }
 
 fn updateLayerCameras(
-    cameras: Query(.{ common.Camera3d }),
+    cameras: Query(.{common.Camera3d}),
     layer_cameras: ResMut(LayerCameras),
 ) !void {
     layer_cameras.ptr.clear();
@@ -477,12 +477,10 @@ fn layerKeyForRow(row: db.QueryResult.Row) i32 {
 fn layerKeyForTable(table: *const db.table.Table) i32 {
     const trait_id = db.meta.typeId(render.LayerN);
     for (table.columns) |column| {
-        const trait = column.trait orelse continue;
-        if (trait.id != trait_id) continue;
-        return switch (trait.kind) {
-            .Grouped => |grouped| grouped.group_key,
-            else => 0,
-        };
+        for (column.group_traits) |group_trait| {
+            if (group_trait.trait_id != trait_id) continue;
+            return group_trait.key;
+        }
     }
     return 0;
 }

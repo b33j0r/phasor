@@ -2,7 +2,7 @@ const std = @import("std");
 const meta = @import("meta.zig");
 const Database = @import("Database.zig");
 const QueryResult = @import("QueryResult.zig");
-const Table = @import("table.zig").Table;
+const traits = @import("Trait.zig");
 
 allocator: std.mem.Allocator,
 database: *Database,
@@ -22,7 +22,12 @@ pub fn fromTraitType(
     };
 
     const trait_id = meta.typeId(TraitT);
-    group_by.groups = try groupTablesByTrait(allocator, database, database.tables.items, trait_id);
+    var table_indices: std.ArrayListUnmanaged(usize) = .empty;
+    defer table_indices.deinit(allocator);
+    for (database.tables.items, 0..) |_, idx| {
+        try table_indices.append(allocator, idx);
+    }
+    group_by.groups = try groupTablesByTrait(allocator, database, table_indices.items, trait_id);
     return group_by;
 }
 
@@ -39,62 +44,51 @@ pub fn fromTraitTypeAndTableIndices(
     };
 
     const trait_id = meta.typeId(TraitT);
-    var tables: std.ArrayListUnmanaged(*const Table) = .empty;
-    defer tables.deinit(allocator);
-
-    for (table_indices) |idx| {
-        if (idx >= database.tables.items.len) continue;
-        try tables.append(allocator, &database.tables.items[idx]);
-    }
-
-    group_by.groups = try groupTablesByTrait(allocator, database, tables.items, trait_id);
+    group_by.groups = try groupTablesByTrait(allocator, database, table_indices, trait_id);
     return group_by;
 }
 
 fn groupTablesByTrait(
     allocator: std.mem.Allocator,
     database: *Database,
-    tables: []const *const Table,
+    table_indices: []const usize,
     trait_id: meta.TypeId,
 ) !std.ArrayListUnmanaged(Group) {
     var groups = std.ArrayListUnmanaged(Group).empty;
 
-    for (tables) |table_ptr| {
-        const table = table_ptr.*;
-        const table_index = table.table_index;
+    for (table_indices) |table_index| {
+        if (table_index >= database.tables.items.len) continue;
+        const table = &database.tables.items[table_index];
 
         for (table.columns) |column| {
-            const trait = column.trait orelse continue;
-            if (trait.id != trait_id) continue;
+            for (column.group_traits) |group_trait| {
+                if (group_trait.trait_id != trait_id) continue;
+                const group_key = group_trait.key;
 
-            const group_key = switch (trait.kind) {
-                .Grouped => |grouped| grouped.group_key,
-                else => continue,
-            };
-
-            var found_group: ?*Group = null;
-            for (groups.items) |*group| {
-                if (group.key == group_key) {
-                    found_group = group;
-                    break;
+                var found_group: ?*Group = null;
+                for (groups.items) |*group| {
+                    if (group.key == group_key) {
+                        found_group = group;
+                        break;
+                    }
                 }
-            }
 
-            if (found_group == null) {
-                const new_group = Group.init(allocator, column.type_id, group_key, database);
-                try groups.append(allocator, new_group);
-                found_group = &groups.items[groups.items.len - 1];
-            }
-
-            var already_added = false;
-            for (found_group.?.table_indices.items) |existing_id| {
-                if (existing_id == table_index) {
-                    already_added = true;
-                    break;
+                if (found_group == null) {
+                    const new_group = Group.init(allocator, column.type_id, group_key, database);
+                    try groups.append(allocator, new_group);
+                    found_group = &groups.items[groups.items.len - 1];
                 }
-            }
-            if (!already_added) {
-                try found_group.?.addTableIndex(table_index);
+
+                var already_added = false;
+                for (found_group.?.table_indices.items) |existing_id| {
+                    if (existing_id == table_index) {
+                        already_added = true;
+                        break;
+                    }
+                }
+                if (!already_added) {
+                    try found_group.?.addTableIndex(table_index);
+                }
             }
         }
     }
@@ -238,8 +232,12 @@ test "Database groupBy" {
     const ComponentTypeFactory = struct {
         pub fn Component(N: i32) type {
             return struct {
-                pub const __group_key__ = N;
-                pub const __trait__ = ComponentN;
+                pub const __traits__ = .{
+                    struct {
+                        pub const __trait__ = traits.Group(ComponentN);
+                        pub const key: i32 = N;
+                    },
+                };
             };
         }
 
@@ -281,8 +279,12 @@ test "GroupByResult iteration order" {
     const ComponentTypeFactory = struct {
         pub fn Component(N: i32) type {
             return struct {
-                pub const __group_key__ = N;
-                pub const __trait__ = ComponentN;
+                pub const __traits__ = .{
+                    struct {
+                        pub const __trait__ = traits.Group(ComponentN);
+                        pub const key: i32 = N;
+                    },
+                };
             };
         }
 

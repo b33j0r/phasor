@@ -4,7 +4,6 @@ test "import tests" {
     _ = exportWasm;
     _ = Options;
     _ = WindowSettings;
-    _ = WindowConfig;
     _ = WindowFlags;
 }
 
@@ -13,5 +12,4 @@ pub const main = @import("entry.zig").main;
 pub const exportWasm = @import("entry.zig").exportWasm;
 pub const Options = @import("entry.zig").Options;
 pub const WindowSettings = @import("entry.zig").WindowSettings;
-pub const WindowConfig = @import("entry.zig").WindowConfig;
 pub const WindowFlags = @import("entry.zig").WindowFlags;

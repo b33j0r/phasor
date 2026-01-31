@@ -7,10 +7,7 @@ pub fn TypedColumnZst(comptime T: type) type {
 
         const Self = @This();
         const zst_value: T = .{};
-        const has_deinit = switch (@typeInfo(T)) {
-            .@"struct", .@"enum", .@"union", .@"opaque" => @hasDecl(T, "deinit"),
-            else => false,
-        };
+        const has_deinit = traits.hasDeinit(T);
 
         const has_init_default = switch (@typeInfo(T)) {
             .@"struct", .@"enum", .@"union", .@"opaque" => @hasDecl(T, "initDefault"),
@@ -107,18 +104,35 @@ test "TypedColumnZst basic ops" {
 }
 
 test "TypedColumnZst deinit calls deinit when present" {
-    const C = TypedColumnZst(fixtures.ZstDeinit);
+    const Counter = struct {
+        var value: usize = 0;
+    };
+    const Zst = struct {
+        pub const __traits__ = .{
+            struct { pub const __trait__ = traits.Deinit; },
+        };
 
-    defer fixtures.resetZstDeinitCount();
+        pub fn initDefault() @This() {
+            return .{};
+        }
+
+        pub fn deinit(_: *@This()) void {
+            Counter.value += 1;
+        }
+    };
+    const C = TypedColumnZst(Zst);
+
+    Counter.value = 0;
     var col = C.init(std.testing.allocator);
     try col.push(.{});
     try col.push(.{});
 
     col.deinit();
-    try std.testing.expectEqual(@as(usize, 2), fixtures.getZstDeinitCount());
+    try std.testing.expectEqual(@as(usize, 2), Counter.value);
 }
 
 // Imports
 const std = @import("std");
 const meta = @import("../meta.zig");
 const fixtures = @import("common").fixtures;
+const traits = @import("../Trait.zig");

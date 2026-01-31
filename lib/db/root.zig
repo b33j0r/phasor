@@ -22,3 +22,6 @@ pub const QuerySpec = @import("QuerySpec.zig");
 pub const QueryResult = @import("QueryResult.zig");
 pub const GroupByResult = @import("GroupByResult.zig");
 pub const Trait = @import("Trait.zig");
+pub const Deinit = Trait.Deinit;
+pub const Group = Trait.Group;
+pub const GroupTrait = Trait.GroupTrait;
