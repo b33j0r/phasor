@@ -286,14 +286,14 @@ const StbModule = struct {
         const stb_include = stb_dep.path("");
 
         const stb_mod = ctx.b.createModule(.{
-            .root_source_file = ctx.b.path("deps/stb/root.zig"),
+            .root_source_file = ctx.b.path("deps/stb_truetype/root.zig"),
             .target = ctx.target,
             .optimize = ctx.optimize,
             .link_libc = true,
         });
         stb_mod.addIncludePath(stb_include);
         stb_mod.addCSourceFiles(.{
-            .root = ctx.b.path("deps/stb"),
+            .root = ctx.b.path("deps/stb_truetype"),
             .files = &.{"stb_truetype.c"},
         });
 
@@ -701,14 +701,14 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .optimize = ctx.optimize,
     });
     const wasm_stb = ctx.b.createModule(.{
-        .root_source_file = ctx.b.path("deps/stb/root.zig"),
+        .root_source_file = ctx.b.path("deps/stb_truetype/root.zig"),
         .target = wasm_target,
         .optimize = ctx.optimize,
         .link_libc = true,
     });
     wasm_stb.addIncludePath(wasm_stb_dep.path(""));
     wasm_stb.addCSourceFiles(.{
-        .root = ctx.b.path("deps/stb"),
+        .root = ctx.b.path("deps/stb_truetype"),
         .files = &.{"stb_truetype.c"},
     });
     const wasm_stb_image = ctx.b.createModule(.{
