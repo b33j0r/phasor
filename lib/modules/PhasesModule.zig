@@ -353,38 +353,23 @@ test "phase transitions run enter/exit hooks in order" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var world = World.init(allocator);
-    defer world.deinit();
+    var app = try ecs.App.init(allocator, &io);
+    defer app.deinit();
 
-    try world.insertResource(LogBuffer.init(allocator));
+    try app.world.insertResource(LogBuffer.init(allocator));
+    try app.installModule(TestPhases);
 
-    var schedule_manager = try schedule.ScheduleManager.init(allocator);
-    defer schedule_manager.deinit(&world);
+    try app.runScheduleByLabel(schedule.DefaultSchedule.Startup);
+    try app.runScheduleByLabel(schedule.DefaultSchedule.BeforeFrame); // MainMenu.enter
+    try app.runScheduleByLabel(schedule.DefaultSchedule.Update);
+    try app.runScheduleByLabel(schedule.DefaultSchedule.BeforeFrame); // MainMenu.exit → InGame.enter → Playing.enter
+    try app.runScheduleByLabel(schedule.DefaultSchedule.Update);
+    try app.runScheduleByLabel(schedule.DefaultSchedule.BeforeFrame); // Playing.exit → Paused.enter
+    try app.runScheduleByLabel(schedule.DefaultSchedule.Update);
+    try app.runScheduleByLabel(schedule.DefaultSchedule.BeforeFrame); // Paused.exit → InGame.exit → Quit.enter
+    try app.runScheduleByLabel(schedule.DefaultSchedule.Update);
 
-    var commands = Commands.init(allocator, &io, &world);
-    defer commands.deinit();
-    var app_cmds = AppCommands.init(allocator, &io, &world, &schedule_manager);
-
-    try Module.install(&app_cmds, &commands, TestPhases);
-    if (!commands.isEmpty()) {
-        try commands.apply();
-    }
-
-    const startup = schedule_manager.schedulePtr(schedule.DefaultSchedule.Startup).?;
-    const before_frame = schedule_manager.schedulePtr(schedule.DefaultSchedule.BeforeFrame).?;
-    const update = schedule_manager.schedulePtr(schedule.DefaultSchedule.Update).?;
-
-    try runScheduleOnce(allocator, &io, &world, startup);
-    try runScheduleOnce(allocator, &io, &world, before_frame); // MainMenu.enter
-    try runScheduleOnce(allocator, &io, &world, update);
-    try runScheduleOnce(allocator, &io, &world, before_frame); // MainMenu.exit → InGame.enter → Playing.enter
-    try runScheduleOnce(allocator, &io, &world, update);
-    try runScheduleOnce(allocator, &io, &world, before_frame); // Playing.exit → Paused.enter
-    try runScheduleOnce(allocator, &io, &world, update);
-    try runScheduleOnce(allocator, &io, &world, before_frame); // Paused.exit → InGame.exit → Quit.enter
-    try runScheduleOnce(allocator, &io, &world, update);
-
-    const log = world.getResource(LogBuffer).?;
+    const log = app.world.getResource(LogBuffer).?;
     const expected = [_][]const u8{
         "MainMenu.enter",
         "MainMenu.exit",
@@ -402,7 +387,7 @@ test "phase transitions run enter/exit hooks in order" {
         try std.testing.expectEqualStrings(exp, log.items.items[idx]);
     }
 
-    const cur = world.getResource(TestPhases.CurrentPhase).?;
+    const cur = app.world.getResource(TestPhases.CurrentPhase).?;
     try std.testing.expect(cur.phase == MyPhases.Quit);
 }
 
@@ -496,42 +481,11 @@ fn logPhase(ctx: *PhaseContext, name: []const u8) !void {
     try log.items.append(log.allocator, name);
 }
 
-/// Internal for tests. Run a schedule once, applying commands immediately.
-fn runScheduleOnce(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
-    world: *World,
-    schedule_ptr: *schedule.Schedule,
-) !void {
-    const command_queue_buffer = try allocator.alloc(CommandBatch, 64);
-    defer allocator.free(command_queue_buffer);
-    var command_queue = std.Io.Queue(CommandBatch).init(command_queue_buffer);
-
-    const system_order = try schedule_ptr.systemOrder(allocator);
-    for (system_order) |system_index| {
-        const node = schedule_ptr.systemNodeAt(system_index);
-        if (!node.enabled) continue;
-
-        var commands = Commands.init(allocator, io, world);
-        defer commands.deinit();
-
-        try node.system.run(&commands);
-        if (!commands.isEmpty()) {
-            try commands.flushToQueue(&command_queue);
-            var batch = try command_queue.getOneUncancelable(io.*);
-            defer batch.deinit();
-            try batch.apply(world);
-        }
-    }
-}
-
 // Imports
 const std = @import("std");
 const ecs = @import("ecs");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
-const CommandBatch = ecs.CommandBatch;
-const Module = ecs.Module;
 const World = ecs.World;
 const System = ecs.system.System;
 const schedule = ecs.schedule;

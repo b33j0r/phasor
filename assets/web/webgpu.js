@@ -364,7 +364,8 @@ const wasiBase = {
   clock_time_get(clockId, precision, timePtr) {
     if (!memory) return 0;
     const view = new DataView(memory.buffer);
-    const now = BigInt(Date.now()) * 1000000n;
+    const nowMs = performance.timeOrigin + performance.now();
+    const now = BigInt(Math.floor(nowMs * 1000000));
     view.setBigUint64(timePtr, now, true);
     return 0;
   },

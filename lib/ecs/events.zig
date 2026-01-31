@@ -249,34 +249,6 @@ pub fn EventReader(comptime T: type) type {
     };
 }
 
-fn runScheduleOnce(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
-    world: *World,
-    schedule_ptr: *schedule_mod.Schedule,
-) !void {
-    const command_queue_buffer = try allocator.alloc(CommandBatch, 64);
-    defer allocator.free(command_queue_buffer);
-    var command_queue = std.Io.Queue(CommandBatch).init(command_queue_buffer);
-
-    const system_order = try schedule_ptr.systemOrder(allocator);
-    for (system_order) |system_index| {
-        const node = schedule_ptr.systemNodeAt(system_index);
-        if (!node.enabled) continue;
-
-        var commands = Commands.init(allocator, io, world);
-        defer commands.deinit();
-
-        try node.system.run(&commands);
-        if (!commands.isEmpty()) {
-            try commands.flushToQueue(&command_queue);
-            var batch = try command_queue.getOneUncancelable(io.*);
-            defer batch.deinit();
-            try batch.apply(world);
-        }
-    }
-}
-
 // Tests
 test "events send and receive through system params" {
     const allocator = std.testing.allocator;
@@ -284,10 +256,10 @@ test "events send and receive through system params" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var world = World.init(allocator);
-    defer world.deinit();
+    var app = try App.init(allocator, &io);
+    defer app.deinit();
 
-    try world.registerEvent(&io, u32, 8);
+    try app.world.registerEvent(app.io, u32, 8);
 
     const Reader = EventReader(u32);
     const Writer = EventWriter(u32);
@@ -300,15 +272,10 @@ test "events send and receive through system params" {
         }
     }.run;
 
-    var schedule_manager = try schedule_mod.ScheduleManager.init(allocator);
-    defer schedule_manager.deinit(&world);
+    try app.schedule_manager.addSystem(&app.world, schedule_mod.DefaultSchedule.Update, sys_fn);
+    try app.runScheduleByLabel(schedule_mod.DefaultSchedule.Update);
 
-    try schedule_manager.addSystem(&world, schedule_mod.DefaultSchedule.Update, sys_fn);
-    const schedule_ptr = schedule_manager.schedulePtr(schedule_mod.DefaultSchedule.Update).?;
-
-    try runScheduleOnce(allocator, &io, &world, schedule_ptr);
-
-    const received = world.getResource(Received).?;
+    const received = app.world.getResource(Received).?;
     try std.testing.expectEqual(@as(u32, 42), received.value.?);
 }
 
@@ -318,10 +285,10 @@ test "events fan out to multiple readers" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var world = World.init(allocator);
-    defer world.deinit();
+    var app = try App.init(allocator, &io);
+    defer app.deinit();
 
-    try world.registerEvent(&io, u32, 4);
+    try app.world.registerEvent(app.io, u32, 4);
 
     const Reader = EventReader(u32);
     const Writer = EventWriter(u32);
@@ -345,18 +312,13 @@ test "events fan out to multiple readers" {
         }
     }.run;
 
-    var schedule_manager = try schedule_mod.ScheduleManager.init(allocator);
-    defer schedule_manager.deinit(&world);
+    try app.schedule_manager.addSystem(&app.world, schedule_mod.DefaultSchedule.Update, sys_write);
+    try app.schedule_manager.addSystem(&app.world, schedule_mod.DefaultSchedule.Update, sys_a);
+    try app.schedule_manager.addSystem(&app.world, schedule_mod.DefaultSchedule.Update, sys_b);
+    try app.runScheduleByLabel(schedule_mod.DefaultSchedule.Update);
 
-    try schedule_manager.addSystem(&world, schedule_mod.DefaultSchedule.Update, sys_write);
-    try schedule_manager.addSystem(&world, schedule_mod.DefaultSchedule.Update, sys_a);
-    try schedule_manager.addSystem(&world, schedule_mod.DefaultSchedule.Update, sys_b);
-    const schedule_ptr = schedule_manager.schedulePtr(schedule_mod.DefaultSchedule.Update).?;
-
-    try runScheduleOnce(allocator, &io, &world, schedule_ptr);
-
-    const received_a = world.getResource(ReceivedA).?;
-    const received_b = world.getResource(ReceivedB).?;
+    const received_a = app.world.getResource(ReceivedA).?;
+    const received_b = app.world.getResource(ReceivedB).?;
     try std.testing.expectEqual(@as(u32, 7), received_a.value.?);
     try std.testing.expectEqual(@as(u32, 7), received_b.value.?);
 }
@@ -367,10 +329,10 @@ test "events trySend reports full queues" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var world = World.init(allocator);
-    defer world.deinit();
+    var app = try App.init(allocator, &io);
+    defer app.deinit();
 
-    try world.registerEvent(&io, u32, 1);
+    try app.world.registerEvent(app.io, u32, 1);
 
     const Reader = EventReader(u32);
     const Writer = EventWriter(u32);
@@ -384,20 +346,16 @@ test "events trySend reports full queues" {
         fn run(_: Reader) void {}
     }.run;
 
-    var schedule_manager = try schedule_mod.ScheduleManager.init(allocator);
-    defer schedule_manager.deinit(&world);
+    try app.schedule_manager.addSystem(&app.world, schedule_mod.DefaultSchedule.Update, sys_fn);
+    try app.schedule_manager.addSystem(&app.world, schedule_mod.DefaultSchedule.Update, sys_read);
 
-    try schedule_manager.addSystem(&world, schedule_mod.DefaultSchedule.Update, sys_fn);
-    try schedule_manager.addSystem(&world, schedule_mod.DefaultSchedule.Update, sys_read);
-    const schedule_ptr = schedule_manager.schedulePtr(schedule_mod.DefaultSchedule.Update).?;
-
-    try std.testing.expectError(error.QueueFull, runScheduleOnce(allocator, &io, &world, schedule_ptr));
+    try std.testing.expectError(error.QueueFull, app.runScheduleByLabel(schedule_mod.DefaultSchedule.Update));
 }
 
 // Imports
 const std = @import("std");
+const App = @import("App.zig");
 const Commands = @import("Commands.zig");
 const World = @import("World.zig");
 const meta = @import("db").meta;
 const schedule_mod = @import("schedule.zig");
-const CommandBatch = @import("Commands.zig").CommandBatch;

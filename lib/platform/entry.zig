@@ -128,7 +128,6 @@ pub fn EntryPoint(comptime AppSpec: type) type {
                         .width = config.width,
                         .height = config.height,
                         .title = config.title,
-                        .target_fps = config.target_fps,
                         .flags = config.flags,
                     });
                 }
@@ -152,6 +151,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             }
         }
 
+
         fn setupSurface(commands: *ecs.Commands) !void {
             if (commands.hasResource(RenderSurface)) return;
 
@@ -170,6 +170,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
                 try commands.insertResource(RenderSurface{ .target = surface });
             }
         }
+
     };
 }
 

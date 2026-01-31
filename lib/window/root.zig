@@ -15,7 +15,6 @@ pub const Window = struct {
 
 pub const WindowBounds = common.WindowBounds;
 pub const RenderBounds = common.RenderBounds;
-pub const TargetFps = common.TargetFps;
 pub const ContentScale = common.ContentScale;
 pub const WindowResized = common.WindowResized;
 pub const ContentScaleChanged = common.ContentScaleChanged;
@@ -86,7 +85,6 @@ fn initSystem(commands: *Commands, settings_opt: ResOpt(WindowSettings)) !void {
         .width = @floatFromInt(fb_w),
         .height = @floatFromInt(fb_h),
     });
-    try commands.insertResource(TargetFps{ .value = settings.target_fps });
     try commands.insertResource(ContentScale{ .x = xscale, .y = yscale });
 
     std.log.info(

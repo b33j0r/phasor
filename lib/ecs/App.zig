@@ -116,7 +116,7 @@ pub fn run(self: *Self) !u8 {
 pub fn start(self: *Self) !void {
     if (self.startup_run) return;
     const command_queue = try self.ensureCommandQueue();
-    try self.runScheduleByLabel(schedule_mod.DefaultSchedule.Startup, command_queue);
+    try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.Startup, command_queue);
     self.startup_run = true;
 }
 
@@ -131,12 +131,19 @@ pub fn step(self: *Self) !?u8 {
     });
     if (self.world.getResource(resources.Exit)) |exit| {
         if (!self.shutdown_run) {
-            try self.runScheduleByLabel(schedule_mod.DefaultSchedule.Shutdown, command_queue);
+            try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.Shutdown, command_queue);
             self.shutdown_run = true;
         }
         return exit.code;
     }
     return null;
+}
+
+pub fn runScheduleByLabel(self: *Self, label: []const u8) !void {
+    const schedule_ptr = self.schedule_manager.schedulePtr(label) orelse
+        return schedule_mod.ScheduleManager.Error.ScheduleNotFound;
+    const command_queue = try self.ensureCommandQueue();
+    try self.runScheduleInternal(schedule_ptr, command_queue);
 }
 
 fn ensureCommandQueue(self: *Self) !*std.Io.Queue(CommandBatch) {
@@ -148,13 +155,13 @@ fn ensureCommandQueue(self: *Self) !*std.Io.Queue(CommandBatch) {
     return &self.command_queue.?;
 }
 
-fn runScheduleByLabel(
+fn runScheduleByLabelInternal(
     self: *Self,
     label: []const u8,
     command_queue: *std.Io.Queue(CommandBatch),
 ) !void {
     if (self.schedule_manager.schedulePtr(label)) |schedule_ptr| {
-        try self.runSchedule(schedule_ptr, command_queue);
+        try self.runScheduleInternal(schedule_ptr, command_queue);
     }
 }
 
@@ -173,11 +180,15 @@ fn runSchedules(self: *Self, command_queue: *std.Io.Queue(CommandBatch), options
         if (options.skip_shutdown and std.mem.eql(u8, schedule_ptr.label, schedule_mod.DefaultSchedule.Shutdown)) {
             continue;
         }
-        try self.runSchedule(schedule_ptr, command_queue);
+        try self.runScheduleInternal(schedule_ptr, command_queue);
     }
 }
 
-fn runSchedule(self: *Self, schedule_ptr: *schedule_mod.Schedule, command_queue: *std.Io.Queue(CommandBatch)) !void {
+fn runScheduleInternal(
+    self: *Self,
+    schedule_ptr: *schedule_mod.Schedule,
+    command_queue: *std.Io.Queue(CommandBatch),
+) !void {
     const system_order = try schedule_ptr.systemOrder(self.allocator);
     for (system_order) |system_index| {
         const node = schedule_ptr.systemNodeAt(system_index);

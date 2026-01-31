@@ -37,7 +37,6 @@ pub const WindowSettings = struct {
     width: u32 = 800,
     height: u32 = 450,
     title: []const u8 = "Phasor Lite",
-    target_fps: i32 = 60,
     flags: u32 = WindowFlags.Resizable | WindowFlags.HighDPI,
 };
 
@@ -59,9 +58,6 @@ pub const WindowBounds = struct {
     height: u32,
 };
 
-pub const TargetFps = struct {
-    value: i32,
-};
 
 pub const ContentScale = struct {
     x: f32,
