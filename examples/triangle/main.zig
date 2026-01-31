@@ -6,20 +6,16 @@ const render = phasor.renderer;
 const common = phasor.common;
 const platform = phasor.platform;
 
-const SceneReady = struct {};
-
 const App = struct {
     pub fn configure(app: *ecs.App) !void {
         try app.installModule(modules.RenderModule);
-        try app.addSystemTo(ecs.schedule.DefaultSchedule.BeforeFrame, setupScene);
+        try app.addSystemTo("Startup", setupScene);
     }
 };
 
 pub const main = platform.main(App);
 
 fn setupScene(commands: *ecs.Commands) !void {
-    if (commands.hasResource(SceneReady)) return;
-
     _ = try commands.createEntity(.{
         render.Triangle{
             .vertices = .{
@@ -32,5 +28,4 @@ fn setupScene(commands: *ecs.Commands) !void {
 
     try commands.insertResource(common.ClearColor{ .color = common.Color.BLACK });
     try commands.insertResource(common.Camera3d{ .Viewport = .{ .mode = .Center } });
-    try commands.insertResource(SceneReady{});
 }

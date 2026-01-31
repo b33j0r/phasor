@@ -11,8 +11,6 @@ const DeltaTime = modules.TimeModule.DeltaTime;
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 
-const SceneReady = struct {};
-
 const Rotator = struct {
     angle_x: f32 = 0.0,
     angle_y: f32 = 0.0,
@@ -42,7 +40,7 @@ const App = struct {
             .text_color = common.Color.WHITE,
         });
 
-        try app.addSystemTo(ecs.schedule.DefaultSchedule.BeforeFrame, setupScene);
+        try app.addSystemTo("Startup", setupScene);
         try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, spinCube);
     }
 };
@@ -50,8 +48,6 @@ const App = struct {
 pub const main = platform.main(App);
 
 fn setupScene(commands: *ecs.Commands) !void {
-    if (commands.hasResource(SceneReady)) return;
-
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     var factory = render.MeshFactory.init(commands.allocator, mesh_library);
@@ -124,7 +120,6 @@ fn setupScene(commands: *ecs.Commands) !void {
         common.Camera3d{ .Viewport = .{ .mode = .TopLeft } },
         render.CameraLayer(1000){},
     });
-    try commands.insertResource(SceneReady{});
 }
 
 fn spinCube(dt: Res(DeltaTime), query: Query(.{ common.Transform, Rotator })) void {

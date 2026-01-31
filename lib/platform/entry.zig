@@ -109,7 +109,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             }
 
             if (options.auto_surface) {
-                try app.addSystemTo(ecs.schedule.DefaultSchedule.BeforeFrame, setupSurface);
+                try app.addSystemTo(ecs.schedule.DefaultSchedule.Startup, setupSurface);
             }
 
             try AppSpec.configure(app);

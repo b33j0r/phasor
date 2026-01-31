@@ -60,8 +60,8 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
         try commands.apply();
     }
 
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, initSystem);
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, ensureAssetsContextSystem);
+    try app.addSystem(schedule.DefaultSchedule.Startup, initSystem);
+    try app.addSystem(schedule.DefaultSchedule.Startup, ensureAssetsContextSystem);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, handleViewportResize);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateSpriteMeshes);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateTextMeshes);
@@ -403,35 +403,45 @@ fn renderSystem(
             }
         }
 
-        for (queue.ptr.items.items) |item| {
+        var blended: std.ArrayListUnmanaged(BlendItem) = .empty;
+        defer blended.deinit(commands.allocator);
+
+        for (queue.ptr.items.items, 0..) |item, item_index| {
             switch (item) {
                 .mesh => |instance| {
                     if (instance.layer != layer) continue;
                     if (!instance.blend) continue;
                     const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
-                    const model = if (viewport_matrix) |vp|
-                        common.Mat4.mul(vp, instance.transform)
-                    else if (projection) |proj|
-                        common.Mat4.mul(proj, instance.transform)
-                    else
-                        instance.transform;
-
+                    const model = resolveModel(instance.transform, viewport_matrix, projection);
                     const color_f = common.Color.F32.fromColor(instance.color);
                     const gpu_instance = render.BackendMeshInstance{
                         .transform = model,
                         .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
                     };
-
                     const material = instance.material orelse state.default_material;
-                    frame.draw(.{ .textured_quad = .{
+                    try blended.append(commands.allocator, .{
+                        .depth = clipDepth(model),
+                        .order = item_index,
                         .mesh = mesh.*,
                         .material = material,
                         .instance = gpu_instance,
-                        .blend = instance.blend,
-                    } });
+                    });
                 },
                 else => {},
             }
+        }
+
+        if (blended.items.len > 1) {
+            std.sort.pdq(BlendItem, blended.items, {}, blendItemLessThan);
+        }
+
+        for (blended.items) |draw| {
+            frame.draw(.{ .textured_quad = .{
+                .mesh = draw.mesh,
+                .material = draw.material,
+                .instance = draw.instance,
+                .blend = true,
+            } });
         }
     }
 
@@ -579,6 +589,39 @@ fn positionToNdcTopLeft(pos: [2]f32, size: render.Size) [2]f32 {
     const x = (pos[0] / w) * 2.0 - 1.0;
     const y = 1.0 - (pos[1] / h) * 2.0;
     return .{ x, y };
+}
+
+const BlendItem = struct {
+    depth: f32,
+    order: usize,
+    mesh: render.Mesh,
+    material: render.Material,
+    instance: render.BackendMeshInstance,
+};
+
+fn resolveModel(transform: common.Mat4, viewport_matrix: ?common.Mat4, projection: ?common.Mat4) common.Mat4 {
+    if (viewport_matrix) |vp| {
+        return common.Mat4.mul(vp, transform);
+    }
+    if (projection) |proj| {
+        return common.Mat4.mul(proj, transform);
+    }
+    return transform;
+}
+
+fn clipDepth(model: common.Mat4) f32 {
+    const w = model.m[3][3];
+    if (w != 0.0) {
+        return model.m[3][2] / w;
+    }
+    return model.m[3][2];
+}
+
+fn blendItemLessThan(_: void, a: BlendItem, b: BlendItem) bool {
+    if (a.depth == b.depth) {
+        return a.order < b.order;
+    }
+    return a.depth > b.depth;
 }
 
 fn positionToNdcCenter(pos: [2]f32, size: render.Size) [2]f32 {

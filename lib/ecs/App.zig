@@ -171,7 +171,7 @@ const RunSchedulesOptions = struct {
 };
 
 fn runSchedules(self: *Self, command_queue: *std.Io.Queue(CommandBatch), options: RunSchedulesOptions) !void {
-    const schedule_order = try self.schedule_manager.executionOrder();
+    const schedule_order = try self.schedule_manager.executionOrderFrom(schedule_mod.DefaultSchedule.BeforeFrame);
     for (schedule_order) |schedule_index| {
         var schedule_ptr = self.schedule_manager.scheduleAt(schedule_index);
         if (options.skip_startup and std.mem.eql(u8, schedule_ptr.label, schedule_mod.DefaultSchedule.Startup)) {

@@ -6,8 +6,6 @@ const Velocity = struct {
     v: common.Vec2 = .{},
 };
 
-const SceneReady = struct {};
-
 const Bounds = struct {
     width: f32,
     height: f32,
@@ -35,7 +33,7 @@ const App = struct {
         try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(modules.MetricsModule{ .font_size = 60.0 });
 
-        try app.addSystemTo(ecs.schedule.DefaultSchedule.BeforeFrame, setupScene);
+        try app.addSystemTo("Startup", setupScene);
         try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, integrateMotion);
         try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, bounceBall);
     }
@@ -50,8 +48,6 @@ fn setupScene(
     render_bounds_opt: ResOpt(common.RenderBounds),
     render_state_opt: ResOpt(RenderState),
 ) !void {
-    if (commands.hasResource(SceneReady)) return;
-
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     var decal_material: ?render.Material = null;
@@ -90,7 +86,6 @@ fn setupScene(
 
     try commands.insertResource(common.ClearColor{ .color = common.Color.WHITE });
     try commands.insertResource(common.Camera3d{ .Viewport = .{ .mode = .TopLeft } });
-    try commands.insertResource(SceneReady{});
 }
 
 fn integrateMotion(dt: Res(DeltaTime), query: Query(.{ common.Transform, Velocity })) void {

@@ -138,6 +138,85 @@ pub fn Graph(comptime N: type, comptime E: type) type {
             return order;
         }
 
+        pub fn topologicalOrderFrom(self: *Self, allocator: std.mem.Allocator, start_index: usize) ![]usize {
+            const node_count = self.nodes.items.len;
+            if (start_index >= node_count) {
+                return Error.InvalidNodeIndex;
+            }
+            try self.ensureCsr();
+
+            var reachable = try allocator.alloc(bool, node_count);
+            defer allocator.free(reachable);
+            @memset(reachable, false);
+
+            var stack: std.ArrayListUnmanaged(usize) = .empty;
+            defer stack.deinit(allocator);
+            try stack.append(allocator, start_index);
+            reachable[start_index] = true;
+            var reachable_count: usize = 1;
+
+            while (stack.items.len > 0) {
+                const node_index = stack.pop() orelse break;
+                const edge_slice = try self.edgesFrom(node_index);
+                for (edge_slice.targets) |target| {
+                    if (reachable[target]) continue;
+                    reachable[target] = true;
+                    reachable_count += 1;
+                    try stack.append(allocator, target);
+                }
+            }
+
+            var indegree = try allocator.alloc(usize, node_count);
+            defer allocator.free(indegree);
+            @memset(indegree, 0);
+
+            var i: usize = 0;
+            while (i < node_count) : (i += 1) {
+                if (!reachable[i]) continue;
+                const edge_slice = try self.edgesFrom(i);
+                for (edge_slice.targets) |target| {
+                    if (!reachable[target]) continue;
+                    indegree[target] += 1;
+                }
+            }
+
+            var queue: std.ArrayListUnmanaged(usize) = .empty;
+            defer queue.deinit(allocator);
+
+            for (indegree, 0..) |count, index| {
+                if (!reachable[index]) continue;
+                if (count == 0) {
+                    try queue.append(allocator, index);
+                }
+            }
+
+            const order = try allocator.alloc(usize, reachable_count);
+            var head: usize = 0;
+            var out_index: usize = 0;
+
+            while (head < queue.items.len) : (head += 1) {
+                const node_index = queue.items[head];
+                order[out_index] = node_index;
+                out_index += 1;
+
+                const edge_slice = try self.edgesFrom(node_index);
+                for (edge_slice.targets) |target| {
+                    if (!reachable[target]) continue;
+                    indegree[target] -= 1;
+                    if (indegree[target] == 0) {
+                        try queue.append(allocator, target);
+                    }
+                }
+            }
+
+            if (out_index != reachable_count) {
+                allocator.free(order);
+                return Error.CycleDetected;
+            }
+
+            return order;
+        }
+
         fn markDirty(self: *Self) void {
             self.version += 1;
             self.csr_valid = false;
@@ -240,4 +319,25 @@ test "csr graph detects cycle" {
     try graph.addEdge(1, 0, {});
 
     try std.testing.expectError(Graph(u8, void).Error.CycleDetected, graph.topologicalOrder(allocator));
+}
+
+test "csr graph orders reachable nodes from start" {
+    const allocator = std.testing.allocator;
+    var graph = Graph(u8, void).init(allocator);
+    defer graph.deinit();
+
+    _ = try graph.addNode(1);
+    _ = try graph.addNode(2);
+    _ = try graph.addNode(3);
+    _ = try graph.addNode(4);
+    try graph.addEdge(0, 1, {});
+    try graph.addEdge(1, 2, {});
+
+    const order = try graph.topologicalOrderFrom(allocator, 0);
+    defer allocator.free(order);
+    try std.testing.expectEqualSlices(usize, &.{ 0, 1, 2 }, order);
+
+    const order_single = try graph.topologicalOrderFrom(allocator, 3);
+    defer allocator.free(order_single);
+    try std.testing.expectEqualSlices(usize, &.{ 3 }, order_single);
 }

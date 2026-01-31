@@ -13,6 +13,10 @@ pub const ScheduleManager = struct {
     schedule_order: []usize = &.{},
     schedule_order_allocated: bool = false,
     schedule_order_version: u64 = 0,
+    schedule_order_from: []usize = &.{},
+    schedule_order_from_allocated: bool = false,
+    schedule_order_from_version: u64 = 0,
+    schedule_order_from_start: ?usize = null,
 
     const Self = @This();
 
@@ -29,6 +33,10 @@ pub const ScheduleManager = struct {
             .schedule_order = &.{},
             .schedule_order_allocated = false,
             .schedule_order_version = 0,
+            .schedule_order_from = &.{},
+            .schedule_order_from_allocated = false,
+            .schedule_order_from_version = 0,
+            .schedule_order_from_start = null,
         };
         errdefer manager.deinit(null);
 
@@ -41,6 +49,7 @@ pub const ScheduleManager = struct {
             schedule.deinit(self.allocator, world);
         }
         self.clearScheduleOrder();
+        self.clearScheduleOrderFrom();
         self.graph.deinit();
         self.labels.deinit(self.allocator);
         self.* = undefined;
@@ -86,6 +95,24 @@ pub const ScheduleManager = struct {
         return order;
     }
 
+    pub fn executionOrderFrom(self: *Self, start_label: []const u8) ![]const usize {
+        const start_index = self.scheduleIndex(start_label) orelse return Error.ScheduleNotFound;
+        if (self.schedule_order_from_allocated and
+            self.schedule_order_from_version == self.graph.versionId() and
+            self.schedule_order_from_start != null and
+            self.schedule_order_from_start.? == start_index)
+        {
+            return self.schedule_order_from;
+        }
+        self.clearScheduleOrderFrom();
+        const order = try self.graph.topologicalOrderFrom(self.allocator, start_index);
+        self.schedule_order_from = order;
+        self.schedule_order_from_allocated = true;
+        self.schedule_order_from_version = self.graph.versionId();
+        self.schedule_order_from_start = start_index;
+        return order;
+    }
+
     pub fn scheduleIndex(self: *const Self, label: []const u8) ?usize {
         return self.labels.get(label);
     }
@@ -116,9 +143,15 @@ pub const ScheduleManager = struct {
             _ = try self.addScheduleInternal(label);
         }
 
+        const frame_order = [_][]const u8{
+            DefaultSchedule.BeforeFrame,
+            DefaultSchedule.Update,
+            DefaultSchedule.AfterFrame,
+        };
+
         var i: usize = 0;
-        while (i + 1 < default_order.len) : (i += 1) {
-            try self.addEdgeByLabel(default_order[i], default_order[i + 1]);
+        while (i + 1 < frame_order.len) : (i += 1) {
+            try self.addEdgeByLabel(frame_order[i], frame_order[i + 1]);
         }
     }
 
@@ -148,6 +181,15 @@ pub const ScheduleManager = struct {
         }
         self.schedule_order = &.{};
         self.schedule_order_allocated = false;
+    }
+
+    fn clearScheduleOrderFrom(self: *Self) void {
+        if (self.schedule_order_from_allocated) {
+            self.allocator.free(self.schedule_order_from);
+        }
+        self.schedule_order_from = &.{};
+        self.schedule_order_from_allocated = false;
+        self.schedule_order_from_start = null;
     }
 };
 
@@ -269,7 +311,7 @@ const World = @import("World.zig");
 const System = @import("system.zig").System;
 
 // Tests
-test "schedule manager orders default schedules" {
+test "schedule manager orders default frame schedules" {
     const allocator = std.testing.allocator;
     var world = World.init(allocator);
     defer world.deinit();
@@ -277,34 +319,22 @@ test "schedule manager orders default schedules" {
     var manager = try ScheduleManager.init(allocator);
     defer manager.deinit(&world);
 
-    const order = try manager.executionOrder();
+    const order = try manager.executionOrderFrom(DefaultSchedule.BeforeFrame);
     const expected = [_][]const u8{
-        DefaultSchedule.Startup,
         DefaultSchedule.BeforeFrame,
         DefaultSchedule.Update,
         DefaultSchedule.AfterFrame,
-        DefaultSchedule.Shutdown,
     };
 
     try std.testing.expectEqual(@as(usize, expected.len), order.len);
-
-    var indices = std.StringHashMapUnmanaged(usize).empty;
-    defer indices.deinit(allocator);
     for (order, 0..) |schedule_index, i| {
         const label = manager.scheduleAt(schedule_index).label;
-        try indices.put(allocator, label, i);
+        try std.testing.expect(std.mem.eql(u8, label, expected[i]));
     }
 
-    for (expected) |label| {
-        try std.testing.expect(indices.contains(label));
-    }
-
-    var i: usize = 0;
-    while (i + 1 < expected.len) : (i += 1) {
-        const from_index = indices.get(expected[i]).?;
-        const to_index = indices.get(expected[i + 1]).?;
-        try std.testing.expect(from_index < to_index);
-    }
+    const startup_order = try manager.executionOrderFrom(DefaultSchedule.Startup);
+    try std.testing.expectEqual(@as(usize, 1), startup_order.len);
+    try std.testing.expect(std.mem.eql(u8, manager.scheduleAt(startup_order[0]).label, DefaultSchedule.Startup));
 }
 
 test "schedule manager inserts schedule between existing nodes" {
@@ -321,7 +351,7 @@ test "schedule manager inserts schedule between existing nodes" {
         DefaultSchedule.Update,
     );
 
-    const order = try manager.executionOrder();
+    const order = try manager.executionOrderFrom(DefaultSchedule.BeforeFrame);
     var before_index: ?usize = null;
     var physics_index: ?usize = null;
     var after_index: ?usize = null;
