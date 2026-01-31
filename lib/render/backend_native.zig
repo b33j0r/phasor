@@ -1,17 +1,3 @@
-const std = @import("std");
-const wgpu = @import("wgpu");
-const utils = @import("utils.zig");
-const common = @import("common");
-
-const Color = common.Color;
-const Size = utils.Size;
-const SurfaceTarget = utils.SurfaceTarget;
-const NativeSurface = utils.NativeSurface;
-const NativeHandle = utils.NativeHandle;
-const CacheKey = utils.CacheKey;
-const hashCacheKey = utils.hashCacheKey;
-const RingBuffer = utils.RingBuffer;
-
 const DepthTarget = struct {
     texture: *wgpu.Texture,
     view: *wgpu.TextureView,
@@ -878,3 +864,18 @@ const defaultQuadIndices = [_]u16{ 0, 1, 2, 2, 3, 0 };
 
 const triangleShaderWGSL = @embedFile("shaders/triangle.wgsl");
 const quadShaderWGSL = @embedFile("shaders/quad.wgsl");
+
+// Imports
+const std = @import("std");
+const wgpu = @import("wgpu");
+const utils = @import("utils.zig");
+const common = @import("common");
+
+const Color = common.Color;
+const Size = utils.Size;
+const SurfaceTarget = utils.SurfaceTarget;
+const NativeSurface = utils.NativeSurface;
+const NativeHandle = utils.NativeHandle;
+const CacheKey = utils.CacheKey;
+const hashCacheKey = utils.hashCacheKey;
+const RingBuffer = utils.RingBuffer;

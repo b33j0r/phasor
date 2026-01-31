@@ -1,12 +1,3 @@
-const std = @import("std");
-const builtin = @import("builtin");
-const utils = @import("utils.zig");
-const common = @import("common");
-
-const Color = common.Color;
-const Size = utils.Size;
-const SurfaceTarget = utils.SurfaceTarget;
-
 pub const RendererConfig = struct {
     present_mode: ?u32 = null,
     enable_validation: bool = false,
@@ -207,3 +198,13 @@ fn buildInstanceData(instance: MeshInstance) InstanceData {
         .color = instance.color,
     };
 }
+
+// Imports
+const std = @import("std");
+const builtin = @import("builtin");
+const utils = @import("utils.zig");
+const common = @import("common");
+
+const Color = common.Color;
+const Size = utils.Size;
+const SurfaceTarget = utils.SurfaceTarget;
