@@ -109,7 +109,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             }
 
             if (options.auto_surface) {
-                try app.addSystemTo(ecs.schedule.DefaultSchedule.Startup, setupSurface);
+                try app.addSystemTo("Startup", setupSurface);
             }
 
             try AppSpec.configure(app);
@@ -151,7 +151,6 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             }
         }
 
-
         fn setupSurface(commands: *ecs.Commands) !void {
             if (commands.hasResource(RenderSurface)) return;
 
@@ -170,7 +169,6 @@ pub fn EntryPoint(comptime AppSpec: type) type {
                 try commands.insertResource(RenderSurface{ .target = surface });
             }
         }
-
     };
 }
 

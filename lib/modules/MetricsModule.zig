@@ -47,7 +47,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
             const text_entity = try cmds.createEntity(components);
 
             try cmds.insertResource(MetricsState{ .text_entity = text_entity });
-            try app.addSystem(schedule.DefaultSchedule.Update, updateFpsText);
+            try app.addSystem("Update", updateFpsText);
         }
 
         pub fn uninstall(_: *const @This(), app: *AppCommands, cmds: *Commands) void {

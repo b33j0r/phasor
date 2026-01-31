@@ -60,15 +60,15 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
         try commands.apply();
     }
 
-    try app.addSystem(schedule.DefaultSchedule.Startup, initSystem);
-    try app.addSystem(schedule.DefaultSchedule.Startup, ensureAssetsContextSystem);
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, handleViewportResize);
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateSpriteMeshes);
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateTextMeshes);
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateLayerCameras);
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, extractSystem);
-    try app.addSystem(schedule.DefaultSchedule.AfterFrame, renderSystem);
-    try app.addSystem(schedule.DefaultSchedule.Shutdown, shutdownSystem);
+    try app.addSystem("Startup", initSystem);
+    try app.addSystem("Startup", ensureAssetsContextSystem);
+    try app.addSystem("BeforeFrame", handleViewportResize);
+    try app.addSystem("BeforeFrame", updateSpriteMeshes);
+    try app.addSystem("BeforeFrame", updateTextMeshes);
+    try app.addSystem("BeforeFrame", updateLayerCameras);
+    try app.addSystem("BeforeFrame", extractSystem);
+    try app.addSystem("AfterFrame", renderSystem);
+    try app.addSystem("Shutdown", shutdownSystem);
 }
 
 pub fn uninstall(app: *AppCommands) void {

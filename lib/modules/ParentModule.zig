@@ -1,5 +1,5 @@
 pub fn install(app: *AppCommands) !void {
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateChildTransforms);
+    try app.addSystem("BeforeFrame", updateChildTransforms);
 }
 
 pub fn uninstall(app: *AppCommands) void {

@@ -41,7 +41,7 @@ const App = struct {
         });
 
         try app.addSystemTo("Startup", setupScene);
-        try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, spinCube);
+        try app.addSystemTo("Update", spinCube);
     }
 };
 

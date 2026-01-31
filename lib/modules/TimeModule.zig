@@ -15,7 +15,7 @@ pub fn install(app: *AppCommands, cmds: *Commands) !void {
     try cmds.insertResource(DeltaTime{});
     try cmds.insertResource(ElapsedTime{});
     try cmds.insertResource(LastInstant{ .value = try std.time.Instant.now() });
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateTimeSystem);
+    try app.addSystem("BeforeFrame", updateTimeSystem);
 }
 
 pub fn uninstall(app: *AppCommands) void {

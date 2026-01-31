@@ -6,8 +6,8 @@ pub fn AssetsModule(comptime T: type) type {
             if (!commands.hasResource(T)) {
                 try commands.insertResource(T{});
             }
-            try app.addSystem(schedule.DefaultSchedule.Startup, Self.loadAssets);
-            try app.addSystem(schedule.DefaultSchedule.Shutdown, Self.unloadAssets);
+            try app.addSystem("Startup", Self.loadAssets);
+            try app.addSystem("Shutdown", Self.unloadAssets);
         }
 
         pub fn uninstall(app: *AppCommands) void {

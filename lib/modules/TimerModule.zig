@@ -13,7 +13,7 @@ pub fn install(app: *AppCommands, cmds: *Commands) !void {
     if (!cmds.hasResource(TimeModule.DeltaTime) or !cmds.hasResource(TimeModule.ElapsedTime)) {
         return error.MissingTimeModule;
     }
-    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateTimers);
+    try app.addSystem("BeforeFrame", updateTimers);
 }
 
 pub fn uninstall(app: *AppCommands) void {

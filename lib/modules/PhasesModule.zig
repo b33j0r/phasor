@@ -137,8 +137,8 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
             const stack = try Stack.init(commands.allocator, commands.io, commands.world, app.schedule_manager);
             try commands.insertResource(PhaseContextStackResource{ .stack = stack });
 
-            try app.addSystem(schedule.DefaultSchedule.Startup, handleInitialPhase);
-            try app.addSystem(schedule.DefaultSchedule.BeforeFrame, handlePhaseTransitions);
+            try app.addSystem("Startup", handleInitialPhase);
+            try app.addSystem("BeforeFrame", handlePhaseTransitions);
         }
 
         pub fn uninstall(app: *AppCommands, commands: *Commands) !void {
@@ -359,15 +359,15 @@ test "phase transitions run enter/exit hooks in order" {
     try app.world.insertResource(LogBuffer.init(allocator));
     try app.installModule(TestPhases);
 
-    try app.runScheduleByLabel(schedule.DefaultSchedule.Startup);
-    try app.runScheduleByLabel(schedule.DefaultSchedule.BeforeFrame); // MainMenu.enter
-    try app.runScheduleByLabel(schedule.DefaultSchedule.Update);
-    try app.runScheduleByLabel(schedule.DefaultSchedule.BeforeFrame); // MainMenu.exit → InGame.enter → Playing.enter
-    try app.runScheduleByLabel(schedule.DefaultSchedule.Update);
-    try app.runScheduleByLabel(schedule.DefaultSchedule.BeforeFrame); // Playing.exit → Paused.enter
-    try app.runScheduleByLabel(schedule.DefaultSchedule.Update);
-    try app.runScheduleByLabel(schedule.DefaultSchedule.BeforeFrame); // Paused.exit → InGame.exit → Quit.enter
-    try app.runScheduleByLabel(schedule.DefaultSchedule.Update);
+    try app.runScheduleByLabel("Startup");
+    try app.runScheduleByLabel("BeforeFrame"); // MainMenu.enter
+    try app.runScheduleByLabel("Update");
+    try app.runScheduleByLabel("BeforeFrame"); // MainMenu.exit → InGame.enter → Playing.enter
+    try app.runScheduleByLabel("Update");
+    try app.runScheduleByLabel("BeforeFrame"); // Playing.exit → Paused.enter
+    try app.runScheduleByLabel("Update");
+    try app.runScheduleByLabel("BeforeFrame"); // Paused.exit → InGame.exit → Quit.enter
+    try app.runScheduleByLabel("Update");
 
     const log = app.world.getResource(LogBuffer).?;
     const expected = [_][]const u8{
@@ -413,7 +413,7 @@ const MyPhases = union(enum) {
 const MainMenu = struct {
     pub fn enter(_: *MainMenu, ctx: *PhaseContext) !void {
         try logPhase(ctx, "MainMenu.enter");
-        try ctx.addSystem(schedule.DefaultSchedule.Update, transition_to_in_game);
+        try ctx.addSystem("Update", transition_to_in_game);
     }
 
     pub fn exit(_: *MainMenu, ctx: *PhaseContext) !void {
@@ -441,7 +441,7 @@ const InGame = union(enum) {
 const Playing = struct {
     pub fn enter(_: *Playing, ctx: *PhaseContext) !void {
         try logPhase(ctx, "Playing.enter");
-        try ctx.addSystem(schedule.DefaultSchedule.Update, to_paused);
+        try ctx.addSystem("Update", to_paused);
     }
 
     pub fn exit(_: *Playing, ctx: *PhaseContext) !void {
@@ -456,7 +456,7 @@ const Playing = struct {
 const Paused = struct {
     pub fn enter(_: *Paused, ctx: *PhaseContext) !void {
         try logPhase(ctx, "Paused.enter");
-        try ctx.addSystem(schedule.DefaultSchedule.Update, to_quit);
+        try ctx.addSystem("Update", to_quit);
     }
 
     pub fn exit(_: *Paused, ctx: *PhaseContext) !void {

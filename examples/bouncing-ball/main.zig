@@ -34,8 +34,8 @@ const App = struct {
         try app.installModule(modules.MetricsModule{ .font_size = 60.0 });
 
         try app.addSystemTo("Startup", setupScene);
-        try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, integrateMotion);
-        try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, bounceBall);
+        try app.addSystemTo("Update", integrateMotion);
+        try app.addSystemTo("Update", bounceBall);
     }
 };
 

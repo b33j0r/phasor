@@ -94,7 +94,7 @@ test "module install supports pointer params" {
 
     const ModuleDef = struct {
         pub fn install(app: *AppCommands, cmds: *Commands) !void {
-            try app.addSystem(schedule.DefaultSchedule.Update, struct {
+            try app.addSystem("Update", struct {
                 fn run(_: *Commands) void {}
             }.run);
             try cmds.insertResource(Marker{});
@@ -106,7 +106,7 @@ test "module install supports pointer params" {
         try commands.apply();
     }
 
-    const update_index = manager.scheduleIndex(schedule.DefaultSchedule.Update).?;
+    const update_index = manager.scheduleIndex("Update").?;
     const update_schedule = manager.scheduleAt(update_index);
     try std.testing.expectEqual(@as(usize, 1), update_schedule.systemCount());
     try std.testing.expect(world.hasResource(Marker));
@@ -159,7 +159,7 @@ test "module supports app-only install and uninstall" {
 
     const ModuleDef = struct {
         pub fn install(app: *AppCommands) !void {
-            try app.addSystem(schedule.DefaultSchedule.Update, system_fn);
+            try app.addSystem("Update", system_fn);
         }
 
         pub fn uninstall(app: *AppCommands) void {
@@ -169,7 +169,7 @@ test "module supports app-only install and uninstall" {
 
     try install(&app_cmds, &commands, ModuleDef);
 
-    const update_index = manager.scheduleIndex(schedule.DefaultSchedule.Update).?;
+    const update_index = manager.scheduleIndex("Update").?;
     var update_schedule = manager.scheduleAt(update_index);
     const order = try update_schedule.systemOrder(allocator);
     try std.testing.expectEqual(@as(usize, 1), order.len);
