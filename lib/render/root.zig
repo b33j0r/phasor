@@ -44,6 +44,10 @@ pub const textLayoutHash = text.layoutHash;
 pub const buildTextMesh = text.buildMesh;
 pub const Sprite = sprite.Sprite;
 pub const spriteSizeHash = sprite.sizeHash;
+pub const Layer = layer.Layer;
+pub const LayerN = layer.LayerN;
+pub const CameraLayer = layer.CameraLayer;
+pub const CameraLayerN = layer.CameraLayerN;
 
 pub fn configForVsync(vsync: bool) RendererConfig {
     return backend.configForVsync(vsync);
@@ -62,6 +66,7 @@ const common = @import("common");
 const mesh = @import("mesh.zig");
 const text = @import("text.zig");
 const sprite = @import("sprite.zig");
+const layer = @import("layer.zig");
 const backend = if (builtin.target.cpu.arch.isWasm())
     @import("backend_web.zig")
 else

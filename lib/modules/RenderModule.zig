@@ -24,12 +24,36 @@ pub const ViewportSize = struct {
     height: f32,
 };
 
+pub const LayerCameras = struct {
+    allocator: std.mem.Allocator,
+    map: std.AutoHashMap(i32, common.Camera3d),
+
+    pub fn init(allocator: std.mem.Allocator) LayerCameras {
+        return .{
+            .allocator = allocator,
+            .map = std.AutoHashMap(i32, common.Camera3d).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *LayerCameras) void {
+        self.map.deinit();
+        self.* = undefined;
+    }
+
+    pub fn clear(self: *LayerCameras) void {
+        self.map.clearRetainingCapacity();
+    }
+};
+
 pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(common.ClearColor)) {
         try commands.insertResource(common.ClearColor{});
     }
     if (!commands.hasResource(render.RenderQueue)) {
         try commands.insertResource(render.RenderQueue.init(commands.allocator));
+    }
+    if (!commands.hasResource(LayerCameras)) {
+        try commands.insertResource(LayerCameras.init(commands.allocator));
     }
     try commands.registerEvent(common.WindowResized, 8);
     if (!commands.isEmpty()) {
@@ -41,6 +65,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, handleViewportResize);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateSpriteMeshes);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateTextMeshes);
+    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateLayerCameras);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, extractSystem);
     try app.addSystem(schedule.DefaultSchedule.AfterFrame, renderSystem);
     try app.addSystem(schedule.DefaultSchedule.Shutdown, shutdownSystem);
@@ -52,6 +77,7 @@ pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(handleViewportResize);
     app.removeSystem(updateSpriteMeshes);
     app.removeSystem(updateTextMeshes);
+    app.removeSystem(updateLayerCameras);
     app.removeSystem(extractSystem);
     app.removeSystem(renderSystem);
     app.removeSystem(shutdownSystem);
@@ -124,7 +150,8 @@ fn extractSystem(
     var tri_it = triangle_query.iterator();
     while (tri_it.next()) |row| {
         const tri = row.get(render.Triangle) orelse continue;
-        try queue.ptr.pushTriangle(tri.*);
+        const layer = layerKeyForRow(row);
+        try queue.ptr.pushTriangle(tri.*, layer);
     }
 
     var it = mesh_query.iterator();
@@ -132,14 +159,16 @@ fn extractSystem(
         const instance = row.get(render.MeshInstance) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
         const material = row.get(render.MaterialInstance) orelse continue;
-        try queue.ptr.pushMeshInstanceWithMaterial(instance.*, transform.toMat4(), material.material);
+        const layer = layerKeyForRow(row);
+        try queue.ptr.pushMeshInstanceWithMaterial(instance.*, transform.toMat4(), material.material, layer);
     }
 
     var default_it = mesh_default_query.iterator();
     while (default_it.next()) |row| {
         const instance = row.get(render.MeshInstance) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
-        try queue.ptr.pushMeshInstance(instance.*, transform.toMat4());
+        const layer = layerKeyForRow(row);
+        try queue.ptr.pushMeshInstance(instance.*, transform.toMat4(), layer);
     }
 }
 
@@ -274,11 +303,30 @@ fn updateTextMeshes(
     }
 }
 
+fn updateLayerCameras(
+    cameras: Query(.{ common.Camera3d }),
+    layer_cameras: ResMut(LayerCameras),
+) !void {
+    layer_cameras.ptr.clear();
+
+    var groups = try cameras.groupBy(render.CameraLayerN);
+    defer groups.deinit();
+
+    var group_it = groups.iterator();
+    while (group_it.next()) |group| {
+        var cam_it = group.iterator();
+        const row = cam_it.next() orelse continue;
+        const cam = row.get(common.Camera3d) orelse continue;
+        try layer_cameras.ptr.map.put(group.key, cam.*);
+    }
+}
+
 fn renderSystem(
     commands: *Commands,
     queue: ResMut(render.RenderQueue),
     clear_opt: ResOpt(common.ClearColor),
     camera_opt: ResOpt(common.Camera3d),
+    layer_cameras_opt: ResOpt(LayerCameras),
     viewport_opt: ResOpt(ViewportSize),
 ) !void {
     const state = commands.getResourceMut(RenderState) orelse return;
@@ -293,78 +341,97 @@ fn renderSystem(
     const clear = if (clear_opt.ptr) |c| c.color else common.Color.BSOD;
     var frame = try state.renderer.beginFrame(clear);
 
-    const viewport = if (camera_opt.ptr) |cam| switch (cam.*) {
-        .Viewport => |vp| vp,
-        else => null,
-    } else null;
     const viewport_size = if (viewport_opt.ptr) |vp|
         render.Size{ .width = @intFromFloat(vp.width), .height = @intFromFloat(vp.height) }
     else
         surface_size;
-    const viewport_matrix = if (viewport) |vp|
-        viewportMatrix(vp, viewport_size)
-    else
-        null;
+    const layers = try collectLayers(commands.allocator, queue.ptr.items.items);
+    defer commands.allocator.free(layers);
 
-    for (queue.ptr.items.items) |item| {
-        switch (item) {
-            .triangle => |tri| {
-                const draw_tri = if (viewport) |vp|
-                    applyViewport(tri, vp, viewport_size)
-                else
-                    tri;
-                frame.draw(.{ .triangle = draw_tri });
-            },
-            .mesh => |instance| {
-                if (instance.blend) continue;
-                const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
-                const model = if (viewport_matrix) |vp|
-                    common.Mat4.mul(vp, instance.transform)
-                else
-                    instance.transform;
+    for (layers) |layer| {
+        const camera = cameraForLayer(layer, layer_cameras_opt.ptr, camera_opt.ptr);
+        const viewport_matrix = if (camera) |cam|
+            switch (cam) {
+                .Viewport => |vp| viewportMatrix(vp, viewport_size),
+                else => null,
+            }
+        else
+            null;
+        const projection = if (camera) |cam|
+            projectionMatrix(cam, viewport_size)
+        else
+            null;
 
-                const color_f = common.Color.F32.fromColor(instance.color);
-                const gpu_instance = render.BackendMeshInstance{
-                    .transform = model,
-                    .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
-                };
+        for (queue.ptr.items.items) |item| {
+            switch (item) {
+                .triangle => |tri| {
+                    if (tri.layer != layer) continue;
+                    const draw_tri = if (camera) |cam|
+                        switch (cam) {
+                            .Viewport => |vp| applyViewport(tri.triangle, vp, viewport_size),
+                            else => tri.triangle,
+                        }
+                    else
+                        tri.triangle;
+                    frame.draw(.{ .triangle = draw_tri });
+                },
+                .mesh => |instance| {
+                    if (instance.layer != layer) continue;
+                    if (instance.blend) continue;
+                    const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
+                    const model = if (viewport_matrix) |vp|
+                        common.Mat4.mul(vp, instance.transform)
+                    else if (projection) |proj|
+                        common.Mat4.mul(proj, instance.transform)
+                    else
+                        instance.transform;
 
-                const material = instance.material orelse state.default_material;
-                frame.draw(.{ .textured_quad = .{
-                    .mesh = mesh.*,
-                    .material = material,
-                    .instance = gpu_instance,
-                    .blend = instance.blend,
-                } });
-            },
+                    const color_f = common.Color.F32.fromColor(instance.color);
+                    const gpu_instance = render.BackendMeshInstance{
+                        .transform = model,
+                        .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
+                    };
+
+                    const material = instance.material orelse state.default_material;
+                    frame.draw(.{ .textured_quad = .{
+                        .mesh = mesh.*,
+                        .material = material,
+                        .instance = gpu_instance,
+                        .blend = instance.blend,
+                    } });
+                },
+            }
         }
-    }
 
-    for (queue.ptr.items.items) |item| {
-        switch (item) {
-            .mesh => |instance| {
-                if (!instance.blend) continue;
-                const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
-                const model = if (viewport_matrix) |vp|
-                    common.Mat4.mul(vp, instance.transform)
-                else
-                    instance.transform;
+        for (queue.ptr.items.items) |item| {
+            switch (item) {
+                .mesh => |instance| {
+                    if (instance.layer != layer) continue;
+                    if (!instance.blend) continue;
+                    const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
+                    const model = if (viewport_matrix) |vp|
+                        common.Mat4.mul(vp, instance.transform)
+                    else if (projection) |proj|
+                        common.Mat4.mul(proj, instance.transform)
+                    else
+                        instance.transform;
 
-                const color_f = common.Color.F32.fromColor(instance.color);
-                const gpu_instance = render.BackendMeshInstance{
-                    .transform = model,
-                    .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
-                };
+                    const color_f = common.Color.F32.fromColor(instance.color);
+                    const gpu_instance = render.BackendMeshInstance{
+                        .transform = model,
+                        .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
+                    };
 
-                const material = instance.material orelse state.default_material;
-                frame.draw(.{ .textured_quad = .{
-                    .mesh = mesh.*,
-                    .material = material,
-                    .instance = gpu_instance,
-                    .blend = instance.blend,
-                } });
-            },
-            else => {},
+                    const material = instance.material orelse state.default_material;
+                    frame.draw(.{ .textured_quad = .{
+                        .mesh = mesh.*,
+                        .material = material,
+                        .instance = gpu_instance,
+                        .blend = instance.blend,
+                    } });
+                },
+                else => {},
+            }
         }
     }
 
@@ -402,6 +469,71 @@ fn handleViewportResize(
     }
 }
 
+fn layerKeyForRow(row: db.QueryResult.Row) i32 {
+    const table = &row.database.tables.items[row.table_index];
+    return layerKeyForTable(table);
+}
+
+fn layerKeyForTable(table: *const db.table.Table) i32 {
+    const trait_id = db.meta.typeId(render.LayerN);
+    for (table.columns) |column| {
+        const trait = column.trait orelse continue;
+        if (trait.id != trait_id) continue;
+        return switch (trait.kind) {
+            .Grouped => |grouped| grouped.group_key,
+            else => 0,
+        };
+    }
+    return 0;
+}
+
+fn collectLayers(allocator: std.mem.Allocator, items: []const render.RenderItem) ![]i32 {
+    var list: std.ArrayListUnmanaged(i32) = .empty;
+    defer list.deinit(allocator);
+
+    for (items) |item| {
+        const layer = switch (item) {
+            .triangle => |tri| tri.layer,
+            .mesh => |mesh| mesh.layer,
+        };
+        try list.append(allocator, layer);
+    }
+
+    if (list.items.len == 0) {
+        return allocator.alloc(i32, 0);
+    }
+
+    std.sort.pdq(i32, list.items, {}, std.sort.asc(i32));
+
+    var unique_count: usize = 1;
+    for (list.items[1..]) |value| {
+        if (value != list.items[unique_count - 1]) {
+            list.items[unique_count] = value;
+            unique_count += 1;
+        }
+    }
+
+    return allocator.dupe(i32, list.items[0..unique_count]);
+}
+
+fn cameraForLayer(
+    layer: i32,
+    layer_cameras: ?*const LayerCameras,
+    fallback: ?*const common.Camera3d,
+) ?common.Camera3d {
+    const has_layer_cameras = if (layer_cameras) |cameras| cameras.map.count() > 0 else false;
+    if (layer_cameras) |cameras| {
+        if (cameras.map.get(layer)) |cam| return cam;
+    }
+    if (!has_layer_cameras) {
+        if (fallback) |cam| return cam.*;
+    }
+    if (layer == 0) {
+        if (fallback) |cam| return cam.*;
+    }
+    return null;
+}
+
 fn viewportMatrix(vp: anytype, size: render.Size) common.Mat4 {
     const w = @as(f32, @floatFromInt(size.width));
     const h = @as(f32, @floatFromInt(size.height));
@@ -409,6 +541,24 @@ fn viewportMatrix(vp: anytype, size: render.Size) common.Mat4 {
     return switch (vp.mode) {
         .TopLeft => common.Mat4.orthographic(0.0, w, h, 0.0, vp.near, vp.far),
         .Center => common.Mat4.orthographic(-w * 0.5, w * 0.5, -h * 0.5, h * 0.5, vp.near, vp.far),
+    };
+}
+
+fn projectionMatrix(camera: common.Camera3d, size: render.Size) ?common.Mat4 {
+    const w = @as(f32, @floatFromInt(size.width));
+    const h = @as(f32, @floatFromInt(size.height));
+    const aspect = if (h == 0.0) 1.0 else w / h;
+    return switch (camera) {
+        .Perspective => |persp| common.Mat4.perspective(persp.fov, aspect, persp.near, persp.far),
+        .Orthographic => |ortho| common.Mat4.orthographic(
+            ortho.left,
+            ortho.right,
+            ortho.bottom,
+            ortho.top,
+            ortho.near,
+            ortho.far,
+        ),
+        .Viewport => null,
     };
 }
 
@@ -447,6 +597,7 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.MeshLibrary);
         _ = commands.removeResource(render.RenderQueue);
         _ = commands.removeResource(render.DefaultFont);
+        _ = commands.removeResource(LayerCameras);
         return;
     };
 
@@ -460,16 +611,20 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.DefaultFont);
     }
 
+    _ = commands.removeResource(LayerCameras);
+
     _ = commands.removeResource(assets.AssetsContext);
     _ = commands.removeResource(render.RenderQueue);
     _ = commands.removeResource(RenderState);
 }
 
 // Imports
+const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
 const render = @import("render");
 const assets = @import("assets");
+const db = @import("db");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const schedule = ecs.schedule;

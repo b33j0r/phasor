@@ -70,8 +70,34 @@ pub fn Query(comptime Parts: anytype) type {
             return self.result.first();
         }
 
+        pub fn groupBy(self: *const @This(), comptime TraitT: type) !db.GroupByResult {
+            return self.result.groupBy(TraitT);
+        }
+
         pub fn listAlloc(self: *const @This(), allocator: std.mem.Allocator) ![]db.Entity.Id {
             return self.result.listAlloc(allocator);
+        }
+    };
+}
+
+pub fn GroupBy(comptime TraitT: type) type {
+    return struct {
+        result: db.GroupByResult = undefined,
+
+        pub fn init_system_param(self: *@This(), comptime _: anytype, commands: *Commands) !void {
+            self.result = try commands.groupBy(TraitT);
+        }
+
+        pub fn deinit(self: *@This()) void {
+            self.result.deinit();
+        }
+
+        pub fn count(self: *const @This()) usize {
+            return self.result.count();
+        }
+
+        pub fn iterator(self: *const @This()) db.GroupByResult.GroupIterator {
+            return self.result.iterator();
         }
     };
 }

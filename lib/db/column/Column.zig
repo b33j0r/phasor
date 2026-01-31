@@ -4,6 +4,7 @@ column: *anyopaque,
 type_id: meta.TypeId,
 size: usize,
 alignment: usize,
+trait: ?Trait,
 vtable: *const VTable,
 
 const Self = @This();
@@ -89,6 +90,7 @@ pub fn init(comptime T: type, allocator: std.mem.Allocator) !Self {
         .type_id = meta.typeId(T),
         .size = @sizeOf(T),
         .alignment = @alignOf(T),
+        .trait = Trait.maybeFrom(T),
         .vtable = &.{
             .destroy = vt.destroy,
             .create_empty = vt.createEmpty,
@@ -112,6 +114,7 @@ pub fn deinit(self: *Self) void {
         .type_id = 0,
         .size = 0,
         .alignment = 0,
+        .trait = null,
         .vtable = undefined,
     };
 }
@@ -124,6 +127,7 @@ pub fn cloneEmpty(self: *const Self, allocator: std.mem.Allocator) !Self {
         .type_id = self.type_id,
         .size = self.size,
         .alignment = self.alignment,
+        .trait = self.trait,
         .vtable = self.vtable,
     };
 }
@@ -294,5 +298,6 @@ test "Column swapRemoveTake works with enum components" {
 // Imports
 const std = @import("std");
 const meta = @import("../meta.zig");
+const Trait = @import("../Trait.zig");
 const typed_column = @import("typed_column.zig");
 const fixtures = @import("common").fixtures;

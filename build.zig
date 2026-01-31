@@ -77,6 +77,7 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "window", "examples/window/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "bouncing-ball", "examples/bouncing-ball/main.zig", &.{});
+    _ = addExample(&ctx, phasor.module, "cube", "examples/cube/main.zig", &.{});
 
     addWebExamples(&ctx);
 
@@ -789,6 +790,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
 
     const wasm_examples = [_]WasmExample{
         .{ .name = "bouncing-ball", .root = "examples/bouncing-ball/main.zig" },
+        .{ .name = "cube", .root = "examples/cube/main.zig" },
         .{ .name = "triangle", .root = "examples/triangle/main.zig" },
     };
 

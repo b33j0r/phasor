@@ -181,6 +181,10 @@ pub fn query(self: *Self, comptime Parts: anytype) !db.QueryResult {
     return db.QueryResult.fromSpec(self.allocator, &self.world.database, Spec);
 }
 
+pub fn groupBy(self: *Self, comptime TraitT: type) !db.GroupByResult {
+    return self.world.database.groupBy(TraitT);
+}
+
 pub fn isEmpty(self: *const Self) bool {
     return self.commands.items.len == 0;
 }

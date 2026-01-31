@@ -1,53 +1,68 @@
-pub const MetricsModule = struct {
-    update_ms: u32 = 250,
-    font_size: f32 = 60.0,
-    text_color: common.Color = common.Color.BLACK,
-    margin: f32 = 12.0,
+pub fn MetricsModule(comptime LayerT: ?type) type {
+    return struct {
+        update_ms: u32 = 250,
+        font_size: f32 = 60.0,
+        text_color: common.Color = common.Color.BLACK,
+        margin: f32 = 12.0,
 
-    pub fn install(self: *const MetricsModule, app: *AppCommands, cmds: *Commands) !void {
-        if (!cmds.hasResource(TimeModule.DeltaTime)) {
-            return error.MissingTimeModule;
-        }
+        pub fn install(self: *const @This(), app: *AppCommands, cmds: *Commands) !void {
+            if (!cmds.hasResource(TimeModule.DeltaTime)) {
+                return error.MissingTimeModule;
+            }
 
-        if (!cmds.hasResource(metrics.Metrics)) {
-            try cmds.insertResource(metrics.Metrics{});
-        }
+            if (!cmds.hasResource(metrics.Metrics)) {
+                try cmds.insertResource(metrics.Metrics{});
+            }
 
-        try cmds.insertResource(MetricsConfig{
-            .update_interval = @as(f64, @floatFromInt(self.update_ms)) / 1000.0,
-            .font_size = self.font_size,
-            .text_color = self.text_color,
-            .margin = self.margin,
-        });
-
-        const text_entity = try cmds.createEntity(.{
-            render.Text{
-                .content = "FPS: 0.0",
-                .color = self.text_color,
+            try cmds.insertResource(MetricsConfig{
+                .update_interval = @as(f64, @floatFromInt(self.update_ms)) / 1000.0,
                 .font_size = self.font_size,
-                .horizontal_alignment = .Right,
-                .vertical_alignment = .Bottom,
-            },
-            common.Transform{},
-            MetricsTextTag{},
-        });
+                .text_color = self.text_color,
+                .margin = self.margin,
+            });
 
-        try cmds.insertResource(MetricsState{ .text_entity = text_entity });
-        try app.addSystem(schedule.DefaultSchedule.Update, updateFpsText);
-    }
+            const components = if (LayerT) |Layer| .{
+                render.Text{
+                    .content = "FPS: 0.0",
+                    .color = self.text_color,
+                    .font_size = self.font_size,
+                    .horizontal_alignment = .Right,
+                    .vertical_alignment = .Bottom,
+                },
+                common.Transform{},
+                MetricsTextTag{},
+                Layer{},
+            } else .{
+                render.Text{
+                    .content = "FPS: 0.0",
+                    .color = self.text_color,
+                    .font_size = self.font_size,
+                    .horizontal_alignment = .Right,
+                    .vertical_alignment = .Bottom,
+                },
+                common.Transform{},
+                MetricsTextTag{},
+            };
 
-    pub fn uninstall(_: *const MetricsModule, app: *AppCommands, cmds: *Commands) void {
-        app.removeSystem(updateFpsText);
+            const text_entity = try cmds.createEntity(components);
 
-        if (cmds.getResource(MetricsState)) |state| {
-            cmds.removeEntity(state.text_entity) catch {};
+            try cmds.insertResource(MetricsState{ .text_entity = text_entity });
+            try app.addSystem(schedule.DefaultSchedule.Update, updateFpsText);
         }
 
-        _ = cmds.removeResource(MetricsState);
-        _ = cmds.removeResource(MetricsConfig);
-        _ = cmds.removeResource(metrics.Metrics);
-    }
-};
+        pub fn uninstall(_: *const @This(), app: *AppCommands, cmds: *Commands) void {
+            app.removeSystem(updateFpsText);
+
+            if (cmds.getResource(MetricsState)) |state| {
+                cmds.removeEntity(state.text_entity) catch {};
+            }
+
+            _ = cmds.removeResource(MetricsState);
+            _ = cmds.removeResource(MetricsConfig);
+            _ = cmds.removeResource(metrics.Metrics);
+        }
+    };
+}
 
 const MetricsConfig = struct {
     update_interval: f64,

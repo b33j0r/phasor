@@ -7,6 +7,8 @@ test "import tests" {
     _ = Database;
     _ = QuerySpec;
     _ = QueryResult;
+    _ = GroupByResult;
+    _ = Trait;
 }
 
 // Imports
@@ -18,3 +20,5 @@ pub const hooks = @import("hooks.zig");
 pub const Database = @import("Database.zig");
 pub const QuerySpec = @import("QuerySpec.zig");
 pub const QueryResult = @import("QueryResult.zig");
+pub const GroupByResult = @import("GroupByResult.zig");
+pub const Trait = @import("Trait.zig");

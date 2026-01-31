@@ -27,6 +27,31 @@ pub fn fromSpec(allocator: std.mem.Allocator, database: *Database, comptime Spec
     };
 }
 
+pub fn fromComponentTypesAndTableIndices(
+    allocator: std.mem.Allocator,
+    database: *Database,
+    table_indices: []const usize,
+    components: anytype,
+) !QueryResult {
+    const Spec = QuerySpec.Spec(components);
+    var matches: std.ArrayListUnmanaged(usize) = .empty;
+    errdefer matches.deinit(allocator);
+
+    for (table_indices) |table_index| {
+        if (table_index >= database.tables.items.len) continue;
+        const table = &database.tables.items[table_index];
+        if (table.schema.hasAll(&Spec.with) and !table.schema.hasAny(&Spec.without)) {
+            try matches.append(allocator, table_index);
+        }
+    }
+
+    return .{
+        .allocator = allocator,
+        .database = database,
+        .table_indices = matches,
+    };
+}
+
 pub fn deinit(self: *QueryResult) void {
     self.table_indices.deinit(self.allocator);
     self.* = undefined;
@@ -52,6 +77,15 @@ pub fn iterator(self: *const QueryResult) Iterator {
 pub fn first(self: *const QueryResult) ?Row {
     var it = self.iterator();
     return it.next();
+}
+
+pub fn groupBy(self: *const QueryResult, TraitT: anytype) !GroupByResult {
+    return GroupByResult.fromTraitTypeAndTableIndices(
+        self.allocator,
+        self.database,
+        self.table_indices.items,
+        TraitT,
+    );
 }
 
 pub fn listAlloc(self: *const QueryResult, allocator: std.mem.Allocator) ![]Entity.Id {
@@ -149,4 +183,5 @@ const std = @import("std");
 const Database = @import("Database.zig");
 const Entity = @import("Entity.zig");
 const QuerySpec = @import("QuerySpec.zig");
+const GroupByResult = @import("GroupByResult.zig");
 const fixtures = @import("common").fixtures;

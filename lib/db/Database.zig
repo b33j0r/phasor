@@ -438,6 +438,10 @@ pub fn notifyResourceRemoved(self: *Self, type_id: meta.TypeId) void {
     }
 }
 
+pub fn groupBy(self: *Self, TraitT: type) !GroupByResult {
+    return GroupByResult.fromTraitType(self.allocator, self, TraitT);
+}
+
 fn tableHooksForwarder(_: *Self, hooks_ptr: *const hooks_mod.DatabaseHooks) hooks_mod.TableHooks {
     const Forwarder = struct {
         fn onRowAdded(ctx: *anyopaque, table_index: usize, row: usize, entity_id: Entity.Id) void {
@@ -572,5 +576,6 @@ const Table = @import("table.zig").Table;
 const Column = @import("column/Column.zig");
 const Entity = @import("Entity.zig");
 const meta = @import("meta.zig");
+const GroupByResult = @import("GroupByResult.zig");
 const fixtures = @import("common").fixtures;
 const hooks_mod = @import("hooks.zig");

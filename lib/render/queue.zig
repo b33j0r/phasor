@@ -1,6 +1,11 @@
 pub const RenderItem = union(enum) {
-    triangle: backend.Triangle,
+    triangle: TriangleDraw,
     mesh: MeshDraw,
+};
+
+pub const TriangleDraw = struct {
+    triangle: backend.Triangle,
+    layer: i32,
 };
 
 pub const MeshDraw = struct {
@@ -9,6 +14,7 @@ pub const MeshDraw = struct {
     color: common.Color,
     material: ?backend.Material = null,
     blend: bool = false,
+    layer: i32 = 0,
 };
 
 pub const RenderQueue = struct {
@@ -28,11 +34,11 @@ pub const RenderQueue = struct {
         self.items.clearRetainingCapacity();
     }
 
-    pub fn pushTriangle(self: *RenderQueue, tri: backend.Triangle) !void {
-        try self.items.append(self.allocator, .{ .triangle = tri });
+    pub fn pushTriangle(self: *RenderQueue, tri: backend.Triangle, layer: i32) !void {
+        try self.items.append(self.allocator, .{ .triangle = .{ .triangle = tri, .layer = layer } });
     }
 
-    pub fn pushMeshInstance(self: *RenderQueue, instance: mesh.MeshInstance, transform: common.Mat4) !void {
+    pub fn pushMeshInstance(self: *RenderQueue, instance: mesh.MeshInstance, transform: common.Mat4, layer: i32) !void {
         try self.items.append(self.allocator, .{
             .mesh = .{
                 .mesh_handle = instance.mesh_handle,
@@ -40,6 +46,7 @@ pub const RenderQueue = struct {
                 .color = instance.color,
                 .material = null,
                 .blend = instance.color.a < 255,
+                .layer = layer,
             },
         });
     }
@@ -49,6 +56,7 @@ pub const RenderQueue = struct {
         instance: mesh.MeshInstance,
         transform: common.Mat4,
         material: backend.Material,
+        layer: i32,
     ) !void {
         try self.items.append(self.allocator, .{
             .mesh = .{
@@ -57,6 +65,7 @@ pub const RenderQueue = struct {
                 .color = instance.color,
                 .material = material,
                 .blend = true,
+                .layer = layer,
             },
         });
     }
