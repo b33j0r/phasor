@@ -5,6 +5,7 @@ test "import tests" {
     _ = quat;
     _ = camera;
     _ = transform;
+    _ = parent;
     _ = Color;
 }
 
@@ -15,6 +16,7 @@ pub const mat4 = @import("mat4.zig");
 pub const quat = @import("quat.zig");
 pub const camera = @import("camera.zig");
 pub const transform = @import("transform.zig");
+pub const parent = @import("parent.zig");
 pub const Color = @import("Color.zig");
 
 pub const Vec2 = vec.Vec2;
@@ -23,6 +25,8 @@ pub const Mat4 = mat4.Mat4;
 pub const Quat = quat.Quat;
 pub const Camera3d = camera.Camera3d;
 pub const Transform = transform.Transform;
+pub const Parent = parent.Parent;
+pub const LocalTransform = parent.LocalTransform;
 
 pub const ClearColor = struct {
     color: Color = Color.BSOD,

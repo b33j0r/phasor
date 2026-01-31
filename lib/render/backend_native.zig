@@ -612,10 +612,10 @@ fn getSurfaceCapabilities(surface: *wgpu.Surface, adapter: *wgpu.Adapter) !wgpu.
 
 fn selectSurfaceFormat(capabilities: wgpu.SurfaceCapabilities) wgpu.TextureFormat {
     const preferred = [_]wgpu.TextureFormat{
-        .bgra8_unorm,
-        .rgba8_unorm,
         .bgra8_unorm_srgb,
         .rgba8_unorm_srgb,
+        .bgra8_unorm,
+        .rgba8_unorm,
     };
     const formats = capabilities.formats[0..capabilities.format_count];
     for (preferred) |format| {

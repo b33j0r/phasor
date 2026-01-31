@@ -13,6 +13,12 @@ const Bounds = struct {
     height: f32,
 };
 
+const Assets = struct {
+    favicon: assets.Texture = .{
+        .data = @embedFile("assets/textures/favicon.png"),
+    },
+};
+
 const App = struct {
     pub const options = platform.Options{
         .window = .{
@@ -24,7 +30,9 @@ const App = struct {
 
     pub fn configure(app: *ecs.App) !void {
         try app.installModule(modules.TimeModule);
+        try app.installModule(modules.ParentModule);
         try app.installModule(modules.RenderModule);
+        try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(modules.MetricsModule{ .font_size = 60.0 });
 
         try app.addSystemTo(ecs.schedule.DefaultSchedule.BeforeFrame, setupScene);
@@ -46,6 +54,10 @@ fn setupScene(
 
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
+    var decal_material: ?render.Material = null;
+    if (commands.getResource(Assets)) |asset_data| {
+        decal_material = asset_data.favicon.material;
+    }
     const bounds = resolveBounds(viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
 
     const radius: f32 = 40.0;
@@ -53,12 +65,28 @@ fn setupScene(
     const mesh_handle = try factory.circle(&state.renderer, radius, 48);
 
     const start = common.Vec3{ .x = bounds.width * 0.5, .y = bounds.height * 0.5, .z = -10.0 };
-    _ = try commands.createEntity(.{
+    const ball_entity = try commands.createEntity(.{
         Ball{ .radius = radius },
         Velocity{ .v = .{ .x = 220.0, .y = 160.0 } },
         common.Transform{ .translation = start },
         render.MeshInstance{ .mesh_handle = mesh_handle, .color = common.Color.RED },
     });
+
+    if (decal_material) |material| {
+        const decal_size: f32 = 60.0;
+        _ = try commands.createEntity(.{
+            common.Parent{ .id = ball_entity },
+            common.LocalTransform{
+                .translation = .{ .x = 0.0, .y = 0.0, .z = 1.0 },
+            },
+            common.Transform{},
+            render.Sprite{
+                .color = common.Color.WHITE,
+                .size_mode = .{ .Manual = .{ .width = decal_size, .height = decal_size } },
+            },
+            render.MaterialInstance{ .material = material },
+        });
+    }
 
     try commands.insertResource(common.ClearColor{ .color = common.Color.WHITE });
     try commands.insertResource(common.Camera3d{ .Viewport = .{ .mode = .TopLeft } });
@@ -144,6 +172,7 @@ const phasor = @import("phasor");
 const ecs = phasor.ecs;
 const modules = phasor.modules;
 const render = phasor.renderer;
+const assets = phasor.assets;
 const common = phasor.common;
 const platform = phasor.platform;
 

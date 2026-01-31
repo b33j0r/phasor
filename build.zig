@@ -10,6 +10,7 @@ pub fn build(b: *std.Build) void {
     const graph = GraphModule.build(&ctx);
     const glfw = GlfwModule.build(&ctx);
     const stb = StbModule.build(&ctx);
+    const stb_image = StbImageModule.build(&ctx);
     const ecs = EcsModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
@@ -21,10 +22,15 @@ pub fn build(b: *std.Build) void {
         .glfw = glfw.module,
         .stb = stb.module,
     });
+    const assets = AssetsModule.build(&ctx, .{
+        .render = renderer.module,
+        .stb_image = stb_image.module,
+    });
     const modules = ModulesModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
         .ecs = ecs.module,
+        .assets = assets.module,
         .metrics = metrics.module,
         .render = renderer.module,
     });
@@ -51,6 +57,7 @@ pub fn build(b: *std.Build) void {
         .modules = modules.module,
         .platform = platform.module,
         .renderer = renderer.module,
+        .assets = assets.module,
         .window = window.module,
     });
 
@@ -81,10 +88,12 @@ pub fn build(b: *std.Build) void {
         graph.tests,
         glfw.tests,
         stb.tests,
+        stb_image.tests,
         metrics.tests,
         modules.tests,
         platform.tests,
         renderer.tests,
+        assets.tests,
         phasor.tests,
         wasm_support.tests,
         window.tests,
@@ -295,6 +304,54 @@ const StbModule = struct {
     }
 };
 
+const StbImageModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    fn build(ctx: *const BuildContext) StbImageModule {
+        const stb_dep = ctx.b.dependency("stb", .{
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+        });
+        const stb_include = stb_dep.path("");
+
+        const stb_image_mod = ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("deps/stb_image/root.zig"),
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+            .link_libc = true,
+        });
+        stb_image_mod.addIncludePath(stb_include);
+        stb_image_mod.addCSourceFiles(.{
+            .root = ctx.b.path("deps/stb_image"),
+            .files = &.{"stb_image.c"},
+        });
+
+        return .{
+            .module = stb_image_mod,
+            .tests = ctx.b.addTest(.{ .root_module = stb_image_mod }),
+        };
+    }
+};
+
+const AssetsModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    const Deps = struct {
+        render: *std.Build.Module,
+        stb_image: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) AssetsModule {
+        const bundle = ctx.moduleBundle("lib/assets/root.zig", &.{
+            .{ .name = "render", .module = deps.render },
+            .{ .name = "stb_image", .module = deps.stb_image },
+        });
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
 const MetricsModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
@@ -313,6 +370,7 @@ const ModulesModule = struct {
         common: *std.Build.Module,
         db: *std.Build.Module,
         ecs: *std.Build.Module,
+        assets: *std.Build.Module,
         metrics: *std.Build.Module,
         render: *std.Build.Module,
     };
@@ -322,6 +380,7 @@ const ModulesModule = struct {
             .{ .name = "common", .module = deps.common },
             .{ .name = "db", .module = deps.db },
             .{ .name = "ecs", .module = deps.ecs },
+            .{ .name = "assets", .module = deps.assets },
             .{ .name = "metrics", .module = deps.metrics },
             .{ .name = "render", .module = deps.render },
         });
@@ -342,6 +401,7 @@ const PhasorModule = struct {
         modules: *std.Build.Module,
         platform: *std.Build.Module,
         renderer: *std.Build.Module,
+        assets: *std.Build.Module,
         window: *std.Build.Module,
     };
 
@@ -355,6 +415,7 @@ const PhasorModule = struct {
             .{ .name = "modules", .module = deps.modules },
             .{ .name = "platform", .module = deps.platform },
             .{ .name = "render", .module = deps.renderer },
+            .{ .name = "assets", .module = deps.assets },
             .{ .name = "window", .module = deps.window },
         });
         return .{ .module = bundle.module, .tests = bundle.tests };
@@ -650,6 +711,17 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .root = ctx.b.path("deps/stb"),
         .files = &.{"stb_truetype.c"},
     });
+    const wasm_stb_image = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("deps/stb_image/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .link_libc = true,
+    });
+    wasm_stb_image.addIncludePath(wasm_stb_dep.path(""));
+    wasm_stb_image.addCSourceFiles(.{
+        .root = ctx.b.path("deps/stb_image"),
+        .files = &.{"stb_image.c"},
+    });
     const wasm_render = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/render/root.zig"),
         .target = wasm_target,
@@ -657,6 +729,15 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .imports = &.{
             .{ .name = "common", .module = wasm_common },
             .{ .name = "stb", .module = wasm_stb },
+        },
+    });
+    const wasm_assets = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/assets/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "render", .module = wasm_render },
+            .{ .name = "stb_image", .module = wasm_stb_image },
         },
     });
     const wasm_modules = ctx.b.createModule(.{
@@ -667,6 +748,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "common", .module = wasm_common },
             .{ .name = "db", .module = wasm_db },
             .{ .name = "ecs", .module = wasm_ecs },
+            .{ .name = "assets", .module = wasm_assets },
             .{ .name = "metrics", .module = wasm_metrics },
             .{ .name = "render", .module = wasm_render },
         },
@@ -701,6 +783,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "modules", .module = wasm_modules },
             .{ .name = "platform", .module = wasm_platform },
             .{ .name = "render", .module = wasm_render },
+            .{ .name = "assets", .module = wasm_assets },
         },
     });
 

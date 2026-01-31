@@ -37,6 +37,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     }
 
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, initSystem);
+    try app.addSystem(schedule.DefaultSchedule.BeforeFrame, ensureAssetsContextSystem);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, handleViewportResize);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateSpriteMeshes);
     try app.addSystem(schedule.DefaultSchedule.BeforeFrame, updateTextMeshes);
@@ -47,6 +48,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
 
 pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(initSystem);
+    app.removeSystem(ensureAssetsContextSystem);
     app.removeSystem(handleViewportResize);
     app.removeSystem(updateSpriteMeshes);
     app.removeSystem(updateTextMeshes);
@@ -98,6 +100,17 @@ fn initSystem(commands: *Commands) !void {
     if (!commands.hasResource(render.MeshLibrary)) {
         try commands.insertResource(render.MeshLibrary.init(commands.allocator));
     }
+}
+
+fn ensureAssetsContextSystem(commands: *Commands) !void {
+    if (commands.hasResource(assets.AssetsContext)) return;
+    const state = commands.getResourceMut(RenderState) orelse return;
+    try commands.insertResource(assets.AssetsContext{
+        .allocator = commands.allocator,
+        .io = commands.io,
+        .renderer = &state.renderer,
+        .sampler = &state.default_sampler,
+    });
 }
 
 fn extractSystem(
@@ -164,10 +177,10 @@ fn updateSpriteMeshes(commands: *Commands, sprites: Query(.{ render.Sprite, comm
         const half_w = width * 0.5;
         const half_h = height * 0.5;
         const vertices = [_]render.VertexUv{
-            .{ .position = .{ -half_w, -half_h }, .uv = .{ 0.0, 1.0 } },
-            .{ .position = .{ half_w, -half_h }, .uv = .{ 1.0, 1.0 } },
-            .{ .position = .{ half_w, half_h }, .uv = .{ 1.0, 0.0 } },
-            .{ .position = .{ -half_w, half_h }, .uv = .{ 0.0, 0.0 } },
+            .{ .position = .{ -half_w, -half_h }, .uv = .{ 0.0, 0.0 } },
+            .{ .position = .{ half_w, -half_h }, .uv = .{ 1.0, 0.0 } },
+            .{ .position = .{ half_w, half_h }, .uv = .{ 1.0, 1.0 } },
+            .{ .position = .{ -half_w, half_h }, .uv = .{ 0.0, 1.0 } },
         };
         const indices = [_]u16{ 0, 1, 2, 0, 2, 3 };
 
@@ -447,6 +460,7 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.DefaultFont);
     }
 
+    _ = commands.removeResource(assets.AssetsContext);
     _ = commands.removeResource(render.RenderQueue);
     _ = commands.removeResource(RenderState);
 }
@@ -455,6 +469,7 @@ fn shutdownSystem(commands: *Commands) void {
 const common = @import("common");
 const ecs = @import("ecs");
 const render = @import("render");
+const assets = @import("assets");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const schedule = ecs.schedule;

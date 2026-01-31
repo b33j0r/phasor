@@ -4,6 +4,8 @@ test "import tests" {
     _ = TimeModule;
     _ = TimerModule;
     _ = RenderModule;
+    _ = ParentModule;
+    _ = AssetsModule;
 }
 
 // Imports
@@ -12,3 +14,5 @@ pub const MetricsModule = @import("MetricsModule.zig").MetricsModule;
 pub const TimeModule = @import("TimeModule.zig");
 pub const TimerModule = @import("TimerModule.zig");
 pub const RenderModule = @import("RenderModule.zig");
+pub const ParentModule = @import("ParentModule.zig");
+pub const AssetsModule = @import("AssetsModule.zig").AssetsModule;

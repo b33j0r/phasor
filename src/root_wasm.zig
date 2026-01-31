@@ -7,6 +7,7 @@ test "import tests" {
     _ = modules;
     _ = platform;
     _ = renderer;
+    _ = assets;
 }
 
 // Imports
@@ -18,3 +19,4 @@ pub const metrics = @import("metrics");
 pub const modules = @import("modules");
 pub const platform = @import("platform");
 pub const renderer = @import("render");
+pub const assets = @import("assets");

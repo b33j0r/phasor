@@ -512,7 +512,7 @@ const imports = {
       if (!ctx) return 0;
       const texture = ctx.device.createTexture({
         size: { width, height },
-        format: "rgba8unorm-srgb",
+        format: "rgba8unorm",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       });
       const view = texture.createView();
