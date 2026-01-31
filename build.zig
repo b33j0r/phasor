@@ -33,6 +33,14 @@ pub fn build(b: *std.Build) void {
         .ecs = ecs.module,
         .glfw = glfw.module,
     });
+    const wasm_support = WasmSupportModule.build(&ctx);
+    const platform = PlatformModule.build(&ctx, .{
+        .ecs = ecs.module,
+        .modules = modules.module,
+        .renderer = renderer.module,
+        .window = window.module,
+        .wasm = wasm_support.module,
+    });
     const phasor = PhasorModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
@@ -40,6 +48,7 @@ pub fn build(b: *std.Build) void {
         .graph = graph.module,
         .metrics = metrics.module,
         .modules = modules.module,
+        .platform = platform.module,
         .renderer = renderer.module,
         .window = window.module,
     });
@@ -73,8 +82,10 @@ pub fn build(b: *std.Build) void {
         stb.tests,
         metrics.tests,
         modules.tests,
+        platform.tests,
         renderer.tests,
         phasor.tests,
+        wasm_support.tests,
         window.tests,
     });
 
@@ -328,6 +339,7 @@ const PhasorModule = struct {
         graph: *std.Build.Module,
         metrics: *std.Build.Module,
         modules: *std.Build.Module,
+        platform: *std.Build.Module,
         renderer: *std.Build.Module,
         window: *std.Build.Module,
     };
@@ -340,6 +352,7 @@ const PhasorModule = struct {
             .{ .name = "graph", .module = deps.graph },
             .{ .name = "metrics", .module = deps.metrics },
             .{ .name = "modules", .module = deps.modules },
+            .{ .name = "platform", .module = deps.platform },
             .{ .name = "render", .module = deps.renderer },
             .{ .name = "window", .module = deps.window },
         });
@@ -409,6 +422,48 @@ const WindowModule = struct {
             .{ .name = "ecs", .module = deps.ecs },
             .{ .name = "glfw", .module = deps.glfw },
         });
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
+const WasmSupportModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    fn build(ctx: *const BuildContext) WasmSupportModule {
+        const bundle = ctx.moduleBundle("lib/wasm/root.zig", &.{});
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
+const PlatformModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    const Deps = struct {
+        ecs: *std.Build.Module,
+        modules: *std.Build.Module,
+        renderer: *std.Build.Module,
+        window: *std.Build.Module,
+        wasm: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) PlatformModule {
+        const is_wasm = ctx.target.result.cpu.arch.isWasm();
+
+        var imports: std.ArrayList(std.Build.Module.Import) = .empty;
+        defer imports.deinit(ctx.b.allocator);
+        imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
+        if (!is_wasm) {
+            imports.append(ctx.b.allocator, .{ .name = "window", .module = deps.window }) catch unreachable;
+        }
+        if (is_wasm) {
+            imports.append(ctx.b.allocator, .{ .name = "wasm", .module = deps.wasm }) catch unreachable;
+        }
+
+        const bundle = ctx.moduleBundle("lib/platform/root.zig", imports.items);
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -613,6 +668,22 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "render", .module = wasm_render },
         },
     });
+    const wasm_support = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/wasm/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+    });
+    const wasm_platform = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/platform/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "ecs", .module = wasm_ecs },
+            .{ .name = "modules", .module = wasm_modules },
+            .{ .name = "render", .module = wasm_render },
+            .{ .name = "wasm", .module = wasm_support },
+        },
+    });
     const wasm_phasor = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("src/root_wasm.zig"),
         .target = wasm_target,
@@ -624,13 +695,9 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "graph", .module = wasm_graph },
             .{ .name = "metrics", .module = wasm_metrics },
             .{ .name = "modules", .module = wasm_modules },
+            .{ .name = "platform", .module = wasm_platform },
             .{ .name = "render", .module = wasm_render },
         },
-    });
-    const wasm_support = ctx.b.createModule(.{
-        .root_source_file = ctx.b.path("lib/wasm/root.zig"),
-        .target = wasm_target,
-        .optimize = ctx.optimize,
     });
 
     const wasm_examples = [_]WasmExample{

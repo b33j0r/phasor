@@ -13,109 +13,27 @@ const Bounds = struct {
     height: f32,
 };
 
-const Runner = if (is_wasm)
-    struct {
-        app: ecs.App,
-        io: std.Io,
-    }
-else
-    struct {
-        app: ecs.App,
-        io_threaded: std.Io.Threaded,
-        io: std.Io,
-    };
-
-fn nativeMain(init: std.process.Init) !u8 {
-    const allocator = std.heap.c_allocator;
-
-    var app = try ecs.App.init(allocator, &init.io);
-    defer app.deinit();
-
-    try configureApp(&app);
-
-    return try app.run();
-}
-
-fn wasmMain() u8 {
-    return 0;
-}
-
-pub const main = if (is_wasm) wasmMain else nativeMain;
-
-pub export fn wasmCreate() u32 {
-    if (!is_wasm) return 0;
-
-    const allocator = std.heap.page_allocator;
-    const runner = allocator.create(Runner) catch return 0;
-    errdefer allocator.destroy(runner);
-
-    runner.io = wasm.io();
-    runner.app = ecs.App.init(allocator, &runner.io) catch return 0;
-    errdefer runner.app.deinit();
-
-    configureApp(&runner.app) catch return 0;
-    runner.app.start() catch return 0;
-
-    return @intCast(@intFromPtr(runner));
-}
-
-pub export fn wasmFrame(handle: u32) void {
-    if (!is_wasm) return;
-    if (handle == 0) return;
-
-    const runner: *Runner = @ptrFromInt(handle);
-    _ = runner.app.step() catch {};
-}
-
-pub export fn wasmDeinit(handle: u32) void {
-    if (!is_wasm) return;
-    if (handle == 0) return;
-
-    const allocator = std.heap.page_allocator;
-    const runner: *Runner = @ptrFromInt(handle);
-    runner.app.deinit();
-    allocator.destroy(runner);
-}
-
-fn configureApp(app: *ecs.App) !void {
-    if (!is_wasm) {
-        var commands = ecs.Commands.init(app.allocator, app.io, &app.world);
-        defer commands.deinit();
-        try commands.insertResource(window.WindowSettings{
+const App = struct {
+    pub const options = platform.Options{
+        .window = .{
             .title = "Phasor Lite - Bouncing Ball",
             .width = 800,
             .height = 600,
-        });
-        if (!commands.isEmpty()) {
-            try commands.apply();
-        }
-        try app.installModule(window.WindowModule);
+        },
+    };
+
+    pub fn configure(app: *ecs.App) !void {
+        try app.installModule(modules.TimeModule);
+        try app.installModule(modules.RenderModule);
+        try app.installModule(modules.MetricsModule{ .font_size = 60.0 });
+
+        try app.addSystemTo(ecs.schedule.DefaultSchedule.BeforeFrame, setupScene);
+        try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, integrateMotion);
+        try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, bounceBall);
     }
+};
 
-    try app.installModule(modules.TimeModule);
-    try app.installModule(modules.RenderModule);
-    try app.installModule(modules.MetricsModule{ .font_size = 60.0 });
-
-    try app.addSystemTo(ecs.schedule.DefaultSchedule.Startup, setupSurface);
-    try app.addSystemTo(ecs.schedule.DefaultSchedule.BeforeFrame, setupScene);
-    try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, integrateMotion);
-    try app.addSystemTo(ecs.schedule.DefaultSchedule.Update, bounceBall);
-}
-
-fn setupSurface(commands: *ecs.Commands) !void {
-    if (commands.hasResource(RenderSurface)) return;
-
-    if (is_wasm) {
-        const surface = render.surface_canvas.fromCanvasId("#canvas");
-        try commands.insertResource(RenderSurface{ .target = surface });
-        return;
-    }
-
-    const window_res = commands.getResource(window.Window) orelse return error.MissingWindow;
-    const handle = window_res.handle orelse return error.MissingWindow;
-    const surface = try render.surface_glfw.fromGlfwWindow(handle);
-    try commands.insertResource(RenderSurface{ .target = surface });
-}
+pub const main = platform.main(App);
 
 fn setupScene(
     commands: *ecs.Commands,
@@ -221,24 +139,14 @@ fn resolveBounds(
 }
 
 // Imports
-const std = @import("std");
-const builtin = @import("builtin");
 const phasor = @import("phasor");
-
-const is_wasm = builtin.target.cpu.arch.isWasm();
-const wasm = if (is_wasm) @import("wasm") else struct {
-    pub fn io() std.Io {
-        return undefined;
-    }
-};
 
 const ecs = phasor.ecs;
 const modules = phasor.modules;
 const render = phasor.renderer;
 const common = phasor.common;
-const window = if (is_wasm) struct {} else phasor.window;
+const platform = phasor.platform;
 
-const RenderSurface = modules.RenderModule.RenderSurface;
 const RenderState = modules.RenderModule.RenderState;
 const ViewportSize = modules.RenderModule.ViewportSize;
 const DeltaTime = modules.TimeModule.DeltaTime;
