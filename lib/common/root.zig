@@ -28,6 +28,19 @@ pub const ClearColor = struct {
     color: Color = Color.BSOD,
 };
 
+pub const WindowFlags = struct {
+    pub const Resizable: u32 = 1 << 0;
+    pub const HighDPI: u32 = 1 << 1;
+};
+
+pub const WindowSettings = struct {
+    width: u32 = 800,
+    height: u32 = 450,
+    title: []const u8 = "Phasor Lite",
+    target_fps: i32 = 60,
+    flags: u32 = WindowFlags.Resizable | WindowFlags.HighDPI,
+};
+
 pub const RenderBounds = struct {
     width: f32,
     height: f32,

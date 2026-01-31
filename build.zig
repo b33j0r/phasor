@@ -35,6 +35,7 @@ pub fn build(b: *std.Build) void {
     });
     const wasm_support = WasmSupportModule.build(&ctx);
     const platform = PlatformModule.build(&ctx, .{
+        .common = common.module,
         .ecs = ecs.module,
         .modules = modules.module,
         .renderer = renderer.module,
@@ -441,6 +442,7 @@ const PlatformModule = struct {
     tests: *std.Build.Step.Compile,
 
     const Deps = struct {
+        common: *std.Build.Module,
         ecs: *std.Build.Module,
         modules: *std.Build.Module,
         renderer: *std.Build.Module,
@@ -453,6 +455,7 @@ const PlatformModule = struct {
 
         var imports: std.ArrayList(std.Build.Module.Import) = .empty;
         defer imports.deinit(ctx.b.allocator);
+        imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
@@ -678,6 +681,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .target = wasm_target,
         .optimize = ctx.optimize,
         .imports = &.{
+            .{ .name = "common", .module = wasm_common },
             .{ .name = "ecs", .module = wasm_ecs },
             .{ .name = "modules", .module = wasm_modules },
             .{ .name = "render", .module = wasm_render },

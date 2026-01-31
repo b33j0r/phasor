@@ -3,25 +3,17 @@ const builtin = @import("builtin");
 const ecs = @import("ecs");
 const modules = @import("modules");
 const render = @import("render");
+const common = @import("common");
 
 const is_wasm = builtin.target.cpu.arch.isWasm();
 
-pub const WindowFlags = struct {
-    pub const Resizable: u32 = 1 << 0;
-    pub const HighDPI: u32 = 1 << 1;
-};
-
-pub const WindowConfig = struct {
-    width: u32 = 800,
-    height: u32 = 450,
-    title: []const u8 = "Phasor Lite",
-    target_fps: i32 = 60,
-    flags: u32 = WindowFlags.Resizable | WindowFlags.HighDPI,
-};
+pub const WindowFlags = common.WindowFlags;
+pub const WindowSettings = common.WindowSettings;
+pub const WindowConfig = WindowSettings;
 
 pub const Options = struct {
     canvas_id: []const u8 = "#canvas",
-    window: WindowConfig = .{},
+    window: WindowSettings = .{},
     install_window_module: bool = true,
     auto_surface: bool = true,
 };
@@ -114,7 +106,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             try AppSpec.configure(app);
         }
 
-        fn installWindowModule(app: *ecs.App, config: WindowConfig) !void {
+        fn installWindowModule(app: *ecs.App, config: WindowSettings) !void {
             if (is_wasm) {
                 return;
             } else {

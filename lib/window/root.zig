@@ -4,18 +4,8 @@ test "import tests" {
     _ = WindowModule;
 }
 
-pub const WindowFlags = struct {
-    pub const Resizable: u32 = 1 << 0;
-    pub const HighDPI: u32 = 1 << 1;
-};
-
-pub const WindowSettings = struct {
-    width: u32 = 800,
-    height: u32 = 450,
-    title: []const u8 = "Phasor Lite",
-    target_fps: i32 = 60,
-    flags: u32 = WindowFlags.Resizable | WindowFlags.HighDPI,
-};
+pub const WindowFlags = common.WindowFlags;
+pub const WindowSettings = common.WindowSettings;
 
 pub const Window = struct {
     handle: ?*glfw.GLFWwindow = null,
