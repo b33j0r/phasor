@@ -4,17 +4,29 @@ const builtin = @import("builtin");
 const http = std.http;
 const net = std.Io.net;
 
+const default_https_cert = "local/tls/phasor.pem";
+const default_https_key = "local/tls/phasor-key.pem";
+
 pub const Options = struct {
     root_dir: []const u8 = "zig-out/web",
     index_file: []const u8 = "index.html",
     host: []const u8 = "127.0.0.1",
     port: u16 = 0,
     open_browser: bool = true,
+    https: bool = false,
+    https_host: ?[]const u8 = null,
+    https_port: u16 = 8443,
+    https_cert: []const u8 = default_https_cert,
+    https_key: []const u8 = default_https_key,
 };
 
 pub fn main(init: std.process.Init) !void {
     var options = Options{};
     parseArgs(init, &options) catch |err| {
+        if (err == error.InvalidArguments) return;
+        return err;
+    };
+    validateOptions(init, &options) catch |err| {
         if (err == error.InvalidArguments) return;
         return err;
     };
@@ -26,11 +38,41 @@ pub fn serve(init: std.process.Init, options: Options) !void {
     var server = try address.listen(init.io, .{ .reuse_address = true });
     defer server.deinit(init.io);
 
-    const url = try std.fmt.allocPrint(init.gpa, "http://{f}/", .{server.socket.address});
-    defer init.gpa.free(url);
+    const bound_address = server.socket.address;
+    const http_url = try std.fmt.allocPrint(init.gpa, "http://{f}/", .{bound_address});
+    defer init.gpa.free(http_url);
 
-    std.debug.print("Serving {s} at {s}\n", .{ options.root_dir, url });
+    std.debug.print("Serving {s} at {s}\n", .{ options.root_dir, http_url });
+
+    var https_child: ?std.process.Child = null;
+    defer if (https_child) |*child| child.kill(init.io);
+    var https_url: ?[]const u8 = null;
+    defer if (https_url) |url| init.gpa.free(url);
+
+    if (options.https) {
+        const https_host = options.https_host orelse options.host;
+        const target_host = proxyTargetHost(options.host);
+        https_child = spawnHttpsProxy(init, .{
+            .listen_host = https_host,
+            .listen_port = options.https_port,
+            .target_host = target_host,
+            .target_port = bound_address.getPort(),
+            .cert_path = options.https_cert,
+            .key_path = options.https_key,
+        }) catch |err| {
+            if (err == error.FileNotFound) {
+                std.debug.print("Failed to start HTTPS proxy: python3 not found\n", .{});
+            } else {
+                std.debug.print("Failed to start HTTPS proxy: {s}\n", .{@errorName(err)});
+            }
+            return err;
+        };
+        https_url = try std.fmt.allocPrint(init.gpa, "https://{s}:{d}/", .{ https_host, options.https_port });
+        std.debug.print("HTTPS proxy at {s}\n", .{https_url.?});
+    }
+
     if (options.open_browser) {
+        const url = https_url orelse http_url;
         openBrowser(init, url) catch |err| {
             std.debug.print("Failed to open browser: {s}\n", .{@errorName(err)});
         };
@@ -48,6 +90,52 @@ pub fn serve(init: std.process.Init, options: Options) !void {
             std.debug.print("Connection error: {s}\n", .{@errorName(err)});
         };
     }
+}
+
+const HttpsProxyOptions = struct {
+    listen_host: []const u8,
+    listen_port: u16,
+    target_host: []const u8,
+    target_port: u16,
+    cert_path: []const u8,
+    key_path: []const u8,
+};
+
+fn spawnHttpsProxy(init: std.process.Init, options: HttpsProxyOptions) !std.process.Child {
+    const listen_port = try std.fmt.allocPrint(init.gpa, "{d}", .{options.listen_port});
+    defer init.gpa.free(listen_port);
+    const target_port = try std.fmt.allocPrint(init.gpa, "{d}", .{options.target_port});
+    defer init.gpa.free(target_port);
+
+    const argv = [_][]const u8{
+        "python3",
+        "tools/tls_proxy.py",
+        "--listen-host",
+        options.listen_host,
+        "--listen-port",
+        listen_port,
+        "--target-host",
+        options.target_host,
+        "--target-port",
+        target_port,
+        "--cert",
+        options.cert_path,
+        "--key",
+        options.key_path,
+    };
+
+    return std.process.spawn(init.io, .{
+        .argv = &argv,
+        .stdin = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
+}
+
+fn proxyTargetHost(host: []const u8) []const u8 {
+    if (std.mem.eql(u8, host, "0.0.0.0")) return "127.0.0.1";
+    if (std.mem.eql(u8, host, "::")) return "::1";
+    return host;
 }
 
 fn handleConnection(
@@ -192,6 +280,20 @@ fn parseArgs(init: std.process.Init, options: *Options) !void {
         } else if (std.mem.eql(u8, arg, "--port")) {
             const port_str = nextArg(&it) orelse return error.InvalidArguments;
             options.port = std.fmt.parseInt(u16, port_str, 10) catch return error.InvalidArguments;
+        } else if (std.mem.eql(u8, arg, "--https")) {
+            options.https = true;
+        } else if (std.mem.eql(u8, arg, "--https-host")) {
+            const value = nextArg(&it) orelse return error.InvalidArguments;
+            options.https_host = try init.gpa.dupe(u8, value);
+        } else if (std.mem.eql(u8, arg, "--https-port")) {
+            const port_str = nextArg(&it) orelse return error.InvalidArguments;
+            options.https_port = std.fmt.parseInt(u16, port_str, 10) catch return error.InvalidArguments;
+        } else if (std.mem.eql(u8, arg, "--https-cert")) {
+            const value = nextArg(&it) orelse return error.InvalidArguments;
+            options.https_cert = try init.gpa.dupe(u8, value);
+        } else if (std.mem.eql(u8, arg, "--https-key")) {
+            const value = nextArg(&it) orelse return error.InvalidArguments;
+            options.https_key = try init.gpa.dupe(u8, value);
         } else if (std.mem.eql(u8, arg, "--no-open")) {
             options.open_browser = false;
         } else if (std.mem.eql(u8, arg, "--help")) {
@@ -209,9 +311,124 @@ fn nextArg(it: *std.process.Args.Iterator) ?[]const u8 {
     return it.next() orelse null;
 }
 
+fn validateOptions(init: std.process.Init, options: *Options) !void {
+    if (!options.https) return;
+    if (options.https_port == 0) {
+        std.debug.print("Invalid --https-port: 0\n", .{});
+        printUsage();
+        return error.InvalidArguments;
+    }
+    ensureHttpsCerts(init, options) catch |err| {
+        if (err == error.FileNotFound) {
+            std.debug.print("mkcert not found; install it or pass --https-cert/--https-key\n", .{});
+            printUsage();
+            return error.InvalidArguments;
+        } else if (err == error.MkcertFailed) {
+            std.debug.print("mkcert failed; ensure its root CA is installed (mkcert -install)\n", .{});
+            printUsage();
+            return error.InvalidArguments;
+        }
+        return err;
+    };
+}
+
+fn ensureHttpsCerts(init: std.process.Init, options: *Options) !void {
+    if (fileExists(init, options.https_cert) and fileExists(init, options.https_key)) return;
+    try ensureTlsDir(init);
+    try runMkcert(init, options);
+    if (!fileExists(init, options.https_cert) or !fileExists(init, options.https_key)) {
+        std.debug.print("Missing TLS cert/key at {s} and {s}\n", .{
+            options.https_cert,
+            options.https_key,
+        });
+        return error.InvalidArguments;
+    }
+}
+
+fn runMkcert(init: std.process.Init, options: *Options) !void {
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(init.gpa);
+    var allocated: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (allocated.items) |item| {
+            init.gpa.free(item);
+        }
+        allocated.deinit(init.gpa);
+    }
+
+    try argv.append(init.gpa, "mkcert");
+    try argv.append(init.gpa, "-cert-file");
+    try argv.append(init.gpa, options.https_cert);
+    try argv.append(init.gpa, "-key-file");
+    try argv.append(init.gpa, options.https_key);
+
+    try argv.append(init.gpa, "localhost");
+    try argv.append(init.gpa, "127.0.0.1");
+    try argv.append(init.gpa, "::1");
+
+    if (options.https_host) |host| {
+        if (!isWildcardHost(host)) try argv.append(init.gpa, host);
+    }
+    if (!isWildcardHost(options.host)) {
+        try argv.append(init.gpa, options.host);
+    }
+
+    if (builtin.os.tag != .windows and builtin.os.tag != .wasi) {
+        var host_buf: [std.posix.HOST_NAME_MAX]u8 = undefined;
+        if (std.posix.gethostname(&host_buf)) |host| {
+            if (host.len != 0) {
+                try argv.append(init.gpa, host);
+                if (std.mem.indexOfScalar(u8, host, '.') == null) {
+                    const local_name = try std.fmt.allocPrint(init.gpa, "{s}.local", .{host});
+                    try allocated.append(init.gpa, local_name);
+                    try argv.append(init.gpa, local_name);
+                }
+            }
+        } else |_| {}
+    }
+
+    var child = try std.process.spawn(init.io, .{
+        .argv = argv.items,
+        .stdin = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
+    const term = try child.wait(init.io);
+    switch (term) {
+        .exited => |code| if (code != 0) return error.MkcertFailed,
+        else => return error.MkcertFailed,
+    }
+}
+
+fn ensureTlsDir(init: std.process.Init) !void {
+    const argv = [_][]const u8{ "mkdir", "-p", "local/tls" };
+    var child = try std.process.spawn(init.io, .{
+        .argv = &argv,
+        .stdin = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
+    const term = try child.wait(init.io);
+    switch (term) {
+        .exited => |code| if (code != 0) return error.MkdirFailed,
+        else => return error.MkdirFailed,
+    }
+}
+
+fn fileExists(init: std.process.Init, path: []const u8) bool {
+    const cwd = std.Io.Dir.cwd();
+    const file = std.Io.Dir.openFile(cwd, init.io, path, .{}) catch return false;
+    file.close(init.io);
+    return true;
+}
+
+fn isWildcardHost(host: []const u8) bool {
+    return std.mem.eql(u8, host, "0.0.0.0") or std.mem.eql(u8, host, "::");
+}
+
 fn printUsage() void {
     std.debug.print(
-        "wasm-server [--root DIR] [--index FILE] [--host ADDR] [--port N] [--no-open]\n",
+        "wasm-server [--root DIR] [--index FILE] [--host ADDR] [--port N] [--no-open] [--https --https-host ADDR --https-port N --https-cert FILE --https-key FILE]\n",
         .{},
     );
 }

@@ -650,6 +650,9 @@ fn addWasmExample(
     run_server.addArg(ctx.b.fmt("zig-out/{s}", .{web_dir}));
     run_server.addArg("--index");
     run_server.addArg("index.html");
+    if (ctx.b.args) |args| {
+        run_server.addArgs(args);
+    }
     run_server.step.dependOn(&install_wasm.step);
     run_server.step.dependOn(&install_html.step);
     run_server.step.dependOn(&install_js.step);
