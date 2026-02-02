@@ -152,7 +152,7 @@ fn readFileSearch(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]con
         return bytes;
     } else |_| {}
 
-    const cwd_path = std.process.getCwdAlloc(allocator) catch null;
+    const cwd_path = std.Io.Dir.cwd().realPathFileAlloc(io.*, ".", allocator) catch null;
     defer if (cwd_path) |p| allocator.free(p);
 
     var base: ?[]const u8 = if (cwd_path) |p| p else null;
