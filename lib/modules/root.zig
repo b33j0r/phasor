@@ -18,4 +18,4 @@ pub const TimerModule = @import("TimerModule.zig");
 pub const RenderModule = @import("RenderModule.zig");
 pub const ParentModule = @import("ParentModule.zig");
 pub const AssetsModule = @import("AssetsModule.zig").AssetsModule;
-pub const InputModule = @import("InputModule.zig");
+pub const InputModule = @import("input.zig");

@@ -1,10 +1,10 @@
 const builtin = @import("builtin");
 
-const core = @import("InputModule_core.zig");
+const core = @import("input/input_core.zig");
 const backend = if (builtin.target.cpu.arch.isWasm())
-    @import("InputModule_wasm.zig")
+    @import("input/input_wasm.zig")
 else
-    @import("InputModule_glfw.zig");
+    @import("input/input_glfw.zig");
 
 pub const Key = core.Key;
 pub const KeyPressed = core.KeyPressed;
