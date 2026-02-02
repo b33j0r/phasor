@@ -26,6 +26,11 @@ pub fn build(b: *std.Build) void {
         .render = renderer.module,
         .stb_image = stb_image.module,
     });
+    const window = WindowModule.build(&ctx, .{
+        .common = common.module,
+        .ecs = ecs.module,
+        .glfw = glfw.module,
+    });
     const modules = ModulesModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
@@ -33,11 +38,8 @@ pub fn build(b: *std.Build) void {
         .assets = assets.module,
         .metrics = metrics.module,
         .render = renderer.module,
-    });
-    const window = WindowModule.build(&ctx, .{
-        .common = common.module,
-        .ecs = ecs.module,
         .glfw = glfw.module,
+        .window = window.module,
     });
     const wasm_support = WasmSupportModule.build(&ctx);
     const platform = PlatformModule.build(&ctx, .{
@@ -131,6 +133,24 @@ const BuildContext = struct {
 
     fn moduleBundle(self: *const BuildContext, root: []const u8, imports: []const std.Build.Module.Import) ModuleBundle {
         const mod = self.module(root, imports);
+        return .{
+            .module = mod,
+            .tests = self.b.addTest(.{ .root_module = mod }),
+        };
+    }
+
+    fn moduleBundlePublic(
+        self: *const BuildContext,
+        name: []const u8,
+        root: []const u8,
+        imports: []const std.Build.Module.Import,
+    ) ModuleBundle {
+        const mod = self.b.addModule(name, .{
+            .root_source_file = self.b.path(root),
+            .target = self.target,
+            .optimize = self.optimize,
+            .imports = imports,
+        });
         return .{
             .module = mod,
             .tests = self.b.addTest(.{ .root_module = mod }),
@@ -363,31 +383,35 @@ const MetricsModule = struct {
     }
 };
 
-const ModulesModule = struct {
-    module: *std.Build.Module,
-    tests: *std.Build.Step.Compile,
+    const ModulesModule = struct {
+        module: *std.Build.Module,
+        tests: *std.Build.Step.Compile,
 
-    const Deps = struct {
-        common: *std.Build.Module,
-        db: *std.Build.Module,
-        ecs: *std.Build.Module,
-        assets: *std.Build.Module,
-        metrics: *std.Build.Module,
-        render: *std.Build.Module,
+        const Deps = struct {
+            common: *std.Build.Module,
+            db: *std.Build.Module,
+            ecs: *std.Build.Module,
+            assets: *std.Build.Module,
+            metrics: *std.Build.Module,
+            render: *std.Build.Module,
+            glfw: *std.Build.Module,
+            window: *std.Build.Module,
+        };
+
+        fn build(ctx: *const BuildContext, deps: Deps) ModulesModule {
+            const bundle = ctx.moduleBundle("lib/modules/root.zig", &.{
+                .{ .name = "common", .module = deps.common },
+                .{ .name = "db", .module = deps.db },
+                .{ .name = "ecs", .module = deps.ecs },
+                .{ .name = "assets", .module = deps.assets },
+                .{ .name = "metrics", .module = deps.metrics },
+                .{ .name = "render", .module = deps.render },
+                .{ .name = "glfw", .module = deps.glfw },
+                .{ .name = "window", .module = deps.window },
+            });
+            return .{ .module = bundle.module, .tests = bundle.tests };
+        }
     };
-
-    fn build(ctx: *const BuildContext, deps: Deps) ModulesModule {
-        const bundle = ctx.moduleBundle("lib/modules/root.zig", &.{
-            .{ .name = "common", .module = deps.common },
-            .{ .name = "db", .module = deps.db },
-            .{ .name = "ecs", .module = deps.ecs },
-            .{ .name = "assets", .module = deps.assets },
-            .{ .name = "metrics", .module = deps.metrics },
-            .{ .name = "render", .module = deps.render },
-        });
-        return .{ .module = bundle.module, .tests = bundle.tests };
-    }
-};
 
 const PhasorModule = struct {
     module: *std.Build.Module,
@@ -407,7 +431,7 @@ const PhasorModule = struct {
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) PhasorModule {
-        const bundle = ctx.moduleBundle("src/root.zig", &.{
+        const bundle = ctx.moduleBundlePublic("phasor", "src/root.zig", &.{
             .{ .name = "common", .module = deps.common },
             .{ .name = "db", .module = deps.db },
             .{ .name = "ecs", .module = deps.ecs },
