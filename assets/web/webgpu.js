@@ -12,6 +12,29 @@ let shaderSources = null;
 
 const textDecoder = new TextDecoder("utf-8");
 
+const keyCodeMap = {
+  Space: 32,
+  ArrowLeft: 263,
+  ArrowRight: 262,
+  ArrowUp: 265,
+  ArrowDown: 264,
+  Escape: 256,
+  Enter: 257,
+};
+
+function mapKeyboardEvent(event) {
+  const code = event.code;
+  if (!code) return null;
+  if (code.startsWith("Key") && code.length === 4) {
+    const ch = code.charCodeAt(3);
+    if (ch >= 65 && ch <= 90) return ch;
+  }
+  if (Object.prototype.hasOwnProperty.call(keyCodeMap, code)) {
+    return keyCodeMap[code];
+  }
+  return null;
+}
+
 function getMemoryView() {
   return new DataView(memory.buffer);
 }
@@ -612,6 +635,17 @@ async function start() {
   if (wasm.exports.wasmVsyncEnabled) {
     useVsync = Boolean(wasm.exports.wasmVsyncEnabled());
   }
+
+  function handleKeyEvent(isDown, event) {
+    if (!wasm.exports.wasmInputKey) return;
+    const key = mapKeyboardEvent(event);
+    if (key == null) return;
+    wasm.exports.wasmInputKey(key, isDown ? 1 : 0);
+    event.preventDefault();
+  }
+
+  window.addEventListener("keydown", (event) => handleKeyEvent(true, event));
+  window.addEventListener("keyup", (event) => handleKeyEvent(false, event));
 
   function resizeAndNotify() {
     const canvas = document.querySelector("#canvas");

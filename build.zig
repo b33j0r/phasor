@@ -4,11 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const ctx = BuildContext.init(b, target, optimize);
+    const is_wasm = ctx.target.result.cpu.arch.isWasm();
 
     const common = CommonModule.build(&ctx);
     const db = DbModule.build(&ctx, .{ .common = common.module });
     const graph = GraphModule.build(&ctx);
-    const glfw = GlfwModule.build(&ctx);
+    const glfw = if (!is_wasm) GlfwModule.build(&ctx) else null;
     const stb = StbModule.build(&ctx);
     const stb_image = StbImageModule.build(&ctx);
     const ecs = EcsModule.build(&ctx, .{
@@ -17,20 +18,21 @@ pub fn build(b: *std.Build) void {
         .graph = graph.module,
     });
     const metrics = MetricsModule.build(&ctx);
+    const wasm_support = WasmSupportModule.build(&ctx);
     const renderer = RenderModule.build(&ctx, .{
         .common = common.module,
-        .glfw = glfw.module,
+        .glfw = if (!is_wasm) glfw.?.module else null,
         .stb = stb.module,
     });
     const assets = AssetsModule.build(&ctx, .{
         .render = renderer.module,
         .stb_image = stb_image.module,
     });
-    const window = WindowModule.build(&ctx, .{
+    const window = if (!is_wasm) WindowModule.build(&ctx, .{
         .common = common.module,
         .ecs = ecs.module,
-        .glfw = glfw.module,
-    });
+        .glfw = glfw.?.module,
+    }) else null;
     const modules = ModulesModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
@@ -38,17 +40,17 @@ pub fn build(b: *std.Build) void {
         .assets = assets.module,
         .metrics = metrics.module,
         .render = renderer.module,
-        .glfw = glfw.module,
-        .window = window.module,
+        .glfw = if (!is_wasm) glfw.?.module else null,
+        .window = if (!is_wasm) window.?.module else null,
+        .wasm = if (is_wasm) wasm_support.module else null,
     });
-    const wasm_support = WasmSupportModule.build(&ctx);
     const platform = PlatformModule.build(&ctx, .{
         .common = common.module,
         .ecs = ecs.module,
         .modules = modules.module,
         .renderer = renderer.module,
-        .window = window.module,
-        .wasm = wasm_support.module,
+        .window = if (!is_wasm) window.?.module else null,
+        .wasm = if (is_wasm) wasm_support.module else null,
     });
     const phasor = PhasorModule.build(&ctx, .{
         .common = common.module,
@@ -60,7 +62,7 @@ pub fn build(b: *std.Build) void {
         .platform = platform.module,
         .renderer = renderer.module,
         .assets = assets.module,
-        .window = window.module,
+        .window = if (!is_wasm) window.?.module else null,
     });
 
     const exe_mod = ctx.module("examples/ecs/main.zig", &.{.{
@@ -84,23 +86,41 @@ pub fn build(b: *std.Build) void {
     addWebExamples(&ctx);
 
     const test_step = b.step("test", "Run tests");
-    addModuleTests(b, test_step, &.{
-        common.tests,
-        db.tests,
-        ecs.tests,
-        graph.tests,
-        glfw.tests,
-        stb.tests,
-        stb_image.tests,
-        metrics.tests,
-        modules.tests,
-        platform.tests,
-        renderer.tests,
-        assets.tests,
-        phasor.tests,
-        wasm_support.tests,
-        window.tests,
-    });
+    if (is_wasm) {
+        addModuleTests(b, test_step, &.{
+            common.tests,
+            db.tests,
+            ecs.tests,
+            graph.tests,
+            stb.tests,
+            stb_image.tests,
+            metrics.tests,
+            modules.tests,
+            platform.tests,
+            renderer.tests,
+            assets.tests,
+            phasor.tests,
+            wasm_support.tests,
+        });
+    } else {
+        addModuleTests(b, test_step, &.{
+            common.tests,
+            db.tests,
+            ecs.tests,
+            graph.tests,
+            glfw.?.tests,
+            stb.tests,
+            stb_image.tests,
+            metrics.tests,
+            modules.tests,
+            platform.tests,
+            renderer.tests,
+            assets.tests,
+            phasor.tests,
+            wasm_support.tests,
+            window.?.tests,
+        });
+    }
 
     const exe_tests = b.addTest(.{
         .root_module = exe.root_module,
@@ -394,21 +414,31 @@ const MetricsModule = struct {
             assets: *std.Build.Module,
             metrics: *std.Build.Module,
             render: *std.Build.Module,
-            glfw: *std.Build.Module,
-            window: *std.Build.Module,
+            glfw: ?*std.Build.Module,
+            window: ?*std.Build.Module,
+            wasm: ?*std.Build.Module,
         };
 
         fn build(ctx: *const BuildContext, deps: Deps) ModulesModule {
-            const bundle = ctx.moduleBundle("lib/modules/root.zig", &.{
-                .{ .name = "common", .module = deps.common },
-                .{ .name = "db", .module = deps.db },
-                .{ .name = "ecs", .module = deps.ecs },
-                .{ .name = "assets", .module = deps.assets },
-                .{ .name = "metrics", .module = deps.metrics },
-                .{ .name = "render", .module = deps.render },
-                .{ .name = "glfw", .module = deps.glfw },
-                .{ .name = "window", .module = deps.window },
-            });
+            var imports: std.ArrayList(std.Build.Module.Import) = .empty;
+            defer imports.deinit(ctx.b.allocator);
+            imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
+            imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
+            imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
+            imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
+            imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
+            imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.render }) catch unreachable;
+            if (deps.glfw) |glfw_mod| {
+                imports.append(ctx.b.allocator, .{ .name = "glfw", .module = glfw_mod }) catch unreachable;
+            }
+            if (deps.window) |window_mod| {
+                imports.append(ctx.b.allocator, .{ .name = "window", .module = window_mod }) catch unreachable;
+            }
+            if (deps.wasm) |wasm_mod| {
+                imports.append(ctx.b.allocator, .{ .name = "wasm", .module = wasm_mod }) catch unreachable;
+            }
+
+            const bundle = ctx.moduleBundle("lib/modules/root.zig", imports.items);
             return .{ .module = bundle.module, .tests = bundle.tests };
         }
     };
@@ -427,22 +457,30 @@ const PhasorModule = struct {
         platform: *std.Build.Module,
         renderer: *std.Build.Module,
         assets: *std.Build.Module,
-        window: *std.Build.Module,
+        window: ?*std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) PhasorModule {
-        const bundle = ctx.moduleBundlePublic("phasor", "src/root.zig", &.{
-            .{ .name = "common", .module = deps.common },
-            .{ .name = "db", .module = deps.db },
-            .{ .name = "ecs", .module = deps.ecs },
-            .{ .name = "graph", .module = deps.graph },
-            .{ .name = "metrics", .module = deps.metrics },
-            .{ .name = "modules", .module = deps.modules },
-            .{ .name = "platform", .module = deps.platform },
-            .{ .name = "render", .module = deps.renderer },
-            .{ .name = "assets", .module = deps.assets },
-            .{ .name = "window", .module = deps.window },
-        });
+        const is_wasm = ctx.target.result.cpu.arch.isWasm();
+        const root = if (is_wasm) "src/root_wasm.zig" else "src/root.zig";
+
+        var imports: std.ArrayList(std.Build.Module.Import) = .empty;
+        defer imports.deinit(ctx.b.allocator);
+        imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "graph", .module = deps.graph }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "platform", .module = deps.platform }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
+        if (!is_wasm) {
+            const window_mod = deps.window orelse @panic("window module required for native builds");
+            imports.append(ctx.b.allocator, .{ .name = "window", .module = window_mod }) catch unreachable;
+        }
+
+        const bundle = ctx.moduleBundlePublic("phasor", root, imports.items);
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -453,7 +491,7 @@ const RenderModule = struct {
 
     const Deps = struct {
         common: *std.Build.Module,
-        glfw: *std.Build.Module,
+        glfw: ?*std.Build.Module,
         stb: *std.Build.Module,
     };
 
@@ -465,7 +503,8 @@ const RenderModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "stb", .module = deps.stb }) catch unreachable;
         if (!is_wasm) {
-            imports.append(ctx.b.allocator, .{ .name = "glfw", .module = deps.glfw }) catch unreachable;
+            const glfw_mod = deps.glfw orelse @panic("glfw module required for native builds");
+            imports.append(ctx.b.allocator, .{ .name = "glfw", .module = glfw_mod }) catch unreachable;
         }
 
         if (!is_wasm) {
@@ -532,8 +571,8 @@ const PlatformModule = struct {
         ecs: *std.Build.Module,
         modules: *std.Build.Module,
         renderer: *std.Build.Module,
-        window: *std.Build.Module,
-        wasm: *std.Build.Module,
+        window: ?*std.Build.Module,
+        wasm: ?*std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) PlatformModule {
@@ -546,10 +585,12 @@ const PlatformModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
         if (!is_wasm) {
-            imports.append(ctx.b.allocator, .{ .name = "window", .module = deps.window }) catch unreachable;
+            const window_mod = deps.window orelse @panic("window module required for native builds");
+            imports.append(ctx.b.allocator, .{ .name = "window", .module = window_mod }) catch unreachable;
         }
         if (is_wasm) {
-            imports.append(ctx.b.allocator, .{ .name = "wasm", .module = deps.wasm }) catch unreachable;
+            const wasm_mod = deps.wasm orelse @panic("wasm module required for wasm builds");
+            imports.append(ctx.b.allocator, .{ .name = "wasm", .module = wasm_mod }) catch unreachable;
         }
 
         const bundle = ctx.moduleBundle("lib/platform/root.zig", imports.items);
@@ -768,6 +809,11 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "stb_image", .module = wasm_stb_image },
         },
     });
+    const wasm_support = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/wasm/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+    });
     const wasm_modules = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/modules/root.zig"),
         .target = wasm_target,
@@ -779,12 +825,8 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "assets", .module = wasm_assets },
             .{ .name = "metrics", .module = wasm_metrics },
             .{ .name = "render", .module = wasm_render },
+            .{ .name = "wasm", .module = wasm_support },
         },
-    });
-    const wasm_support = ctx.b.createModule(.{
-        .root_source_file = ctx.b.path("lib/wasm/root.zig"),
-        .target = wasm_target,
-        .optimize = ctx.optimize,
     });
     const wasm_platform = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/platform/root.zig"),
