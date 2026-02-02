@@ -26,12 +26,12 @@ pub const ViewportSize = struct {
 
 pub const LayerCameras = struct {
     allocator: std.mem.Allocator,
-    map: std.AutoHashMap(i32, common.Camera3d),
+    map: std.AutoHashMap(i32, LayerCamera),
 
     pub fn init(allocator: std.mem.Allocator) LayerCameras {
         return .{
             .allocator = allocator,
-            .map = std.AutoHashMap(i32, common.Camera3d).init(allocator),
+            .map = std.AutoHashMap(i32, LayerCamera).init(allocator),
         };
     }
 
@@ -43,6 +43,11 @@ pub const LayerCameras = struct {
     pub fn clear(self: *LayerCameras) void {
         self.map.clearRetainingCapacity();
     }
+};
+
+const LayerCamera = struct {
+    camera: common.Camera3d,
+    view: common.Mat4,
 };
 
 pub fn install(app: *AppCommands, commands: *Commands) !void {
@@ -304,20 +309,20 @@ fn updateTextMeshes(
 }
 
 fn updateLayerCameras(
-    cameras: Query(.{common.Camera3d}),
+    cameras: Query(.{ common.Camera3d, common.Transform }),
     layer_cameras: ResMut(LayerCameras),
 ) !void {
     layer_cameras.ptr.clear();
 
-    var groups = try cameras.groupBy(render.CameraLayerN);
-    defer groups.deinit();
-
-    var group_it = groups.iterator();
-    while (group_it.next()) |group| {
-        var cam_it = group.iterator();
-        const row = cam_it.next() orelse continue;
+    var it = cameras.iterator();
+    while (it.next()) |row| {
         const cam = row.get(common.Camera3d) orelse continue;
-        try layer_cameras.ptr.map.put(group.key, cam.*);
+        const transform = row.get(common.Transform) orelse continue;
+        const layer = cameraLayerKeyForRow(row);
+        try layer_cameras.ptr.map.put(layer, .{
+            .camera = cam.*,
+            .view = viewMatrix(transform.*),
+        });
     }
 }
 
@@ -350,15 +355,22 @@ fn renderSystem(
 
     for (layers) |layer| {
         const camera = cameraForLayer(layer, layer_cameras_opt.ptr, camera_opt.ptr);
+        const view = if (camera) |cam| cam.view else common.Mat4.identity();
         const viewport_matrix = if (camera) |cam|
-            switch (cam) {
+            switch (cam.camera) {
                 .Viewport => |vp| viewportMatrix(vp, viewport_size),
                 else => null,
             }
         else
             null;
         const projection = if (camera) |cam|
-            projectionMatrix(cam, viewport_size)
+            projectionMatrix(cam.camera, viewport_size)
+        else
+            null;
+        const view_proj = if (viewport_matrix) |vp|
+            common.Mat4.mul(vp, view)
+        else if (projection) |proj|
+            common.Mat4.mul(proj, view)
         else
             null;
 
@@ -367,8 +379,8 @@ fn renderSystem(
                 .triangle => |tri| {
                     if (tri.layer != layer) continue;
                     const draw_tri = if (camera) |cam|
-                        switch (cam) {
-                            .Viewport => |vp| applyViewport(tri.triangle, vp, viewport_size),
+                        switch (cam.camera) {
+                            .Viewport => |vp| applyViewport(tri.triangle, vp, viewport_size, view),
                             else => tri.triangle,
                         }
                     else
@@ -379,12 +391,7 @@ fn renderSystem(
                     if (instance.layer != layer) continue;
                     if (instance.blend) continue;
                     const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
-                    const model = if (viewport_matrix) |vp|
-                        common.Mat4.mul(vp, instance.transform)
-                    else if (projection) |proj|
-                        common.Mat4.mul(proj, instance.transform)
-                    else
-                        instance.transform;
+                    const model = resolveModel(instance.transform, view_proj);
 
                     const color_f = common.Color.F32.fromColor(instance.color);
                     const gpu_instance = render.BackendMeshInstance{
@@ -412,7 +419,7 @@ fn renderSystem(
                     if (instance.layer != layer) continue;
                     if (!instance.blend) continue;
                     const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
-                    const model = resolveModel(instance.transform, viewport_matrix, projection);
+                    const model = resolveModel(instance.transform, view_proj);
                     const color_f = common.Color.F32.fromColor(instance.color);
                     const gpu_instance = render.BackendMeshInstance{
                         .transform = model,
@@ -528,16 +535,20 @@ fn cameraForLayer(
     layer: i32,
     layer_cameras: ?*const LayerCameras,
     fallback: ?*const common.Camera3d,
-) ?common.Camera3d {
+) ?LayerCamera {
     const has_layer_cameras = if (layer_cameras) |cameras| cameras.map.count() > 0 else false;
     if (layer_cameras) |cameras| {
         if (cameras.map.get(layer)) |cam| return cam;
     }
     if (!has_layer_cameras) {
-        if (fallback) |cam| return cam.*;
+        if (fallback) |cam| {
+            return .{ .camera = cam.*, .view = common.Mat4.identity() };
+        }
     }
     if (layer == 0) {
-        if (fallback) |cam| return cam.*;
+        if (fallback) |cam| {
+            return .{ .camera = cam.*, .view = common.Mat4.identity() };
+        }
     }
     return null;
 }
@@ -570,12 +581,14 @@ fn projectionMatrix(camera: common.Camera3d, size: render.Size) ?common.Mat4 {
     };
 }
 
-fn applyViewport(tri: render.Triangle, vp: anytype, size: render.Size) render.Triangle {
+fn applyViewport(tri: render.Triangle, vp: anytype, size: render.Size, view: common.Mat4) render.Triangle {
     var out = tri;
     for (&out.vertices) |*v| {
+        const transformed = view.transformVec2(.{ .x = v.position[0], .y = v.position[1] });
+        const pos = .{ transformed.x, transformed.y };
         const ndc = switch (vp.mode) {
-            .TopLeft => positionToNdcTopLeft(v.position, size),
-            .Center => positionToNdcCenter(v.position, size),
+            .TopLeft => positionToNdcTopLeft(pos, size),
+            .Center => positionToNdcCenter(pos, size),
         };
         v.position = ndc;
     }
@@ -599,14 +612,39 @@ const BlendItem = struct {
     instance: render.BackendMeshInstance,
 };
 
-fn resolveModel(transform: common.Mat4, viewport_matrix: ?common.Mat4, projection: ?common.Mat4) common.Mat4 {
-    if (viewport_matrix) |vp| {
+fn resolveModel(transform: common.Mat4, view_proj: ?common.Mat4) common.Mat4 {
+    if (view_proj) |vp| {
         return common.Mat4.mul(vp, transform);
     }
-    if (projection) |proj| {
-        return common.Mat4.mul(proj, transform);
-    }
     return transform;
+}
+
+fn viewMatrix(transform: common.Transform) common.Mat4 {
+    const inv_scale = common.Vec3{
+        .x = if (transform.scale.x != 0.0) 1.0 / transform.scale.x else 0.0,
+        .y = if (transform.scale.y != 0.0) 1.0 / transform.scale.y else 0.0,
+        .z = if (transform.scale.z != 0.0) 1.0 / transform.scale.z else 0.0,
+    };
+    const scale_mat = common.Mat4.scaleVec3(inv_scale);
+    const rot_mat = common.Mat4.fromQuaternion(transform.rotation.inverse());
+    const trans_mat = common.Mat4.translateVec3(transform.translation.scale(-1.0));
+    return common.Mat4.mul(common.Mat4.mul(scale_mat, rot_mat), trans_mat);
+}
+
+fn cameraLayerKeyForRow(row: db.QueryResult.Row) i32 {
+    const table = &row.database.tables.items[row.table_index];
+    return cameraLayerKeyForTable(table);
+}
+
+fn cameraLayerKeyForTable(table: *const db.table.Table) i32 {
+    const trait_id = db.meta.typeId(render.CameraLayerN);
+    for (table.columns) |column| {
+        for (column.group_traits) |group_trait| {
+            if (group_trait.trait_id != trait_id) continue;
+            return group_trait.key;
+        }
+    }
+    return 0;
 }
 
 fn clipDepth(model: common.Mat4) f32 {

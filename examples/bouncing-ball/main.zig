@@ -85,7 +85,11 @@ fn setupScene(
     }
 
     try commands.insertResource(common.ClearColor{ .color = common.Color.WHITE });
-    try commands.insertResource(common.Camera3d{ .Viewport = .{ .mode = .TopLeft } });
+    _ = try commands.createEntity(.{
+        common.Transform{},
+        common.Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+        render.CameraLayer(0){},
+    });
 }
 
 fn integrateMotion(dt: Res(DeltaTime), query: Query(.{ common.Transform, Velocity })) void {

@@ -109,6 +109,7 @@ fn setupScene(commands: *ecs.Commands) !void {
 
     try commands.insertResource(common.ClearColor{ .color = common.Color.DARKBLUE });
     _ = try commands.createEntity(.{
+        common.Transform{},
         common.Camera3d{ .Perspective = .{
             .fov = std.math.pi / 3.0,
             .near = 0.1,
@@ -117,6 +118,7 @@ fn setupScene(commands: *ecs.Commands) !void {
         render.CameraLayer(0){},
     });
     _ = try commands.createEntity(.{
+        common.Transform{},
         common.Camera3d{ .Viewport = .{ .mode = .TopLeft } },
         render.CameraLayer(1000){},
     });

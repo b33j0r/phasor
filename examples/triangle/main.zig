@@ -27,5 +27,9 @@ fn setupScene(commands: *ecs.Commands) !void {
     });
 
     try commands.insertResource(common.ClearColor{ .color = common.Color.BLACK });
-    try commands.insertResource(common.Camera3d{ .Viewport = .{ .mode = .Center } });
+    _ = try commands.createEntity(.{
+        common.Transform{},
+        common.Camera3d{ .Viewport = .{ .mode = .Center } },
+        render.CameraLayer(0){},
+    });
 }
