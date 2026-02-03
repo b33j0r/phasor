@@ -13,6 +13,7 @@ pub fn build(b: *std.Build) void {
     const stb = StbModule.build(&ctx);
     const stb_image = StbImageModule.build(&ctx);
     const miniaudio = if (!is_wasm) MiniaudioModule.build(&ctx) else null;
+    const fastnoise = FastNoiseModule.build(&ctx);
     const ecs = EcsModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
@@ -45,6 +46,7 @@ pub fn build(b: *std.Build) void {
         .audio = audio.module,
         .metrics = metrics.module,
         .render = renderer.module,
+        .fastnoise = fastnoise.module,
         .miniaudio = if (miniaudio) |mod| mod.module else null,
         .glfw = if (!is_wasm) glfw.?.module else null,
         .window = if (!is_wasm) window.?.module else null,
@@ -101,6 +103,7 @@ pub fn build(b: *std.Build) void {
             graph.tests,
             stb.tests,
             stb_image.tests,
+            fastnoise.tests,
             metrics.tests,
             audio.tests,
             modules.tests,
@@ -119,6 +122,7 @@ pub fn build(b: *std.Build) void {
             glfw.?.tests,
             stb.tests,
             stb_image.tests,
+            fastnoise.tests,
             metrics.tests,
             audio.tests,
             modules.tests,
@@ -442,6 +446,24 @@ const MiniaudioModule = struct {
     }
 };
 
+const FastNoiseModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    fn build(ctx: *const BuildContext) FastNoiseModule {
+        const fastnoise_mod = ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("deps/fastnoiselite/fastnoise.zig"),
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+        });
+
+        return .{
+            .module = fastnoise_mod,
+            .tests = ctx.b.addTest(.{ .root_module = fastnoise_mod }),
+        };
+    }
+};
+
 const MetricsModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
@@ -464,6 +486,7 @@ const MetricsModule = struct {
             audio: *std.Build.Module,
             metrics: *std.Build.Module,
             render: *std.Build.Module,
+            fastnoise: *std.Build.Module,
             miniaudio: ?*std.Build.Module,
             glfw: ?*std.Build.Module,
             window: ?*std.Build.Module,
@@ -480,6 +503,7 @@ const MetricsModule = struct {
             imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
             imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
             imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.render }) catch unreachable;
+            imports.append(ctx.b.allocator, .{ .name = "fastnoise", .module = deps.fastnoise }) catch unreachable;
             if (deps.miniaudio) |miniaudio_mod| {
                 imports.append(ctx.b.allocator, .{ .name = "miniaudio", .module = miniaudio_mod }) catch unreachable;
             }
@@ -866,6 +890,11 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "stb_image", .module = wasm_stb_image },
         },
     });
+    const wasm_fastnoise = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("deps/fastnoiselite/fastnoise.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+    });
     const wasm_support = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/wasm/root.zig"),
         .target = wasm_target,
@@ -882,6 +911,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "assets", .module = wasm_assets },
             .{ .name = "metrics", .module = wasm_metrics },
             .{ .name = "render", .module = wasm_render },
+            .{ .name = "fastnoise", .module = wasm_fastnoise },
             .{ .name = "wasm", .module = wasm_support },
         },
     });
