@@ -37,6 +37,27 @@
         display: grid;
         place-items: center;
       }
+      .fullscreen {
+        background: #000;
+      }
+      .fullscreen header,
+      .fullscreen .hint {
+        display: none;
+      }
+      .fullscreen .wrap {
+        grid-template-rows: 1fr;
+      }
+      .fullscreen main {
+        height: 100%;
+      }
+      .fullscreen canvas {
+        width: 100vw;
+        height: 100vh;
+        border-radius: 0;
+        box-shadow: none;
+        border: 0;
+        background: #000;
+      }
       canvas {
         width: min(90vw, 900px);
         height: min(80vh, 600px);

@@ -165,7 +165,7 @@ fn extractSystem(
         const transform = row.get(common.Transform) orelse continue;
         const material = row.get(render.MaterialInstance) orelse continue;
         const layer = layerKeyForRow(row);
-        try queue.ptr.pushMeshInstanceWithMaterial(instance.*, transform.toMat4(), material.material, layer);
+        try queue.ptr.pushMeshInstanceWithMaterial(instance.*, transform.toMat4(), material.material, layer, row.entity_id);
     }
 
     var default_it = mesh_default_query.iterator();
@@ -173,7 +173,7 @@ fn extractSystem(
         const instance = row.get(render.MeshInstance) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
         const layer = layerKeyForRow(row);
-        try queue.ptr.pushMeshInstance(instance.*, transform.toMat4(), layer);
+        try queue.ptr.pushMeshInstance(instance.*, transform.toMat4(), layer, row.entity_id);
     }
 }
 
@@ -418,7 +418,7 @@ fn renderSystem(
         var blended: std.ArrayListUnmanaged(BlendItem) = .empty;
         defer blended.deinit(commands.allocator);
 
-        for (queue.ptr.items.items, 0..) |item, item_index| {
+        for (queue.ptr.items.items) |item| {
             switch (item) {
                 .mesh => |instance| {
                     if (instance.layer != layer) continue;
@@ -433,7 +433,7 @@ fn renderSystem(
                     const material = instance.material orelse state.default_material;
                     try blended.append(commands.allocator, .{
                         .depth = clipDepth(model),
-                        .order = item_index,
+                        .entity_id = instance.entity_id,
                         .mesh = mesh.*,
                         .material = material,
                         .instance = gpu_instance,
@@ -619,7 +619,7 @@ fn positionToNdcTopLeft(pos: [2]f32, size: render.Size) [2]f32 {
 
 const BlendItem = struct {
     depth: f32,
-    order: usize,
+    entity_id: u64,
     mesh: render.Mesh,
     material: render.Material,
     instance: render.BackendMeshInstance,
@@ -670,7 +670,7 @@ fn clipDepth(model: common.Mat4) f32 {
 
 fn blendItemLessThan(_: void, a: BlendItem, b: BlendItem) bool {
     if (a.depth == b.depth) {
-        return a.order < b.order;
+        return a.entity_id < b.entity_id;
     }
     return a.depth > b.depth;
 }

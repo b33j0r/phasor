@@ -8,6 +8,7 @@ test "import tests" {
     _ = platform;
     _ = renderer;
     _ = assets;
+    _ = audio;
     _ = window;
 }
 
@@ -21,4 +22,8 @@ pub const modules = @import("modules");
 pub const platform = @import("platform");
 pub const renderer = @import("render");
 pub const assets = @import("assets");
+pub const audio = @import("audio");
 pub const window = @import("window");
+
+pub const Sound = assets.Sound;
+pub const SoundPlayer = audio.SoundPlayer;

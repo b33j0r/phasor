@@ -15,6 +15,7 @@ pub const MeshDraw = struct {
     material: ?backend.Material = null,
     blend: bool = false,
     layer: i32 = 0,
+    entity_id: u64 = 0,
 };
 
 pub const RenderQueue = struct {
@@ -38,7 +39,13 @@ pub const RenderQueue = struct {
         try self.items.append(self.allocator, .{ .triangle = .{ .triangle = tri, .layer = layer } });
     }
 
-    pub fn pushMeshInstance(self: *RenderQueue, instance: mesh.MeshInstance, transform: common.Mat4, layer: i32) !void {
+    pub fn pushMeshInstance(
+        self: *RenderQueue,
+        instance: mesh.MeshInstance,
+        transform: common.Mat4,
+        layer: i32,
+        entity_id: u64,
+    ) !void {
         try self.items.append(self.allocator, .{
             .mesh = .{
                 .mesh_handle = instance.mesh_handle,
@@ -47,6 +54,7 @@ pub const RenderQueue = struct {
                 .material = null,
                 .blend = instance.color.a < 255,
                 .layer = layer,
+                .entity_id = entity_id,
             },
         });
     }
@@ -57,6 +65,7 @@ pub const RenderQueue = struct {
         transform: common.Mat4,
         material: backend.Material,
         layer: i32,
+        entity_id: u64,
     ) !void {
         try self.items.append(self.allocator, .{
             .mesh = .{
@@ -66,6 +75,7 @@ pub const RenderQueue = struct {
                 .material = material,
                 .blend = true,
                 .layer = layer,
+                .entity_id = entity_id,
             },
         });
     }

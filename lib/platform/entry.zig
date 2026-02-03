@@ -17,6 +17,7 @@ pub const Options = struct {
     vsync: ?bool = false,
     install_window_module: bool = true,
     auto_surface: bool = true,
+    fullscreen: bool = false,
 };
 
 pub fn EntryPoint(comptime AppSpec: type) type {
@@ -28,6 +29,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             }
         };
         const RenderSurface = modules.RenderModule.RenderSurface;
+        var wasm_last_error: []const u8 = "ok";
 
         const Runner = struct {
             app: ecs.App,
@@ -54,19 +56,25 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             if (!is_wasm) return 0;
 
             const allocator = std.heap.page_allocator;
-            const runner = allocator.create(Runner) catch return 0;
+            const runner = allocator.create(Runner) catch {
+                wasm_last_error = "alloc_runner_failed";
+                return 0;
+            };
             errdefer allocator.destroy(runner);
 
             runner.io = wasm.io();
-            runner.app = ecs.App.init(allocator, &runner.io) catch {
+            runner.app = ecs.App.init(allocator, &runner.io) catch |err| {
+                wasm_last_error = @errorName(err);
                 return 0;
             };
             errdefer runner.app.deinit();
 
-            setupApp(&runner.app) catch {
+            setupApp(&runner.app) catch |err| {
+                wasm_last_error = @errorName(err);
                 return 0;
             };
-            runner.app.start() catch {
+            runner.app.start() catch |err| {
+                wasm_last_error = @errorName(err);
                 return 0;
             };
 
@@ -76,6 +84,11 @@ pub fn EntryPoint(comptime AppSpec: type) type {
         pub fn wasmVsyncEnabled() callconv(.c) bool {
             if (!is_wasm) return true;
             return options.vsync orelse true;
+        }
+
+        pub fn wasmFullscreenEnabled() callconv(.c) bool {
+            if (!is_wasm) return false;
+            return options.fullscreen;
         }
 
         pub fn wasmFrame(handle: u32) callconv(.c) void {
@@ -94,6 +107,16 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             const runner: *Runner = @ptrFromInt(handle);
             runner.app.deinit();
             allocator.destroy(runner);
+        }
+
+        pub fn wasmLastErrorPtr() callconv(.c) [*]const u8 {
+            if (!is_wasm) return @ptrFromInt(0);
+            return wasm_last_error.ptr;
+        }
+
+        pub fn wasmLastErrorLen() callconv(.c) usize {
+            if (!is_wasm) return 0;
+            return wasm_last_error.len;
         }
 
         fn setupApp(app: *ecs.App) !void {
@@ -178,8 +201,11 @@ pub fn exportWasm(comptime AppSpec: type) void {
     const Entry = EntryPoint(AppSpec);
     @export(&Entry.wasmCreate, .{ .name = "wasmCreate" });
     @export(&Entry.wasmVsyncEnabled, .{ .name = "wasmVsyncEnabled" });
+    @export(&Entry.wasmFullscreenEnabled, .{ .name = "wasmFullscreenEnabled" });
     @export(&Entry.wasmFrame, .{ .name = "wasmFrame" });
     @export(&Entry.wasmDeinit, .{ .name = "wasmDeinit" });
+    @export(&Entry.wasmLastErrorPtr, .{ .name = "wasmLastErrorPtr" });
+    @export(&Entry.wasmLastErrorLen, .{ .name = "wasmLastErrorLen" });
 }
 
 pub fn main(comptime AppSpec: type) @TypeOf(EntryPoint(AppSpec).main) {

@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
     const glfw = if (!is_wasm) GlfwModule.build(&ctx) else null;
     const stb = StbModule.build(&ctx);
     const stb_image = StbImageModule.build(&ctx);
+    const miniaudio = if (!is_wasm) MiniaudioModule.build(&ctx) else null;
     const ecs = EcsModule.build(&ctx, .{
         .common = common.module,
         .db = db.module,
@@ -28,6 +29,9 @@ pub fn build(b: *std.Build) void {
         .render = renderer.module,
         .stb_image = stb_image.module,
     });
+    const audio = AudioModule.build(&ctx, .{
+        .assets = assets.module,
+    });
     const window = if (!is_wasm) WindowModule.build(&ctx, .{
         .common = common.module,
         .ecs = ecs.module,
@@ -38,8 +42,10 @@ pub fn build(b: *std.Build) void {
         .db = db.module,
         .ecs = ecs.module,
         .assets = assets.module,
+        .audio = audio.module,
         .metrics = metrics.module,
         .render = renderer.module,
+        .miniaudio = if (miniaudio) |mod| mod.module else null,
         .glfw = if (!is_wasm) glfw.?.module else null,
         .window = if (!is_wasm) window.?.module else null,
         .wasm = if (is_wasm) wasm_support.module else null,
@@ -62,6 +68,7 @@ pub fn build(b: *std.Build) void {
         .platform = platform.module,
         .renderer = renderer.module,
         .assets = assets.module,
+        .audio = audio.module,
         .window = if (!is_wasm) window.?.module else null,
     });
 
@@ -95,6 +102,7 @@ pub fn build(b: *std.Build) void {
             stb.tests,
             stb_image.tests,
             metrics.tests,
+            audio.tests,
             modules.tests,
             platform.tests,
             renderer.tests,
@@ -112,6 +120,7 @@ pub fn build(b: *std.Build) void {
             stb.tests,
             stb_image.tests,
             metrics.tests,
+            audio.tests,
             modules.tests,
             platform.tests,
             renderer.tests,
@@ -393,6 +402,46 @@ const AssetsModule = struct {
     }
 };
 
+const AudioModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    const Deps = struct {
+        assets: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) AudioModule {
+        const bundle = ctx.moduleBundle("lib/audio/root.zig", &.{
+            .{ .name = "assets", .module = deps.assets },
+        });
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
+const MiniaudioModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    fn build(ctx: *const BuildContext) MiniaudioModule {
+        const miniaudio_mod = ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("deps/miniaudio/root.zig"),
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+            .link_libc = true,
+        });
+        miniaudio_mod.addIncludePath(ctx.b.path("deps/miniaudio"));
+        miniaudio_mod.addCSourceFiles(.{
+            .root = ctx.b.path("deps/miniaudio"),
+            .files = &.{"miniaudio.c"},
+        });
+
+        return .{
+            .module = miniaudio_mod,
+            .tests = ctx.b.addTest(.{ .root_module = miniaudio_mod }),
+        };
+    }
+};
+
 const MetricsModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
@@ -412,8 +461,10 @@ const MetricsModule = struct {
             db: *std.Build.Module,
             ecs: *std.Build.Module,
             assets: *std.Build.Module,
+            audio: *std.Build.Module,
             metrics: *std.Build.Module,
             render: *std.Build.Module,
+            miniaudio: ?*std.Build.Module,
             glfw: ?*std.Build.Module,
             window: ?*std.Build.Module,
             wasm: ?*std.Build.Module,
@@ -426,8 +477,12 @@ const MetricsModule = struct {
             imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
             imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
             imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
+            imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
             imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
             imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.render }) catch unreachable;
+            if (deps.miniaudio) |miniaudio_mod| {
+                imports.append(ctx.b.allocator, .{ .name = "miniaudio", .module = miniaudio_mod }) catch unreachable;
+            }
             if (deps.glfw) |glfw_mod| {
                 imports.append(ctx.b.allocator, .{ .name = "glfw", .module = glfw_mod }) catch unreachable;
             }
@@ -457,6 +512,7 @@ const PhasorModule = struct {
         platform: *std.Build.Module,
         renderer: *std.Build.Module,
         assets: *std.Build.Module,
+        audio: *std.Build.Module,
         window: ?*std.Build.Module,
     };
 
@@ -475,6 +531,7 @@ const PhasorModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "platform", .module = deps.platform }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
         if (!is_wasm) {
             const window_mod = deps.window orelse @panic("window module required for native builds");
             imports.append(ctx.b.allocator, .{ .name = "window", .module = window_mod }) catch unreachable;

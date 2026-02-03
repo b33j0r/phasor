@@ -6,6 +6,7 @@ test "import tests" {
     _ = RenderModule;
     _ = ParentModule;
     _ = AssetsModule;
+    _ = AudioModule;
     _ = InputModule;
 }
 
@@ -18,4 +19,5 @@ pub const TimerModule = @import("TimerModule.zig");
 pub const RenderModule = @import("RenderModule.zig");
 pub const ParentModule = @import("ParentModule.zig");
 pub const AssetsModule = @import("AssetsModule.zig").AssetsModule;
+pub const AudioModule = @import("AudioModule.zig");
 pub const InputModule = @import("InputModule.zig");

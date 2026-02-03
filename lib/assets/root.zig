@@ -73,6 +73,52 @@ pub const Texture = struct {
     }
 };
 
+pub const DecodedSound = struct {
+    format: u32,
+    channels: u32,
+    sample_rate: u32,
+    frame_count: u64,
+    pcm: []f32,
+};
+
+pub const Sound = struct {
+    path: ?[:0]const u8 = null,
+    data: ?[]const u8 = null,
+    bytes: ?[]u8 = null,
+    decoded: ?DecodedSound = null,
+    wasm_id: ?u32 = null,
+
+    pub fn load(self: *Sound, ctx: AssetsContext) !void {
+        if (self.data != null or self.bytes != null) return;
+        if (self.path) |path| {
+            self.bytes = try readFileSearch(ctx.allocator, ctx.io, path);
+        }
+    }
+
+    pub fn unload(self: *Sound, ctx: AssetsContext) !void {
+        if (self.decoded) |decoded| {
+            ctx.allocator.free(decoded.pcm);
+            self.decoded = null;
+        }
+        if (self.bytes) |bytes| {
+            ctx.allocator.free(bytes);
+            self.bytes = null;
+        }
+        if (builtin.target.cpu.arch.isWasm()) {
+            if (self.wasm_id) |id| {
+                wasmAudioUnload(id);
+                self.wasm_id = null;
+            }
+        }
+    }
+
+    pub fn bytesSlice(self: *const Sound) ?[]const u8 {
+        if (self.data) |data| return data;
+        if (self.bytes) |bytes| return bytes;
+        return null;
+    }
+};
+
 const ImageData = struct {
     width: u32,
     height: u32,
@@ -180,6 +226,8 @@ fn readFileAllocAbsolute(
 ) ![]u8 {
     return std.Io.Dir.cwd().readFileAlloc(io.*, absolute_path, allocator, std.Io.Limit.limited(max_bytes));
 }
+
+extern "env" fn wasmAudioUnload(id: u32) void;
 
 // Imports
 const std = @import("std");

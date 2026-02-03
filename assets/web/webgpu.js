@@ -1,3 +1,5 @@
+console.log("[phasor] webgpu.js loaded");
+
 const wasmUrl = new URL("app.wasm", import.meta.url);
 const triangleShaderUrl = new URL("shaders/triangle.wgsl", import.meta.url);
 const quadShaderUrl = new URL("shaders/quad.wgsl", import.meta.url);
@@ -9,6 +11,12 @@ let memory = null;
 let device = null;
 let wasmApp = 0;
 let shaderSources = null;
+let audioCtx = null;
+const soundBuffers = new Map();
+const activeSounds = new Map();
+let nextSoundId = 1;
+let nextSoundHandle = 1;
+let overlay = null;
 
 const textDecoder = new TextDecoder("utf-8");
 
@@ -37,6 +45,35 @@ function mapKeyboardEvent(event) {
 
 function getMemoryView() {
   return new DataView(memory.buffer);
+}
+
+function ensureAudioContext() {
+  if (!audioCtx) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    audioCtx = AudioContext ? new AudioContext() : null;
+  }
+  if (audioCtx && audioCtx.state === "suspended") {
+    audioCtx.resume().catch(() => {});
+  }
+  return audioCtx;
+}
+
+function ensureOverlay() {
+  if (overlay) return overlay;
+  overlay = document.createElement("div");
+  overlay.style.position = "fixed";
+  overlay.style.left = "12px";
+  overlay.style.bottom = "12px";
+  overlay.style.padding = "6px 10px";
+  overlay.style.background = "rgba(0,0,0,0.6)";
+  overlay.style.color = "#e9edf2";
+  overlay.style.font = '12px "SF Mono", "Roboto Mono", "Menlo", monospace';
+  overlay.style.zIndex = "9999";
+  overlay.style.borderRadius = "6px";
+  overlay.style.pointerEvents = "none";
+  overlay.textContent = "Phasor: loading…";
+  document.body.appendChild(overlay);
+  return overlay;
 }
 
 function readString(ptr, len) {
@@ -605,30 +642,89 @@ const imports = {
       if (!ctx) return;
       ctx.meshes[handle] = null;
     },
+    wasmAudioLoad(ptr, len) {
+      const ctx = ensureAudioContext();
+      if (!ctx) return 0;
+      const bytes = new Uint8Array(memory.buffer, ptr, len);
+      const copy = bytes.slice();
+      const id = nextSoundId++;
+      const entry = { buffer: null };
+      soundBuffers.set(id, entry);
+      ctx.decodeAudioData(copy.buffer.slice(0)).then((buffer) => {
+        entry.buffer = buffer;
+      }).catch(() => {});
+      return id;
+    },
+    wasmAudioUnload(id) {
+      soundBuffers.delete(id);
+    },
+    wasmAudioPlay(id, volume, loop) {
+      const ctx = ensureAudioContext();
+      if (!ctx) return 0;
+      const entry = soundBuffers.get(id);
+      if (!entry || !entry.buffer) return 0;
+      const source = ctx.createBufferSource();
+      source.buffer = entry.buffer;
+      source.loop = Boolean(loop);
+      const gain = ctx.createGain();
+      gain.gain.value = volume;
+      source.connect(gain).connect(ctx.destination);
+      const handle = nextSoundHandle++;
+      activeSounds.set(handle, { source, gain });
+      source.onended = () => {
+        activeSounds.delete(handle);
+      };
+      source.start(0);
+      return handle;
+    },
+    wasmAudioIsPlaying(handle) {
+      return activeSounds.has(handle) ? 1 : 0;
+    },
   },
 };
 
 async function start() {
+  const status = ensureOverlay();
   if (!navigator.gpu) {
     document.querySelector(".hint").textContent = "WebGPU: unavailable";
+    status.textContent = "Phasor: WebGPU unavailable";
     return;
   }
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) {
     document.querySelector(".hint").textContent = "WebGPU: adapter unavailable";
+    status.textContent = "Phasor: WebGPU adapter unavailable";
     return;
   }
   device = await adapter.requestDevice();
   await loadShaders();
 
   const response = await fetch(wasmUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch wasm: ${response.status}`);
+  }
   const bytes = await response.arrayBuffer();
   const result = await WebAssembly.instantiate(bytes, imports);
   wasm = result.instance;
   memory = wasm.exports.memory;
+  status.textContent = "Phasor: wasm loaded";
+
+  console.log("[phasor] exports", Object.keys(wasm.exports));
 
   if (wasm.exports.wasmCreate) {
     wasmApp = wasm.exports.wasmCreate();
+    console.log("[phasor] wasmCreate returned", wasmApp);
+    if (!wasmApp) {
+      let reason = "unknown";
+      if (wasm.exports.wasmLastErrorPtr && wasm.exports.wasmLastErrorLen) {
+        const ptr = wasm.exports.wasmLastErrorPtr();
+        const len = wasm.exports.wasmLastErrorLen();
+        if (ptr && len) {
+          reason = readString(ptr, len);
+        }
+      }
+      status.textContent = `Phasor: wasmCreate failed (${reason})`;
+    }
   }
 
   let useVsync = true;
@@ -636,8 +732,18 @@ async function start() {
     useVsync = Boolean(wasm.exports.wasmVsyncEnabled());
   }
 
+  let useFullscreen = false;
+  if (wasm.exports.wasmFullscreenEnabled) {
+    useFullscreen = Boolean(wasm.exports.wasmFullscreenEnabled());
+  }
+  if (useFullscreen) {
+    document.documentElement.classList.add("fullscreen");
+    document.body.classList.add("fullscreen");
+  }
+
   function handleKeyEvent(isDown, event) {
     if (!wasm.exports.wasmInputKey) return;
+    ensureAudioContext();
     const key = mapKeyboardEvent(event);
     if (key == null) return;
     wasm.exports.wasmInputKey(key, isDown ? 1 : 0);
@@ -646,6 +752,7 @@ async function start() {
 
   window.addEventListener("keydown", (event) => handleKeyEvent(true, event));
   window.addEventListener("keyup", (event) => handleKeyEvent(false, event));
+  window.addEventListener("pointerdown", () => ensureAudioContext());
 
   function resizeAndNotify() {
     const canvas = document.querySelector("#canvas");
@@ -658,8 +765,14 @@ async function start() {
   resizeAndNotify();
 
   function frame() {
-    if (wasm.exports.wasmFrame) {
-      wasm.exports.wasmFrame(wasmApp);
+    try {
+      if (wasm.exports.wasmFrame) {
+        wasm.exports.wasmFrame(wasmApp);
+      }
+    } catch (err) {
+      console.error("[phasor] wasmFrame error:", err);
+      status.textContent = "Phasor: wasmFrame error (see console)";
+      return;
     }
     if (useVsync) {
       requestAnimationFrame(frame);
@@ -681,4 +794,8 @@ async function start() {
   });
 }
 
-start();
+start().catch((err) => {
+  console.error("[phasor] start failed:", err);
+  const hint = document.querySelector(".hint");
+  if (hint) hint.textContent = "WebGPU: start failed (see console)";
+});
