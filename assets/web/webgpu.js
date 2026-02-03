@@ -622,6 +622,11 @@ const imports = {
     webgpu_destroy_mesh(ctxId, handle) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
+      const mesh = ctx.meshes[handle];
+      if (mesh) {
+        if (mesh.vertexBuffer) mesh.vertexBuffer.destroy();
+        if (mesh.indexBuffer) mesh.indexBuffer.destroy();
+      }
       ctx.meshes[handle] = null;
     },
     wasmAudioLoad(ptr, len) {
