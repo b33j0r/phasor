@@ -72,6 +72,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try app.addSystem("BeforeFrame", updateTextMeshes);
     try app.addSystem("BeforeFrame", updateLayerCameras);
     try app.addSystem("BeforeFrame", extractSystem);
+    try app.addSystem("AfterFrame", cleanupUnusedMeshes);
     try app.addSystem("AfterFrame", renderSystem);
     try app.addSystem(schedule.DefaultSchedule.WindowDestroy, shutdownSystem);
 }
@@ -84,6 +85,7 @@ pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(updateTextMeshes);
     app.removeSystem(updateLayerCameras);
     app.removeSystem(extractSystem);
+    app.removeSystem(cleanupUnusedMeshes);
     app.removeSystem(renderSystem);
     app.removeSystem(shutdownSystem);
 }
@@ -327,6 +329,40 @@ fn updateLayerCameras(
         try layer_cameras.ptr.map.put(layer, .{
             .camera = cam.*,
             .view = viewMatrix(transform.*),
+        });
+    }
+}
+
+fn cleanupUnusedMeshes(
+    commands: *Commands,
+    instances: Query(.{ render.MeshInstance }),
+) !void {
+    const state = commands.getResourceMut(RenderState) orelse return;
+    const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
+
+    const slot_count = mesh_library.slots.items.len;
+    if (slot_count == 0) return;
+
+    var used = try std.DynamicBitSetUnmanaged.initEmpty(commands.allocator, slot_count);
+    defer used.deinit(commands.allocator);
+
+    var it = instances.iterator();
+    while (it.next()) |row| {
+        const instance = row.get(render.MeshInstance) orelse continue;
+        if (!instance.mesh_handle.isValid()) continue;
+        const index: usize = @intCast(instance.mesh_handle.index);
+        if (index >= slot_count) continue;
+        const slot = &mesh_library.slots.items[index];
+        if (!slot.alive or slot.generation != instance.mesh_handle.generation) continue;
+        used.set(index);
+    }
+
+    for (mesh_library.slots.items, 0..) |*slot, index| {
+        if (!slot.alive) continue;
+        if (used.isSet(index)) continue;
+        _ = mesh_library.destroyMesh(&state.renderer, .{
+            .index = @intCast(index),
+            .generation = slot.generation,
         });
     }
 }

@@ -12,6 +12,13 @@ let device = null;
 let wasmApp = 0;
 let shaderSources = null;
 let audioCtx = null;
+let deviceLost = false;
+let simulationPaused = false;
+const webgpuErrors = {
+  validation: 0,
+  outOfMemory: 0,
+  internal: 0,
+};
 const soundBuffers = new Map();
 const activeSounds = new Map();
 let nextSoundId = 1;
@@ -77,11 +84,10 @@ function resizeCanvas(canvas) {
 function createBufferWithData(device, data, usage) {
   const buffer = device.createBuffer({
     size: data.byteLength,
-    usage,
-    mappedAtCreation: true,
+    usage: usage | GPUBufferUsage.COPY_DST,
   });
-  new Uint8Array(buffer.getMappedRange()).set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
-  buffer.unmap();
+  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  device.queue.writeBuffer(buffer, 0, bytes);
   return buffer;
 }
 
@@ -254,6 +260,7 @@ function createContext(canvas) {
     context,
     format,
     meshes: [null],
+    meshFree: [],
     textures: [null],
     samplers: [null],
     materials: [null],
@@ -283,6 +290,51 @@ function createContext(canvas) {
   );
 
   return ctx;
+}
+
+function recordWebGpuError(kind, err) {
+  if (!err) return;
+  if (kind === "validation") {
+    webgpuErrors.validation += 1;
+  } else if (kind === "out-of-memory") {
+    webgpuErrors.outOfMemory += 1;
+  } else if (kind === "internal") {
+    webgpuErrors.internal += 1;
+  }
+  console.error(`[phasor] webgpu ${kind} error`, err.message || err);
+}
+
+function shouldPauseSimulation() {
+  if (deviceLost) return true;
+  if (webgpuErrors.outOfMemory > 0) return true;
+  if (webgpuErrors.internal > 0) return true;
+  return false;
+}
+
+function countAliveSlots(list) {
+  let alive = 0;
+  for (let i = 1; i < list.length; i++) {
+    if (list[i]) alive++;
+  }
+  return { alive, slots: Math.max(0, list.length - 1) };
+}
+
+function collectWebGpuStats(ctx) {
+  const meshes = countAliveSlots(ctx.meshes);
+  const textures = countAliveSlots(ctx.textures);
+  const materials = countAliveSlots(ctx.materials);
+  const samplers = countAliveSlots(ctx.samplers);
+  return {
+    meshesAlive: meshes.alive,
+    meshesSlots: meshes.slots,
+    meshesFree: ctx.meshFree.length,
+    texturesAlive: textures.alive,
+    texturesSlots: textures.slots,
+    materialsAlive: materials.alive,
+    materialsSlots: materials.slots,
+    samplersAlive: samplers.alive,
+    samplersSlots: samplers.slots,
+  };
 }
 
 const wasiBase = {
@@ -434,6 +486,26 @@ const wasi = new Proxy(wasiBase, {
 const imports = {
   wasi_snapshot_preview1: wasi,
   env: {
+    wasm_memory_bytes() {
+      if (!memory) return 0;
+      return memory.buffer.byteLength;
+    },
+    wasm_js_heap(outUsedPtr, outTotalPtr) {
+      const view = getMemoryView();
+      if (!performance || !performance.memory) {
+        view.setUint32(outUsedPtr, 0, true);
+        view.setUint32(outTotalPtr, 0, true);
+        return;
+      }
+      const mem = performance.memory;
+      view.setUint32(outUsedPtr, mem.usedJSHeapSize >>> 0, true);
+      view.setUint32(outTotalPtr, mem.totalJSHeapSize >>> 0, true);
+    },
+    wasm_audio_counts(outBuffersPtr, outActivePtr) {
+      const view = getMemoryView();
+      view.setUint32(outBuffersPtr, soundBuffers.size, true);
+      view.setUint32(outActivePtr, activeSounds.size, true);
+    },
     webgpu_canvas_size(canvasPtr, canvasLen, outW, outH) {
       const id = readString(canvasPtr, canvasLen);
       const canvas = document.querySelector(id);
@@ -471,6 +543,9 @@ const imports = {
     webgpu_begin_frame(ctxId, r, g, b, a) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
+      ctx.device.pushErrorScope("validation");
+      ctx.device.pushErrorScope("out-of-memory");
+      ctx.device.pushErrorScope("internal");
       ctx.instanceOffset = 0;
       const encoder = ctx.device.createCommandEncoder();
       const view = ctx.context.getCurrentTexture().createView();
@@ -528,6 +603,9 @@ const imports = {
       ctx.queue.submit([ctx.encoder.finish()]);
       ctx.pass = null;
       ctx.encoder = null;
+      ctx.device.popErrorScope().then((err) => recordWebGpuError("internal", err));
+      ctx.device.popErrorScope().then((err) => recordWebGpuError("out-of-memory", err));
+      ctx.device.popErrorScope().then((err) => recordWebGpuError("validation", err));
     },
     webgpu_create_sampler(ctxId) {
       const ctx = ctxs.get(ctxId);
@@ -615,8 +693,14 @@ const imports = {
       const vertexBuffer = createBufferWithData(ctx.device, vertices, GPUBufferUsage.VERTEX);
       const indexBuffer = createBufferWithData(ctx.device, indices, GPUBufferUsage.INDEX);
       const indexCount = iLen / 2;
-      const handle = ctx.meshes.length;
-      ctx.meshes.push({ vertexBuffer, indexBuffer, indexCount });
+      let handle = 0;
+      if (ctx.meshFree.length > 0) {
+        handle = ctx.meshFree.pop();
+        ctx.meshes[handle] = { vertexBuffer, indexBuffer, indexCount };
+      } else {
+        handle = ctx.meshes.length;
+        ctx.meshes.push({ vertexBuffer, indexBuffer, indexCount });
+      }
       return handle;
     },
     webgpu_destroy_mesh(ctxId, handle) {
@@ -628,6 +712,34 @@ const imports = {
         if (mesh.indexBuffer) mesh.indexBuffer.destroy();
       }
       ctx.meshes[handle] = null;
+      if (handle !== 0) {
+        ctx.meshFree.push(handle);
+      }
+    },
+    webgpu_stats(ctxId, outPtr) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      const view = getMemoryView();
+      const stats = collectWebGpuStats(ctx);
+      view.setUint32(outPtr + 0, stats.meshesAlive, true);
+      view.setUint32(outPtr + 4, stats.meshesSlots, true);
+      view.setUint32(outPtr + 8, stats.meshesFree, true);
+      view.setUint32(outPtr + 12, stats.texturesAlive, true);
+      view.setUint32(outPtr + 16, stats.texturesSlots, true);
+      view.setUint32(outPtr + 20, stats.materialsAlive, true);
+      view.setUint32(outPtr + 24, stats.materialsSlots, true);
+      view.setUint32(outPtr + 28, stats.samplersAlive, true);
+      view.setUint32(outPtr + 32, stats.samplersSlots, true);
+    },
+    webgpu_error_counts(outValidationPtr, outOutOfMemoryPtr, outInternalPtr) {
+      const view = getMemoryView();
+      view.setUint32(outValidationPtr, webgpuErrors.validation, true);
+      view.setUint32(outOutOfMemoryPtr, webgpuErrors.outOfMemory, true);
+      view.setUint32(outInternalPtr, webgpuErrors.internal, true);
+    },
+    webgpu_device_lost(outPtr) {
+      const view = getMemoryView();
+      view.setUint32(outPtr, deviceLost ? 1 : 0, true);
     },
     wasmAudioLoad(ptr, len) {
       const ctx = ensureAudioContext();
@@ -681,6 +793,10 @@ async function start() {
     return;
   }
   device = await adapter.requestDevice();
+  device.lost.then((info) => {
+    deviceLost = true;
+    console.error("[phasor] webgpu device lost", info);
+  });
   await loadShaders();
 
   const response = await fetch(wasmUrl);
@@ -725,7 +841,7 @@ async function start() {
     document.body.classList.add("fullscreen");
   }
 
-  function handleKeyEvent(isDown, event) {
+function handleKeyEvent(isDown, event) {
     if (!wasm.exports.wasmInputKey) return;
     ensureAudioContext();
     const key = mapKeyboardEvent(event);
@@ -750,6 +866,14 @@ async function start() {
 
   function frame() {
     try {
+      if (!simulationPaused && shouldPauseSimulation()) {
+        simulationPaused = true;
+        console.error("[phasor] simulation paused due to WebGPU failure");
+        const hint = document.querySelector(".hint");
+        if (hint) hint.textContent = "WebGPU: paused (device lost or GPU error)";
+        return;
+      }
+      if (simulationPaused) return;
       if (wasm.exports.wasmFrame) {
         wasm.exports.wasmFrame(wasmApp);
       }

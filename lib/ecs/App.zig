@@ -45,11 +45,11 @@ pub fn default(allocator: std.mem.Allocator, io: *const std.Io) !Self {
 }
 
 pub fn deinit(self: *Self) void {
-    self.schedule_manager.deinit(&self.world);
     if (self.command_queue_buffer) |buffer| {
         self.allocator.free(buffer);
     }
     self.world.deinit();
+    self.schedule_manager.deinit(null);
     self.* = undefined;
 }
 

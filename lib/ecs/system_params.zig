@@ -40,6 +40,18 @@ pub fn ResOpt(comptime T: type) type {
     };
 }
 
+pub const WorldRef = struct {
+    ptr: *World,
+
+    pub fn init_system_param(self: *@This(), comptime _: anytype, commands: *Commands) !void {
+        self.ptr = commands.world;
+    }
+
+    pub fn deref(self: @This()) *World {
+        return self.ptr;
+    }
+};
+
 pub const Without = db.QuerySpec.Without;
 
 pub fn Query(comptime Parts: anytype) type {

@@ -43,6 +43,22 @@ pub fn deinit(self: *Self) void {
     self.* = undefined;
 }
 
+pub fn entityCount(self: *const Self) usize {
+    return self.entities.count();
+}
+
+pub fn tableCount(self: *const Self) usize {
+    return self.tables.items.len;
+}
+
+pub fn totalRowCount(self: *const Self) usize {
+    var total: usize = 0;
+    for (self.tables.items) |table| {
+        total += table.entity_ids.items.len;
+    }
+    return total;
+}
+
 /// Get or create a table for the given component types.
 pub fn getOrCreateTable(self: *Self, comptime Types: anytype) !usize {
     const schema = meta.typeIdSet(Types);

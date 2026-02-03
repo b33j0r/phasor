@@ -34,6 +34,18 @@ pub const Mesh = struct {
     handle: u32,
 };
 
+pub const RendererStats = extern struct {
+    meshes_alive: u32 = 0,
+    meshes_slots: u32 = 0,
+    meshes_free: u32 = 0,
+    textures_alive: u32 = 0,
+    textures_slots: u32 = 0,
+    materials_alive: u32 = 0,
+    materials_slots: u32 = 0,
+    samplers_alive: u32 = 0,
+    samplers_slots: u32 = 0,
+};
+
 pub const MeshInstance = struct {
     transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
@@ -88,6 +100,7 @@ extern "env" fn webgpu_create_mesh(ctx: u32, vertices_ptr: [*]const u8, vertices
 extern "env" fn webgpu_destroy_mesh(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_material(ctx: u32, texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_destroy_material(ctx: u32, handle: u32) void;
+extern "env" fn webgpu_stats(ctx: u32, out_ptr: *RendererStats) void;
 
 pub const Renderer = struct {
     ctx: u32,
@@ -168,6 +181,12 @@ pub const Renderer = struct {
         if (mesh.handle == 0) return;
         webgpu_destroy_mesh(self.ctx, mesh.handle);
         mesh.handle = 0;
+    }
+
+    pub fn stats(self: *const Renderer) RendererStats {
+        var out: RendererStats = .{};
+        webgpu_stats(self.ctx, &out);
+        return out;
     }
 };
 

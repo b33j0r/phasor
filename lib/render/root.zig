@@ -8,6 +8,7 @@ pub const SurfaceTarget = utils.SurfaceTarget;
 
 pub const RendererConfig = backend.RendererConfig;
 pub const Renderer = backend.Renderer;
+pub const RendererStats = backend.RendererStats;
 pub const Frame = backend.Frame;
 pub const Buffer = backend.Buffer;
 pub const Texture = backend.Texture;
@@ -51,6 +52,10 @@ pub const CameraLayerN = layer.CameraLayerN;
 
 pub fn configForVsync(vsync: bool) RendererConfig {
     return backend.configForVsync(vsync);
+}
+
+pub fn rendererStats(renderer: *const Renderer) RendererStats {
+    return renderer.stats();
 }
 
 pub const surface_glfw = if (builtin.target.cpu.arch.isWasm())

@@ -45,6 +45,18 @@ pub const Mesh = struct {
     index_count: u32,
 };
 
+pub const RendererStats = extern struct {
+    meshes_alive: u32 = 0,
+    meshes_slots: u32 = 0,
+    meshes_free: u32 = 0,
+    textures_alive: u32 = 0,
+    textures_slots: u32 = 0,
+    materials_alive: u32 = 0,
+    materials_slots: u32 = 0,
+    samplers_alive: u32 = 0,
+    samplers_slots: u32 = 0,
+};
+
 pub const MeshInstance = struct {
     transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
@@ -462,6 +474,10 @@ pub const Renderer = struct {
     pub fn destroyMesh(_: *Renderer, mesh: *Mesh) void {
         mesh.vertex_buffer.buffer.release();
         mesh.index_buffer.buffer.release();
+    }
+
+    pub fn stats(_: *const Renderer) RendererStats {
+        return .{};
     }
 };
 

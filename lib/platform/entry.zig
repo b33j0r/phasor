@@ -55,7 +55,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
         pub fn wasmCreate() callconv(.c) u32 {
             if (!is_wasm) return 0;
 
-            const allocator = std.heap.page_allocator;
+            const allocator = std.heap.c_allocator;
             const runner = allocator.create(Runner) catch {
                 wasm_last_error = "alloc_runner_failed";
                 return 0;
@@ -103,7 +103,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             if (!is_wasm) return;
             if (handle == 0) return;
 
-            const allocator = std.heap.page_allocator;
+            const allocator = std.heap.c_allocator;
             const runner: *Runner = @ptrFromInt(handle);
             runner.app.deinit();
             allocator.destroy(runner);
