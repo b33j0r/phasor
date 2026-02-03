@@ -34,6 +34,8 @@ pub const Mesh = struct {
     handle: u32,
 };
 
+pub const max_instances_per_draw: usize = 6000;
+
 pub const RendererStats = extern struct {
     meshes_alive: u32 = 0,
     meshes_slots: u32 = 0,
@@ -46,7 +48,7 @@ pub const RendererStats = extern struct {
     samplers_slots: u32 = 0,
 };
 
-pub const MeshInstance = struct {
+pub const MeshInstance = extern struct {
     transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
 };
@@ -91,6 +93,7 @@ extern "env" fn webgpu_resize(ctx: u32, width: u32, height: u32) void;
 extern "env" fn webgpu_begin_frame(ctx: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
 extern "env" fn webgpu_draw_triangle(ctx: u32) void;
 extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: *const InstanceData, blend: u32) void;
+extern "env" fn webgpu_draw_textured_quads(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_end_frame(ctx: u32) void;
 extern "env" fn webgpu_create_sampler(ctx: u32) u32;
 extern "env" fn webgpu_destroy_sampler(ctx: u32, handle: u32) void;
@@ -204,6 +207,19 @@ pub const Frame = struct {
         const instance = buildInstanceData(quad.instance);
         const blend: u32 = if (quad.blend) 1 else 0;
         webgpu_draw_textured_quad(self.renderer.ctx, quad.mesh.handle, quad.material.handle, &instance, blend);
+    }
+
+    pub fn drawTexturedQuads(self: *Frame, mesh: Mesh, material: Material, instances: []const MeshInstance, blend: bool) void {
+        if (instances.len == 0) return;
+        const blend_flag: u32 = if (blend) 1 else 0;
+        webgpu_draw_textured_quads(
+            self.renderer.ctx,
+            mesh.handle,
+            material.handle,
+            instances.ptr,
+            @intCast(instances.len),
+            blend_flag,
+        );
     }
 
     pub fn endFrame(self: *Frame) !void {

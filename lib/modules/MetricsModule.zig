@@ -6,6 +6,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
         margin: f32 = 12.0,
         buffer_capacity: usize = 512,
         use_default_lines: bool = true,
+        prepend_lines: []const MetricLine = &[_]MetricLine{},
         extra_lines: []const MetricLine = &[_]MetricLine{},
         bus_capacity: usize = 256,
         bus_enabled: bool = true,
@@ -36,6 +37,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
                 .margin = self.margin,
                 .buffer_capacity = self.buffer_capacity,
                 .use_default_lines = self.use_default_lines,
+                .prepend_lines = self.prepend_lines,
                 .extra_lines = self.extra_lines,
                 .log_interval_seconds = self.log_interval_seconds,
             });
@@ -95,6 +97,7 @@ const MetricsConfig = struct {
     margin: f32,
     buffer_capacity: usize,
     use_default_lines: bool,
+    prepend_lines: []const MetricLine,
     extra_lines: []const MetricLine,
     log_interval_seconds: f64,
 };
@@ -129,9 +132,6 @@ fn updateMetricsText(
     window_bounds_opt: ResOpt(common.WindowBounds),
     render_bounds_opt: ResOpt(common.RenderBounds),
     render_state_opt: ResOpt(RenderState),
-    world: WorldRef,
-    mesh_library_opt: ResOpt(render.MeshLibrary),
-    render_queue_opt: ResOpt(render.RenderQueue),
     default_font_opt: ResOpt(render.DefaultFont),
     config: Res(MetricsConfig),
     state: ResMut(MetricsState),
@@ -172,13 +172,6 @@ fn updateMetricsText(
         .frame_ms = metrics.stat(metrics_res.ptr.frame_ms),
         .elapsed_seconds = metrics.stat(elapsed.ptr.seconds),
     });
-    emitRenderMetrics(bus.ptr, mesh_library_opt.ptr, render_queue_opt.ptr);
-    if (render_state_opt.ptr) |state_ptr| {
-        emitRendererStats(bus.ptr, &state_ptr.renderer);
-    }
-    emitWasmRuntimeMetrics(bus.ptr);
-    emitEcsMetrics(bus.ptr, world.ptr);
-    emitStoreMetrics(bus.ptr, store.ptr);
     state.ptr.timer = 0.0;
     state.ptr.frames = 0;
 
@@ -256,17 +249,36 @@ pub const MetricLineStore = struct {
     format: MetricValueFormat = .Auto,
 };
 
-pub const MetricLine = union(enum) {
+pub const MetricLineKind = union(enum) {
     format: *const fn (ctx: *const MetricContext, out: []u8) []const u8,
     store: MetricLineStore,
 };
 
-pub const MetricLineFps = MetricLine{ .format = formatFpsLine };
-pub const MetricLineFrameMs = MetricLine{ .format = formatFrameMsLine };
-pub const MetricLineElapsedTime = MetricLine{ .format = formatElapsedTimeLine };
-pub const MetricLineFontName = MetricLine{ .format = formatFontNameLine };
-pub const MetricLineFontMetrics = MetricLine{ .format = formatFontMetricsLine };
-pub const MetricLineFontAtlas = MetricLine{ .format = formatFontAtlasLine };
+pub const MetricLine = struct {
+    sort_key: i32 = 0,
+    kind: MetricLineKind,
+};
+
+pub fn withSort(line: MetricLine, sort_key: i32) MetricLine {
+    var copy = line;
+    copy.sort_key = sort_key;
+    return copy;
+}
+
+pub fn lineFormat(sort_key: i32, formatFn: *const fn (ctx: *const MetricContext, out: []u8) []const u8) MetricLine {
+    return .{ .sort_key = sort_key, .kind = .{ .format = formatFn } };
+}
+
+pub fn lineStore(sort_key: i32, store: MetricLineStore) MetricLine {
+    return .{ .sort_key = sort_key, .kind = .{ .store = store } };
+}
+
+pub const MetricLineFps = lineFormat(0, formatFpsLine);
+pub const MetricLineFrameMs = lineFormat(0, formatFrameMsLine);
+pub const MetricLineElapsedTime = lineFormat(0, formatElapsedTimeLine);
+pub const MetricLineFontName = lineFormat(0, formatFontNameLine);
+pub const MetricLineFontMetrics = lineFormat(0, formatFontMetricsLine);
+pub const MetricLineFontAtlas = lineFormat(0, formatFontAtlasLine);
 
 pub const DefaultLines: []const MetricLine = &[_]MetricLine{
     MetricLineFps,
@@ -279,6 +291,11 @@ pub const DefaultLines: []const MetricLine = &[_]MetricLine{
 fn writeMetricLines(config: *const MetricsConfig, ctx: *const MetricContext, buffer: []u8) []const u8 {
     var offset: usize = 0;
     var wrote_any = false;
+
+    if (config.prepend_lines.len > 0) {
+        offset = appendMetricLines(ctx, buffer, offset, config.prepend_lines);
+        wrote_any = offset > 0;
+    }
 
     if (config.use_default_lines) {
         offset = appendMetricLines(ctx, buffer, offset, DefaultLines);
@@ -298,15 +315,58 @@ fn writeMetricLines(config: *const MetricsConfig, ctx: *const MetricContext, buf
 
 fn appendMetricLines(ctx: *const MetricContext, buffer: []u8, start: usize, lines: []const MetricLine) usize {
     var offset = start;
-    for (lines, 0..) |line, idx| {
+    const max_sort_lines = 128;
+
+    var needs_sort = false;
+    for (lines) |line| {
+        if (line.sort_key != 0) {
+            needs_sort = true;
+            break;
+        }
+    }
+
+    if (!needs_sort or lines.len > max_sort_lines) {
+        for (lines, 0..) |line, idx| {
+            if (offset >= buffer.len) break;
+            const slice = switch (line.kind) {
+                .format => |formatFn| formatFn(ctx, buffer[offset..]),
+                .store => |store_line| formatStoreLine(ctx, store_line, buffer[offset..]),
+            };
+            if (slice.len == 0) continue;
+            offset += slice.len;
+            if (idx + 1 < lines.len and offset + 1 <= buffer.len) {
+                buffer[offset] = '\n';
+                offset += 1;
+            }
+        }
+        return offset;
+    }
+
+    var used: [max_sort_lines]bool = .{false} ** max_sort_lines;
+    var produced: usize = 0;
+    while (produced < lines.len) : (produced += 1) {
+        var best_idx: ?usize = null;
+        var best_key: i32 = 0;
+        var idx: usize = 0;
+        while (idx < lines.len) : (idx += 1) {
+            if (used[idx]) continue;
+            const key = lines[idx].sort_key;
+            if (best_idx == null or key < best_key) {
+                best_idx = idx;
+                best_key = key;
+            }
+        }
+        if (best_idx == null) break;
+        const line = lines[best_idx.?];
+        used[best_idx.?] = true;
         if (offset >= buffer.len) break;
-        const slice = switch (line) {
+        const slice = switch (line.kind) {
             .format => |formatFn| formatFn(ctx, buffer[offset..]),
             .store => |store_line| formatStoreLine(ctx, store_line, buffer[offset..]),
         };
         if (slice.len == 0) continue;
         offset += slice.len;
-        if (idx + 1 < lines.len and offset + 1 <= buffer.len) {
+        if (produced + 1 < lines.len and offset + 1 <= buffer.len) {
             buffer[offset] = '\n';
             offset += 1;
         }
@@ -392,125 +452,6 @@ fn metricF64(store: *metrics.Store, name: []const u8, fallback: f64) f64 {
     return fallback;
 }
 
-const MeshStats = struct {
-    slots: usize,
-    alive: usize,
-    free: usize,
-};
-
-fn meshStats(library: *const render.MeshLibrary) MeshStats {
-    var alive: usize = 0;
-    for (library.slots.items) |slot| {
-        if (slot.alive) alive += 1;
-    }
-    return .{
-        .slots = library.slots.items.len,
-        .alive = alive,
-        .free = library.free_list.items.len,
-    };
-}
-
-fn emitRenderMetrics(
-    bus: *metrics.Bus,
-    mesh_library_opt: ?*const render.MeshLibrary,
-    render_queue_opt: ?*const render.RenderQueue,
-) void {
-    if (mesh_library_opt) |library| {
-        const stats = meshStats(library);
-        metrics.emitBus(true, bus, .{
-            .mesh_slots = metrics.gauge(stats.slots),
-            .mesh_alive = metrics.gauge(stats.alive),
-            .mesh_free = metrics.gauge(stats.free),
-        });
-    }
-    if (render_queue_opt) |queue| {
-        metrics.emitBus(true, bus, .{
-            .render_queue_items = metrics.gauge(queue.items.items.len),
-            .render_queue_capacity = metrics.gauge(queue.items.capacity),
-        });
-    }
-}
-
-fn emitRendererStats(bus: *metrics.Bus, renderer: *const render.Renderer) void {
-    const stats = render.rendererStats(renderer);
-    metrics.emitBus(true, bus, .{
-        .webgpu_mesh_alive = metrics.gauge(stats.meshes_alive),
-        .webgpu_mesh_slots = metrics.gauge(stats.meshes_slots),
-        .webgpu_mesh_free = metrics.gauge(stats.meshes_free),
-        .webgpu_texture_alive = metrics.gauge(stats.textures_alive),
-        .webgpu_texture_slots = metrics.gauge(stats.textures_slots),
-        .webgpu_material_alive = metrics.gauge(stats.materials_alive),
-        .webgpu_material_slots = metrics.gauge(stats.materials_slots),
-        .webgpu_sampler_alive = metrics.gauge(stats.samplers_alive),
-        .webgpu_sampler_slots = metrics.gauge(stats.samplers_slots),
-    });
-}
-
-fn emitWasmRuntimeMetrics(bus: *metrics.Bus) void {
-    const mem_bytes: u64 = WasmImports.memoryBytes();
-    if (mem_bytes > 0) {
-        const mem_mb: f64 = @as(f64, @floatFromInt(mem_bytes)) / (1024.0 * 1024.0);
-        metrics.emitBus(true, bus, .{
-            .wasm_mem_bytes = metrics.gauge(mem_bytes),
-            .wasm_mem_mb = metrics.gauge(mem_mb),
-        });
-    }
-
-    var js_used: u32 = 0;
-    var js_total: u32 = 0;
-    WasmImports.jsHeap(&js_used, &js_total);
-    if (js_total > 0) {
-        const used_mb: f64 = @as(f64, @floatFromInt(js_used)) / (1024.0 * 1024.0);
-        const total_mb: f64 = @as(f64, @floatFromInt(js_total)) / (1024.0 * 1024.0);
-        metrics.emitBus(true, bus, .{
-            .js_heap_used_mb = metrics.gauge(used_mb),
-            .js_heap_total_mb = metrics.gauge(total_mb),
-        });
-    }
-
-    var buffers: u32 = 0;
-    var active: u32 = 0;
-    WasmImports.audioCounts(&buffers, &active);
-    if (buffers > 0 or active > 0) {
-        metrics.emitBus(true, bus, .{
-            .wasm_audio_buffers = metrics.gauge(buffers),
-            .wasm_audio_active = metrics.gauge(active),
-        });
-    }
-
-    var lost_flag: u32 = 0;
-    WasmImports.deviceLost(&lost_flag);
-    metrics.emitBus(true, bus, .{
-        .webgpu_device_lost = metrics.gauge(lost_flag),
-    });
-
-    var validation_errors: u32 = 0;
-    var out_of_memory_errors: u32 = 0;
-    var internal_errors: u32 = 0;
-    WasmImports.webgpuErrors(&validation_errors, &out_of_memory_errors, &internal_errors);
-    if (validation_errors > 0 or out_of_memory_errors > 0 or internal_errors > 0) {
-        metrics.emitBus(true, bus, .{
-            .webgpu_validation_errors = metrics.gauge(validation_errors),
-            .webgpu_oom_errors = metrics.gauge(out_of_memory_errors),
-            .webgpu_internal_errors = metrics.gauge(internal_errors),
-        });
-    }
-}
-
-fn emitEcsMetrics(bus: *metrics.Bus, world: *const ecs.World) void {
-    const db = &world.database;
-    metrics.emitBus(true, bus, .{
-        .ecs_entities = metrics.gauge(db.entityCount()),
-        .ecs_tables = metrics.gauge(db.tableCount()),
-        .ecs_rows = metrics.gauge(db.totalRowCount()),
-    });
-}
-
-fn emitStoreMetrics(bus: *metrics.Bus, store: *metrics.Store) void {
-    metrics.emitBus(true, bus, .{
-        .metrics_store_entries = metrics.gauge(store.map.count()),
-    });
-}
 
 fn maybeLogSnapshot(
     config: *const MetricsConfig,
@@ -583,7 +524,6 @@ const common = @import("common");
 const ecs = @import("ecs");
 const metrics = @import("metrics");
 const render = @import("render");
-const builtin = @import("builtin");
 const schedule = ecs.schedule;
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
@@ -591,49 +531,8 @@ const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
 const ResOpt = ecs.system_params.ResOpt;
-const WorldRef = ecs.system_params.WorldRef;
 const Entity = @import("db").Entity;
 const TimeModule = @import("TimeModule.zig");
 const RenderModule = @import("RenderModule.zig");
 const ViewportSize = RenderModule.ViewportSize;
 const RenderState = RenderModule.RenderState;
-
-const WasmImports = if (builtin.target.cpu.arch.isWasm()) struct {
-    extern "env" fn wasm_memory_bytes() u32;
-    extern "env" fn wasm_js_heap(out_used: *u32, out_total: *u32) void;
-    extern "env" fn wasm_audio_counts(out_buffers: *u32, out_active: *u32) void;
-    extern "env" fn webgpu_device_lost(out_flag: *u32) void;
-    extern "env" fn webgpu_error_counts(out_validation: *u32, out_out_of_memory: *u32, out_internal: *u32) void;
-
-    pub fn memoryBytes() u64 {
-        return @intCast(wasm_memory_bytes());
-    }
-
-    pub fn audioCounts(out_buffers: *u32, out_active: *u32) void {
-        wasm_audio_counts(out_buffers, out_active);
-    }
-
-    pub fn jsHeap(out_used: *u32, out_total: *u32) void {
-        wasm_js_heap(out_used, out_total);
-    }
-
-    pub fn deviceLost(out_flag: *u32) void {
-        webgpu_device_lost(out_flag);
-    }
-
-    pub fn webgpuErrors(out_validation: *u32, out_out_of_memory: *u32, out_internal: *u32) void {
-        webgpu_error_counts(out_validation, out_out_of_memory, out_internal);
-    }
-} else struct {
-    pub fn memoryBytes() u64 {
-        return 0;
-    }
-
-    pub fn audioCounts(_: *u32, _: *u32) void {}
-
-    pub fn jsHeap(_: *u32, _: *u32) void {}
-
-    pub fn deviceLost(_: *u32) void {}
-
-    pub fn webgpuErrors(_: *u32, _: *u32, _: *u32) void {}
-};

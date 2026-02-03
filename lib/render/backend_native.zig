@@ -45,6 +45,8 @@ pub const Mesh = struct {
     index_count: u32,
 };
 
+pub const max_instances_per_draw: usize = 6000;
+
 pub const RendererStats = extern struct {
     meshes_alive: u32 = 0,
     meshes_slots: u32 = 0,
@@ -57,7 +59,7 @@ pub const RendererStats = extern struct {
     samplers_slots: u32 = 0,
 };
 
-pub const MeshInstance = struct {
+pub const MeshInstance = extern struct {
     transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
 };
@@ -194,7 +196,7 @@ pub const Renderer = struct {
             .quad_vertex_buffer = undefined,
             .quad_index_buffer = undefined,
             .instance_buffer = undefined,
-            .instance_ring = RingBuffer.init(256 * 1024),
+            .instance_ring = RingBuffer.init(512 * 1024),
             .depth_target = undefined,
             .pipeline_cache = pipeline_cache,
         };
@@ -516,6 +518,28 @@ pub const Frame = struct {
         self.render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, @sizeOf(InstanceData));
         self.render_pass.setIndexBuffer(quad.mesh.index_buffer.buffer, .uint16, 0, quad.mesh.index_buffer.size);
         self.render_pass.drawIndexed(quad.mesh.index_count, 1, 0, 0, 0);
+    }
+
+    pub fn drawTexturedQuads(self: *Frame, mesh: Mesh, material: Material, instances: []const MeshInstance, blend: bool) void {
+        if (instances.len == 0) return;
+        const total_bytes: usize = instances.len * @sizeOf(InstanceData);
+        const offset = self.renderer.instance_ring.allocate(total_bytes, 256);
+
+        var i: usize = 0;
+        while (i < instances.len) : (i += 1) {
+            const data = buildInstanceData(instances[i]);
+            const bytes = std.mem.asBytes(&data);
+            const byte_offset = offset + i * @sizeOf(InstanceData);
+            self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, byte_offset, bytes.ptr, bytes.len);
+        }
+
+        const pipeline = if (blend) self.renderer.quad_pipeline_blend else self.renderer.quad_pipeline_opaque;
+        self.render_pass.setPipeline(pipeline);
+        self.render_pass.setBindGroup(0, material.bind_group, 0, null);
+        self.render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
+        self.render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, @sizeOf(InstanceData));
+        self.render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
+        self.render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
     }
 
     pub fn endFrame(self: *Frame) !void {

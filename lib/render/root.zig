@@ -26,6 +26,7 @@ pub const MeshInstance = mesh.MeshInstance;
 pub const MeshHandle = mesh.MeshHandle;
 pub const MeshLibrary = mesh.MeshLibrary;
 pub const MeshFactory = mesh.MeshFactory;
+pub const max_instances_per_draw = backend.max_instances_per_draw;
 pub const RenderItem = queue.RenderItem;
 pub const RenderQueue = queue.RenderQueue;
 pub const VSync = struct {

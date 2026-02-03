@@ -386,6 +386,7 @@ fn renderSystem(
 
     const clear = if (clear_opt.ptr) |c| c.color else common.Color.BSOD;
     var frame = try state.renderer.beginFrame(clear);
+    defer frame.endFrame() catch {};
 
     const viewport_size = if (viewport_opt.ptr) |vp|
         render.Size{ .width = @intFromFloat(vp.width), .height = @intFromFloat(vp.height) }
@@ -415,6 +416,9 @@ fn renderSystem(
         else
             null;
 
+        var batch_items: std.ArrayListUnmanaged(BatchItem) = .empty;
+        defer batch_items.deinit(commands.allocator);
+
         for (queue.ptr.items.items) |item| {
             switch (item) {
                 .triangle => |tri| {
@@ -441,13 +445,42 @@ fn renderSystem(
                     };
 
                     const material = instance.material orelse state.default_material;
-                    frame.draw(.{ .textured_quad = .{
+                    const key = BatchKey{
+                        .mesh = instance.mesh_handle,
+                        .material = materialKey(material),
+                    };
+                    try batch_items.append(commands.allocator, .{
+                        .key = key,
                         .mesh = mesh.*,
                         .material = material,
                         .instance = gpu_instance,
-                        .blend = instance.blend,
-                    } });
+                    });
                 },
+            }
+        }
+
+        if (batch_items.items.len > 0) {
+            std.sort.pdq(BatchItem, batch_items.items, {}, batchItemLessThan);
+            var batch_instances: std.ArrayListUnmanaged(render.BackendMeshInstance) = .empty;
+            defer batch_instances.deinit(commands.allocator);
+
+            var idx: usize = 0;
+            while (idx < batch_items.items.len) {
+                const first = batch_items.items[idx];
+                const key = first.key;
+                batch_instances.clearRetainingCapacity();
+                try batch_instances.append(commands.allocator, first.instance);
+                idx += 1;
+                while (idx < batch_items.items.len and batchKeyEqual(batch_items.items[idx].key, key)) : (idx += 1) {
+                    try batch_instances.append(commands.allocator, batch_items.items[idx].instance);
+                }
+                const max_instances: usize = render.max_instances_per_draw;
+                var start: usize = 0;
+                while (start < batch_instances.items.len) {
+                    const end = @min(start + max_instances, batch_instances.items.len);
+                    frame.drawTexturedQuads(first.mesh, first.material, batch_instances.items[start..end], false);
+                    start = end;
+                }
             }
         }
 
@@ -493,7 +526,7 @@ fn renderSystem(
         }
     }
 
-    try frame.endFrame();
+    // frame.endFrame handled by defer to ensure GPU resources are released on all paths.
 }
 
 fn handleViewportResize(
@@ -525,6 +558,36 @@ fn handleViewportResize(
             try commands.insertResource(ViewportSize{ .width = bounds.width, .height = bounds.height });
         }
     }
+}
+
+const BatchKey = struct {
+    mesh: render.MeshHandle,
+    material: usize,
+};
+
+const BatchItem = struct {
+    key: BatchKey,
+    mesh: render.Mesh,
+    material: render.Material,
+    instance: render.BackendMeshInstance,
+};
+
+fn batchKeyEqual(a: BatchKey, b: BatchKey) bool {
+    return a.mesh.index == b.mesh.index and a.mesh.generation == b.mesh.generation and a.material == b.material;
+}
+
+fn batchItemLessThan(_: void, a: BatchItem, b: BatchItem) bool {
+    if (a.key.mesh.index != b.key.mesh.index) return a.key.mesh.index < b.key.mesh.index;
+    if (a.key.mesh.generation != b.key.mesh.generation) return a.key.mesh.generation < b.key.mesh.generation;
+    return a.key.material < b.key.material;
+}
+
+fn materialKey(material: render.Material) usize {
+    const T = @TypeOf(material);
+    if (@hasField(T, "handle")) {
+        return @as(usize, @intCast(material.handle));
+    }
+    return @intFromPtr(material.bind_group);
 }
 
 fn layerKeyForRow(row: db.QueryResult.Row) i32 {
