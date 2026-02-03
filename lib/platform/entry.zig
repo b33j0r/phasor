@@ -4,6 +4,7 @@ const ecs = @import("ecs");
 const modules = @import("modules");
 const render = @import("render");
 const common = @import("common");
+const schedule = ecs.schedule;
 
 const is_wasm = builtin.target.cpu.arch.isWasm();
 
@@ -109,7 +110,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             }
 
             if (options.auto_surface) {
-                try app.addSystemTo("Startup", setupSurface);
+                try app.addSystemTo(schedule.DefaultSchedule.WindowCreate, setupSurface);
             }
 
             try AppSpec.configure(app);

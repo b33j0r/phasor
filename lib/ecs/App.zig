@@ -116,6 +116,8 @@ pub fn run(self: *Self) !u8 {
 pub fn start(self: *Self) !void {
     if (self.startup_run) return;
     const command_queue = try self.ensureCommandQueue();
+    try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.WindowCreate, command_queue);
+    try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.AssetsLoad, command_queue);
     try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.Startup, command_queue);
     self.startup_run = true;
 }
@@ -132,6 +134,8 @@ pub fn step(self: *Self) !?u8 {
     if (self.world.getResource(resources.Exit)) |exit| {
         if (!self.shutdown_run) {
             try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.Shutdown, command_queue);
+            try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.AssetsUnload, command_queue);
+            try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.WindowDestroy, command_queue);
             self.shutdown_run = true;
         }
         return exit.code;

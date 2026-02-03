@@ -28,9 +28,9 @@ pub const WindowModule = struct {
             try cmds.insertResource(WindowSettings{});
         }
 
-        try app.addSystem("Startup", initSystem);
+        try app.addSystem(schedule.DefaultSchedule.WindowCreate, initSystem);
         try app.addSystem("BeforeFrame", updateSystem);
-        try app.addSystem("Shutdown", shutdownSystem);
+        try app.addSystem(schedule.DefaultSchedule.WindowDestroy, shutdownSystem);
     }
 
     pub fn uninstall(app: *AppCommands) void {

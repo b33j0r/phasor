@@ -65,15 +65,15 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
         try commands.apply();
     }
 
-    try app.addSystem("Startup", initSystem);
-    try app.addSystem("Startup", ensureAssetsContextSystem);
+    try app.addSystem(schedule.DefaultSchedule.WindowCreate, initSystem);
+    try app.addSystem(schedule.DefaultSchedule.AssetsLoad, ensureAssetsContextSystem);
     try app.addSystem("BeforeFrame", handleViewportResize);
     try app.addSystem("BeforeFrame", updateSpriteMeshes);
     try app.addSystem("BeforeFrame", updateTextMeshes);
     try app.addSystem("BeforeFrame", updateLayerCameras);
     try app.addSystem("BeforeFrame", extractSystem);
     try app.addSystem("AfterFrame", renderSystem);
-    try app.addSystem("Shutdown", shutdownSystem);
+    try app.addSystem(schedule.DefaultSchedule.WindowDestroy, shutdownSystem);
 }
 
 pub fn uninstall(app: *AppCommands) void {

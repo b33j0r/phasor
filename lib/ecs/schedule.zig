@@ -1,9 +1,13 @@
 pub const DefaultSchedule = struct {
+    pub const WindowCreate = "WindowCreate";
+    pub const AssetsLoad = "AssetsLoad";
     pub const Startup = "Startup";
     pub const BeforeFrame = "BeforeFrame";
     pub const Update = "Update";
     pub const AfterFrame = "AfterFrame";
     pub const Shutdown = "Shutdown";
+    pub const AssetsUnload = "AssetsUnload";
+    pub const WindowDestroy = "WindowDestroy";
 };
 
 pub const ScheduleManager = struct {
@@ -132,11 +136,15 @@ pub const ScheduleManager = struct {
 
     fn addDefaultSchedules(self: *Self) !void {
         const default_order = [_][]const u8{
+            DefaultSchedule.WindowCreate,
+            DefaultSchedule.AssetsLoad,
             DefaultSchedule.Startup,
             DefaultSchedule.BeforeFrame,
             DefaultSchedule.Update,
             DefaultSchedule.AfterFrame,
             DefaultSchedule.Shutdown,
+            DefaultSchedule.AssetsUnload,
+            DefaultSchedule.WindowDestroy,
         };
 
         for (default_order) |label| {
@@ -153,6 +161,13 @@ pub const ScheduleManager = struct {
         while (i + 1 < frame_order.len) : (i += 1) {
             try self.addEdgeByLabel(frame_order[i], frame_order[i + 1]);
         }
+
+        try self.addEdgeByLabel(DefaultSchedule.WindowCreate, DefaultSchedule.AssetsLoad);
+        try self.addEdgeByLabel(DefaultSchedule.AssetsLoad, DefaultSchedule.Startup);
+        try self.addEdgeByLabel(DefaultSchedule.Startup, DefaultSchedule.BeforeFrame);
+
+        try self.addEdgeByLabel(DefaultSchedule.Shutdown, DefaultSchedule.AssetsUnload);
+        try self.addEdgeByLabel(DefaultSchedule.AssetsUnload, DefaultSchedule.WindowDestroy);
     }
 
     fn addEdgeByLabel(self: *Self, from_label: []const u8, to_label: []const u8) !void {
@@ -332,9 +347,8 @@ test "schedule manager orders default frame schedules" {
         try std.testing.expect(std.mem.eql(u8, label, expected[i]));
     }
 
-    const startup_order = try manager.executionOrderFrom(DefaultSchedule.Startup);
-    try std.testing.expectEqual(@as(usize, 1), startup_order.len);
-    try std.testing.expect(std.mem.eql(u8, manager.scheduleAt(startup_order[0]).label, DefaultSchedule.Startup));
+    const start_order = try manager.executionOrderFrom(DefaultSchedule.WindowCreate);
+    try std.testing.expect(std.mem.eql(u8, manager.scheduleAt(start_order[0]).label, DefaultSchedule.WindowCreate));
 }
 
 test "schedule manager inserts schedule between existing nodes" {
