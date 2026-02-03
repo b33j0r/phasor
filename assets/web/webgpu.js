@@ -16,7 +16,6 @@ const soundBuffers = new Map();
 const activeSounds = new Map();
 let nextSoundId = 1;
 let nextSoundHandle = 1;
-let overlay = null;
 
 const textDecoder = new TextDecoder("utf-8");
 
@@ -58,23 +57,6 @@ function ensureAudioContext() {
   return audioCtx;
 }
 
-function ensureOverlay() {
-  if (overlay) return overlay;
-  overlay = document.createElement("div");
-  overlay.style.position = "fixed";
-  overlay.style.left = "12px";
-  overlay.style.bottom = "12px";
-  overlay.style.padding = "6px 10px";
-  overlay.style.background = "rgba(0,0,0,0.6)";
-  overlay.style.color = "#e9edf2";
-  overlay.style.font = '12px "SF Mono", "Roboto Mono", "Menlo", monospace';
-  overlay.style.zIndex = "9999";
-  overlay.style.borderRadius = "6px";
-  overlay.style.pointerEvents = "none";
-  overlay.textContent = "Phasor: loading…";
-  document.body.appendChild(overlay);
-  return overlay;
-}
 
 function readString(ptr, len) {
   return textDecoder.decode(new Uint8Array(memory.buffer, ptr, len));
@@ -684,16 +666,13 @@ const imports = {
 };
 
 async function start() {
-  const status = ensureOverlay();
   if (!navigator.gpu) {
     document.querySelector(".hint").textContent = "WebGPU: unavailable";
-    status.textContent = "Phasor: WebGPU unavailable";
     return;
   }
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) {
     document.querySelector(".hint").textContent = "WebGPU: adapter unavailable";
-    status.textContent = "Phasor: WebGPU adapter unavailable";
     return;
   }
   device = await adapter.requestDevice();
@@ -707,7 +686,6 @@ async function start() {
   const result = await WebAssembly.instantiate(bytes, imports);
   wasm = result.instance;
   memory = wasm.exports.memory;
-  status.textContent = "Phasor: wasm loaded";
 
   console.log("[phasor] exports", Object.keys(wasm.exports));
 
@@ -723,7 +701,8 @@ async function start() {
           reason = readString(ptr, len);
         }
       }
-      status.textContent = `Phasor: wasmCreate failed (${reason})`;
+      const hint = document.querySelector(".hint");
+      if (hint) hint.textContent = `WebGPU: wasmCreate failed (${reason})`;
     }
   }
 
@@ -771,7 +750,8 @@ async function start() {
       }
     } catch (err) {
       console.error("[phasor] wasmFrame error:", err);
-      status.textContent = "Phasor: wasmFrame error (see console)";
+      const hint = document.querySelector(".hint");
+      if (hint) hint.textContent = "WebGPU: wasmFrame error (see console)";
       return;
     }
     if (useVsync) {
