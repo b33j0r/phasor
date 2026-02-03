@@ -9,6 +9,7 @@ pub const Camera3d = union(enum) {
         top: f32 = 1.0,
         near: f32 = 0.1,
         far: f32 = 100.0,
+        zoom: f32 = 1.0,
     },
     /// A perspective camera.
     Perspective: struct {
@@ -16,6 +17,7 @@ pub const Camera3d = union(enum) {
         fov: f32 = std.math.pi / 4.0,
         near: f32 = 0.1,
         far: f32 = 100.0,
+        zoom: f32 = 1.0,
     },
     /// Pixel-perfect camera using window coordinates.
     /// Window coordinates are DPI-independent.
@@ -29,5 +31,6 @@ pub const Camera3d = union(enum) {
         } = .TopLeft,
         near: f32 = -10.0,
         far: f32 = 10.0,
+        zoom: f32 = 1.0,
     },
 };

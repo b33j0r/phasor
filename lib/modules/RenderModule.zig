@@ -201,7 +201,12 @@ fn updateSpriteMeshes(commands: *Commands, sprites: Query(.{ render.Sprite, comm
         var width: f32 = 1.0;
         var height: f32 = 1.0;
         switch (sprite.size_mode) {
-            .Auto => {},
+            .Auto => {
+                if (sprite.source_size) |size| {
+                    width = @floatFromInt(size.width);
+                    height = @floatFromInt(size.height);
+                }
+            },
             .Manual => |m| {
                 width = m.width;
                 height = m.height;
@@ -554,8 +559,10 @@ fn cameraForLayer(
 }
 
 fn viewportMatrix(vp: anytype, size: render.Size) common.Mat4 {
-    const w = @as(f32, @floatFromInt(size.width));
-    const h = @as(f32, @floatFromInt(size.height));
+    const zoom = if (vp.zoom <= 0.0) 1.0 else vp.zoom;
+    const inv_zoom = 1.0 / zoom;
+    const w = @as(f32, @floatFromInt(size.width)) * inv_zoom;
+    const h = @as(f32, @floatFromInt(size.height)) * inv_zoom;
     if (w == 0.0 or h == 0.0) return common.Mat4.identity();
     return switch (vp.mode) {
         .TopLeft => common.Mat4.orthographic(0.0, w, h, 0.0, vp.near, vp.far),
@@ -568,15 +575,21 @@ fn projectionMatrix(camera: common.Camera3d, size: render.Size) ?common.Mat4 {
     const h = @as(f32, @floatFromInt(size.height));
     const aspect = if (h == 0.0) 1.0 else w / h;
     return switch (camera) {
-        .Perspective => |persp| common.Mat4.perspective(persp.fov, aspect, persp.near, persp.far),
-        .Orthographic => |ortho| common.Mat4.orthographic(
-            ortho.left,
-            ortho.right,
-            ortho.bottom,
-            ortho.top,
-            ortho.near,
-            ortho.far,
-        ),
+        .Perspective => |persp| {
+            const zoom = if (persp.zoom <= 0.0) 1.0 else persp.zoom;
+            return common.Mat4.perspective(persp.fov / zoom, aspect, persp.near, persp.far);
+        },
+        .Orthographic => |ortho| {
+            const zoom = if (ortho.zoom <= 0.0) 1.0 else ortho.zoom;
+            return common.Mat4.orthographic(
+                ortho.left / zoom,
+                ortho.right / zoom,
+                ortho.bottom / zoom,
+                ortho.top / zoom,
+                ortho.near,
+                ortho.far,
+            );
+        },
         .Viewport => null,
     };
 }
