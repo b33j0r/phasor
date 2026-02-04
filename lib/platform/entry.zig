@@ -99,6 +99,44 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             _ = runner.app.step() catch {};
         }
 
+        pub fn wasmOnDeviceLost(handle: u32) callconv(.c) void {
+            if (!is_wasm) return;
+            if (handle == 0) return;
+            if (!@hasDecl(AppSpec, "onDeviceLost")) return;
+
+            const runner: *Runner = @ptrFromInt(handle);
+            const func = AppSpec.onDeviceLost;
+            const info = @typeInfo(@TypeOf(func)).Fn;
+            if (info.return_type) |ret| {
+                if (@typeInfo(ret) == .ErrorUnion) {
+                    _ = func(&runner.app) catch {};
+                } else {
+                    func(&runner.app);
+                }
+            } else {
+                func(&runner.app);
+            }
+        }
+
+        pub fn wasmOnDeviceRestored(handle: u32) callconv(.c) void {
+            if (!is_wasm) return;
+            if (handle == 0) return;
+            if (!@hasDecl(AppSpec, "onDeviceRestored")) return;
+
+            const runner: *Runner = @ptrFromInt(handle);
+            const func = AppSpec.onDeviceRestored;
+            const info = @typeInfo(@TypeOf(func)).Fn;
+            if (info.return_type) |ret| {
+                if (@typeInfo(ret) == .ErrorUnion) {
+                    _ = func(&runner.app) catch {};
+                } else {
+                    func(&runner.app);
+                }
+            } else {
+                func(&runner.app);
+            }
+        }
+
         pub fn wasmDeinit(handle: u32) callconv(.c) void {
             if (!is_wasm) return;
             if (handle == 0) return;
@@ -203,6 +241,8 @@ pub fn exportWasm(comptime AppSpec: type) void {
     @export(&Entry.wasmVsyncEnabled, .{ .name = "wasmVsyncEnabled" });
     @export(&Entry.wasmFullscreenEnabled, .{ .name = "wasmFullscreenEnabled" });
     @export(&Entry.wasmFrame, .{ .name = "wasmFrame" });
+    @export(&Entry.wasmOnDeviceLost, .{ .name = "wasmOnDeviceLost" });
+    @export(&Entry.wasmOnDeviceRestored, .{ .name = "wasmOnDeviceRestored" });
     @export(&Entry.wasmDeinit, .{ .name = "wasmDeinit" });
     @export(&Entry.wasmLastErrorPtr, .{ .name = "wasmLastErrorPtr" });
     @export(&Entry.wasmLastErrorLen, .{ .name = "wasmLastErrorLen" });

@@ -14,6 +14,9 @@ let shaderSources = null;
 let audioCtx = null;
 let deviceLost = false;
 let simulationPaused = false;
+let useVsync = true;
+let resumeFrameLoop = null;
+let recoveringDevice = false;
 const webgpuErrors = {
   validation: 0,
   outOfMemory: 0,
@@ -40,6 +43,8 @@ let webgpuFramesBegun = 0;
 let webgpuFramesEnded = 0;
 let instanceScratchBuffer = null;
 let instanceScratchBytes = 0;
+let gpuFramesInFlight = 0;
+const maxFramesInFlight = 2;
 const soundBuffers = new Map();
 const activeSounds = new Map();
 let nextSoundId = 1;
@@ -341,6 +346,87 @@ function shouldPauseSimulation() {
   return false;
 }
 
+function resetWebgpuErrors() {
+  webgpuErrors.validation = 0;
+  webgpuErrors.outOfMemory = 0;
+  webgpuErrors.internal = 0;
+}
+
+async function initDevice() {
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error("WebGPU adapter unavailable");
+  }
+  const newDevice = await adapter.requestDevice();
+  newDevice.lost.then((info) => {
+    handleDeviceLost(info, newDevice).catch((err) => {
+      console.error("[phasor] webgpu device loss handler failed", err);
+    });
+  });
+  device = newDevice;
+  deviceLost = false;
+  resetWebgpuErrors();
+  return newDevice;
+}
+
+async function handleDeviceLost(info, lostDevice) {
+  if (lostDevice !== device) return;
+  deviceLost = true;
+  console.error("[phasor] webgpu device lost", info);
+  await recoverWebGpu();
+}
+
+async function recoverWebGpu() {
+  if (recoveringDevice) return;
+  recoveringDevice = true;
+  simulationPaused = true;
+  const hint = document.querySelector(".hint");
+  if (hint) hint.textContent = "WebGPU: recovering device";
+
+  try {
+    if (wasm && wasm.exports && wasm.exports.wasmOnDeviceLost && wasmApp) {
+      try {
+        wasm.exports.wasmOnDeviceLost(wasmApp);
+      } catch (err) {
+        console.error("[phasor] wasmOnDeviceLost error", err);
+      }
+    }
+
+    for (const ctx of ctxs.values()) {
+      destroyContextResources(ctx);
+    }
+    ctxs.clear();
+    nextCtxId = 1;
+    gpuFramesInFlight = 0;
+
+    await initDevice();
+    await loadShaders();
+
+    if (wasm && wasm.exports && wasm.exports.wasmOnDeviceRestored && wasmApp) {
+      try {
+        wasm.exports.wasmOnDeviceRestored(wasmApp);
+      } catch (err) {
+        console.error("[phasor] wasmOnDeviceRestored error", err);
+      }
+    }
+
+    const canvas = document.querySelector("#canvas");
+    if (canvas && wasm && wasm.exports && wasm.exports.wasmResize) {
+      const size = resizeCanvas(canvas);
+      wasm.exports.wasmResize(size.width, size.height);
+    }
+
+    simulationPaused = false;
+    if (hint) hint.textContent = "";
+    if (resumeFrameLoop) resumeFrameLoop();
+  } catch (err) {
+    console.error("[phasor] webgpu recovery failed", err);
+    if (hint) hint.textContent = "WebGPU: recovery failed (see console)";
+  } finally {
+    recoveringDevice = false;
+  }
+}
+
 function destroyContextResources(ctx) {
   if (ctx.pass) {
     try { ctx.pass.end(); } catch (_) {}
@@ -405,7 +491,6 @@ function destroyContextResources(ctx) {
   for (let i = 1; i < ctx.samplers.length; i += 1) {
     const sampler = ctx.samplers[i];
     if (!sampler) continue;
-    sampler.destroy();
     webgpuDestroys.samplers += 1;
     ctx.samplers[i] = null;
   }
@@ -767,6 +852,12 @@ const imports = {
       }
       ctx.pass.end();
       ctx.queue.submit([ctx.encoder.finish()]);
+      gpuFramesInFlight += 1;
+      ctx.queue.onSubmittedWorkDone().then(() => {
+        gpuFramesInFlight = Math.max(0, gpuFramesInFlight - 1);
+      }).catch(() => {
+        gpuFramesInFlight = Math.max(0, gpuFramesInFlight - 1);
+      });
       ctx.pass = null;
       ctx.encoder = null;
       ctx.inFrame = false;
@@ -915,6 +1006,7 @@ const imports = {
       view.setUint32(createBase + 28, webgpuCreates.renderPasses, true);
       view.setUint32(createBase + 32, webgpuFramesBegun, true);
       view.setUint32(createBase + 36, webgpuFramesEnded, true);
+      view.setUint32(createBase + 40, gpuFramesInFlight, true);
 
       const destroyBase = outDestroysPtr;
       view.setUint32(destroyBase + 0, webgpuDestroys.buffers, true);
@@ -994,17 +1086,14 @@ async function start() {
     document.querySelector(".hint").textContent = "WebGPU: unavailable";
     return;
   }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
+  try {
+    await initDevice();
+    await loadShaders();
+  } catch (err) {
     document.querySelector(".hint").textContent = "WebGPU: adapter unavailable";
+    console.error("[phasor] webgpu init failed", err);
     return;
   }
-  device = await adapter.requestDevice();
-  device.lost.then((info) => {
-    deviceLost = true;
-    console.error("[phasor] webgpu device lost", info);
-  });
-  await loadShaders();
 
   const response = await fetch(wasmUrl);
   if (!response.ok) {
@@ -1034,7 +1123,7 @@ async function start() {
     }
   }
 
-  let useVsync = true;
+  useVsync = true;
   if (wasm.exports.wasmVsyncEnabled) {
     useVsync = Boolean(wasm.exports.wasmVsyncEnabled());
   }
@@ -1081,6 +1170,14 @@ function handleKeyEvent(isDown, event) {
         return;
       }
       if (simulationPaused) return;
+      if (gpuFramesInFlight >= maxFramesInFlight) {
+        if (useVsync) {
+          requestAnimationFrame(frame);
+        } else {
+          setTimeout(frame, 0);
+        }
+        return;
+      }
       if (wasm.exports.wasmFrame) {
         wasm.exports.wasmFrame(wasmApp);
       }
@@ -1096,11 +1193,14 @@ function handleKeyEvent(isDown, event) {
       setTimeout(frame, 0);
     }
   }
-  if (useVsync) {
-    requestAnimationFrame(frame);
-  } else {
-    setTimeout(frame, 0);
-  }
+  resumeFrameLoop = () => {
+    if (useVsync) {
+      requestAnimationFrame(frame);
+    } else {
+      setTimeout(frame, 0);
+    }
+  };
+  resumeFrameLoop();
 
   window.addEventListener("beforeunload", () => {
     if (wasm.exports.wasmDeinit && wasmApp) {

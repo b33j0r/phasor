@@ -168,7 +168,7 @@ fn emitWasmRuntimeMetrics(bus: *metrics.Bus, emit_errors: bool) void {
         }
     }
 
-    var creates: [10]u32 = .{0} ** 10;
+    var creates: [11]u32 = .{0} ** 11;
     var destroys: [5]u32 = .{0} ** 5;
     WasmImports.webgpuResourceCounts(&creates, &destroys);
     metrics.emitBus(true, bus, .{
@@ -182,6 +182,7 @@ fn emitWasmRuntimeMetrics(bus: *metrics.Bus, emit_errors: bool) void {
         .webgpu_create_passes = metrics.gauge(creates[7]),
         .webgpu_frames_begun = metrics.gauge(creates[8]),
         .webgpu_frames_ended = metrics.gauge(creates[9]),
+        .webgpu_frames_inflight = metrics.gauge(creates[10]),
         .webgpu_destroy_buffers = metrics.gauge(destroys[0]),
         .webgpu_destroy_textures = metrics.gauge(destroys[1]),
         .webgpu_destroy_samplers = metrics.gauge(destroys[2]),
@@ -233,7 +234,7 @@ const WasmImports = if (builtin.target.cpu.arch.isWasm()) struct {
         webgpu_error_counts(out_validation, out_out_of_memory, out_internal);
     }
 
-    pub fn webgpuResourceCounts(out_creates: *[10]u32, out_destroys: *[5]u32) void {
+    pub fn webgpuResourceCounts(out_creates: *[11]u32, out_destroys: *[5]u32) void {
         webgpu_resource_counts(out_creates.ptr, out_destroys.ptr);
     }
 } else struct {
@@ -249,7 +250,7 @@ const WasmImports = if (builtin.target.cpu.arch.isWasm()) struct {
 
     pub fn webgpuErrors(_: *u32, _: *u32, _: *u32) void {}
 
-    pub fn webgpuResourceCounts(_: *[10]u32, _: *[5]u32) void {}
+    pub fn webgpuResourceCounts(_: *[11]u32, _: *[5]u32) void {}
 };
 
 const builtin = @import("builtin");
