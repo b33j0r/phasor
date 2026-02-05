@@ -19,7 +19,7 @@ pub const Options = struct {
     auto_surface: bool = true,
     fullscreen: bool = false,
     use_default_modules: bool = false,
-    install_crash_dump: bool = true,
+    install_crash_dump: bool = false,
     install_soak_monitor: bool = false,
 };
 
