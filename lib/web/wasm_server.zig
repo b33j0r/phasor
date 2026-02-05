@@ -6,6 +6,8 @@ const net = std.Io.net;
 
 const default_https_cert = "local/tls/phasor.pem";
 const default_https_key = "local/tls/phasor-key.pem";
+const default_tls_proxy_script = "local/tls/tls_proxy.py";
+const tls_proxy_source = @embedFile("tls_proxy.py");
 
 pub const Options = struct {
     root_dir: []const u8 = "zig-out/web",
@@ -18,6 +20,7 @@ pub const Options = struct {
     https_port: u16 = 8443,
     https_cert: []const u8 = default_https_cert,
     https_key: []const u8 = default_https_key,
+    tls_proxy_script: ?[]const u8 = null,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -59,6 +62,7 @@ pub fn serve(init: std.process.Init, options: Options) !void {
             .target_port = bound_address.getPort(),
             .cert_path = options.https_cert,
             .key_path = options.https_key,
+            .script_path = options.tls_proxy_script,
         }) catch |err| {
             if (err == error.FileNotFound) {
                 std.debug.print("Failed to start HTTPS proxy: python3 not found\n", .{});
@@ -99,9 +103,15 @@ const HttpsProxyOptions = struct {
     target_port: u16,
     cert_path: []const u8,
     key_path: []const u8,
+    script_path: ?[]const u8 = null,
 };
 
 fn spawnHttpsProxy(init: std.process.Init, options: HttpsProxyOptions) !std.process.Child {
+    const script_path = options.script_path orelse default_tls_proxy_script;
+    if (options.script_path == null) {
+        try ensureBundledTlsProxyScript(init, script_path);
+    }
+
     const listen_port = try std.fmt.allocPrint(init.gpa, "{d}", .{options.listen_port});
     defer init.gpa.free(listen_port);
     const target_port = try std.fmt.allocPrint(init.gpa, "{d}", .{options.target_port});
@@ -109,7 +119,7 @@ fn spawnHttpsProxy(init: std.process.Init, options: HttpsProxyOptions) !std.proc
 
     const argv = [_][]const u8{
         "python3",
-        "tools/tls_proxy.py",
+        script_path,
         "--listen-host",
         options.listen_host,
         "--listen-port",
@@ -130,6 +140,13 @@ fn spawnHttpsProxy(init: std.process.Init, options: HttpsProxyOptions) !std.proc
         .stdout = .inherit,
         .stderr = .inherit,
     });
+}
+
+fn ensureBundledTlsProxyScript(init: std.process.Init, script_path: []const u8) !void {
+    try ensureTlsDir(init);
+    var file = try std.Io.Dir.cwd().createFile(init.io, script_path, .{ .truncate = true });
+    defer file.close(init.io);
+    try file.writeStreamingAll(init.io, tls_proxy_source);
 }
 
 fn proxyTargetHost(host: []const u8) []const u8 {
@@ -294,6 +311,9 @@ fn parseArgs(init: std.process.Init, options: *Options) !void {
         } else if (std.mem.eql(u8, arg, "--https-key")) {
             const value = nextArg(&it) orelse return error.InvalidArguments;
             options.https_key = try init.gpa.dupe(u8, value);
+        } else if (std.mem.eql(u8, arg, "--tls-proxy-script")) {
+            const value = nextArg(&it) orelse return error.InvalidArguments;
+            options.tls_proxy_script = try init.gpa.dupe(u8, value);
         } else if (std.mem.eql(u8, arg, "--no-open")) {
             options.open_browser = false;
         } else if (std.mem.eql(u8, arg, "--help")) {
@@ -428,7 +448,7 @@ fn isWildcardHost(host: []const u8) bool {
 
 fn printUsage() void {
     std.debug.print(
-        "wasm-server [--root DIR] [--index FILE] [--host ADDR] [--port N] [--no-open] [--https --https-host ADDR --https-port N --https-cert FILE --https-key FILE]\n",
+        "wasm-server [--root DIR] [--index FILE] [--host ADDR] [--port N] [--no-open] [--https --https-host ADDR --https-port N --https-cert FILE --https-key FILE --tls-proxy-script FILE]\n",
         .{},
     );
 }
