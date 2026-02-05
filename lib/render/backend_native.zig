@@ -473,6 +473,33 @@ pub const Renderer = struct {
         };
     }
 
+    pub fn updateMesh(self: *Renderer, mesh: *Mesh, vertices: []const VertexUv, indices: []const u16) !void {
+        const vertex_bytes = std.mem.sliceAsBytes(vertices);
+        const index_bytes = std.mem.sliceAsBytes(indices);
+        if (vertex_bytes.len > mesh.vertex_buffer.size or index_bytes.len > mesh.index_buffer.size) {
+            mesh.vertex_buffer.buffer.release();
+            mesh.index_buffer.buffer.release();
+            mesh.vertex_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+                vertex_bytes,
+            );
+            mesh.index_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+                index_bytes,
+            );
+        } else {
+            self.queue.writeBuffer(mesh.vertex_buffer.buffer, 0, vertex_bytes.ptr, vertex_bytes.len);
+            self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
+        }
+        mesh.index_count = @intCast(indices.len);
+    }
+
     pub fn destroyMesh(_: *Renderer, mesh: *Mesh) void {
         mesh.vertex_buffer.buffer.release();
         mesh.index_buffer.buffer.release();

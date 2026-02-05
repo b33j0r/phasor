@@ -100,6 +100,7 @@ extern "env" fn webgpu_destroy_sampler(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_texture_rgba8(ctx: u32, sampler_handle: u32, data_ptr: [*]const u8, data_len: usize, width: u32, height: u32) u32;
 extern "env" fn webgpu_destroy_texture(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_mesh(ctx: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) u32;
+extern "env" fn webgpu_update_mesh(ctx: u32, handle: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) void;
 extern "env" fn webgpu_destroy_mesh(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_material(ctx: u32, texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_destroy_material(ctx: u32, handle: u32) void;
@@ -178,6 +179,13 @@ pub const Renderer = struct {
         const ibytes = std.mem.sliceAsBytes(indices);
         const handle = webgpu_create_mesh(self.ctx, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
         return Mesh{ .handle = handle };
+    }
+
+    pub fn updateMesh(self: *Renderer, mesh: *Mesh, vertices: []const VertexUv, indices: []const u16) !void {
+        if (mesh.handle == 0) return;
+        const vbytes = std.mem.sliceAsBytes(vertices);
+        const ibytes = std.mem.sliceAsBytes(indices);
+        webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
     }
 
     pub fn destroyMesh(self: *Renderer, mesh: *Mesh) void {

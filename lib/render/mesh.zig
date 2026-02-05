@@ -89,6 +89,18 @@ pub const MeshLibrary = struct {
         return true;
     }
 
+    pub fn updateMesh(
+        self: *MeshLibrary,
+        renderer: *backend.Renderer,
+        handle: MeshHandle,
+        vertices: []const backend.VertexUv,
+        indices: []const u16,
+    ) !bool {
+        const slot = self.slotPtr(handle) orelse return false;
+        try renderer.updateMesh(&slot.mesh, vertices, indices);
+        return true;
+    }
+
     fn slotPtr(self: *MeshLibrary, handle: MeshHandle) ?*MeshSlot {
         if (!handle.isValid()) return null;
         const index: usize = @intCast(handle.index);

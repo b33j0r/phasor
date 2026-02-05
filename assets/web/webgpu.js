@@ -45,6 +45,24 @@ let instanceScratchBuffer = null;
 let instanceScratchBytes = 0;
 let gpuFramesInFlight = 0;
 const maxFramesInFlight = 2;
+const enableRecovery = false;
+let frameIndex = 0;
+let lastDepthRebuildFrame = -1;
+let resizeCalls = 0;
+let depthRebuilds = 0;
+let lastQueueWaitMs = 0;
+let maxQueueWaitMs = 0;
+let frameTimeoutId = null;
+const lastFrameCounts = {
+  buffers: 0,
+  textures: 0,
+  textureViews: 0,
+  samplers: 0,
+  bindGroups: 0,
+  pipelines: 0,
+  commandEncoders: 0,
+  renderPasses: 0,
+};
 const soundBuffers = new Map();
 const activeSounds = new Map();
 let nextSoundId = 1;
@@ -123,6 +141,8 @@ function createDepthTexture(ctx, width, height) {
     ctx.depthTexture.destroy();
     webgpuDestroys.textures += 1;
   }
+  depthRebuilds += 1;
+  lastDepthRebuildFrame = frameIndex;
   ctx.depthTexture = ctx.device.createTexture({
     size: { width, height },
     format: "depth24plus",
@@ -346,6 +366,14 @@ function shouldPauseSimulation() {
   return false;
 }
 
+function shouldRecoverSimulation() {
+  if (!enableRecovery) return false;
+  if (!deviceLost) return false;
+  if (recoveringDevice) return false;
+  if (gpuFramesInFlight > 0) return false;
+  return true;
+}
+
 function resetWebgpuErrors() {
   webgpuErrors.validation = 0;
   webgpuErrors.outOfMemory = 0;
@@ -358,6 +386,11 @@ async function initDevice() {
     throw new Error("WebGPU adapter unavailable");
   }
   const newDevice = await adapter.requestDevice();
+  newDevice.addEventListener("uncapturederror", (event) => {
+    const err = event.error;
+    const msg = err && err.message ? err.message : String(err);
+    console.error("[phasor] webgpu uncaptured error", msg);
+  });
   newDevice.lost.then((info) => {
     handleDeviceLost(info, newDevice).catch((err) => {
       console.error("[phasor] webgpu device loss handler failed", err);
@@ -373,7 +406,6 @@ async function handleDeviceLost(info, lostDevice) {
   if (lostDevice !== device) return;
   deviceLost = true;
   console.error("[phasor] webgpu device lost", info);
-  await recoverWebGpu();
 }
 
 async function recoverWebGpu() {
@@ -736,6 +768,7 @@ const imports = {
     webgpu_resize(ctxId, width, height) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
+      resizeCalls += 1;
       ctx.canvas.width = width;
       ctx.canvas.height = height;
       ctx.context.configure({
@@ -748,6 +781,7 @@ const imports = {
     webgpu_begin_frame(ctxId, r, g, b, a) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
+      frameIndex += 1;
       if (ctx.inFrame) {
         console.warn("[phasor] webgpu_begin_frame called while already in-frame");
       }
@@ -791,9 +825,10 @@ const imports = {
     },
     webgpu_draw_textured_quad(ctxId, meshHandle, materialHandle, instancePtr, blend) {
       const ctx = ctxs.get(ctxId);
+      if (!ctx || deviceLost || recoveringDevice) return;
       const mesh = ctx.meshes[meshHandle];
       const material = ctx.materials[materialHandle];
-      if (!ctx || !mesh || !material) return;
+      if (!mesh || !material) return;
       const instanceData = new Float32Array(memory.buffer, instancePtr, 20);
       const stride = 80;
       const alignment = 256;
@@ -814,9 +849,10 @@ const imports = {
     },
     webgpu_draw_textured_quads(ctxId, meshHandle, materialHandle, instancePtr, instanceCount, blend) {
       const ctx = ctxs.get(ctxId);
+      if (!ctx || deviceLost || recoveringDevice) return;
       const mesh = ctx.meshes[meshHandle];
       const material = ctx.materials[materialHandle];
-      if (!ctx || !mesh || !material) return;
+      if (!mesh || !material) return;
       if (!instanceCount) return;
       const stride = 80;
       const alignment = 256;
@@ -850,10 +886,47 @@ const imports = {
       if (!ctx.inFrame) {
         console.warn("[phasor] webgpu_end_frame called without begin_frame");
       }
+      const deltaBuffers = webgpuCreates.buffers - lastFrameCounts.buffers;
+      const deltaTextures = webgpuCreates.textures - lastFrameCounts.textures;
+      const deltaViews = webgpuCreates.textureViews - lastFrameCounts.textureViews;
+      const deltaSamplers = webgpuCreates.samplers - lastFrameCounts.samplers;
+      const deltaBindGroups = webgpuCreates.bindGroups - lastFrameCounts.bindGroups;
+      const deltaPipelines = webgpuCreates.pipelines - lastFrameCounts.pipelines;
+      const deltaEncoders = webgpuCreates.commandEncoders - lastFrameCounts.commandEncoders;
+      const deltaPasses = webgpuCreates.renderPasses - lastFrameCounts.renderPasses;
+      const depthRebuiltThisFrame = lastDepthRebuildFrame == frameIndex;
+      if (deltaBuffers > 0 || deltaBindGroups > 0 || deltaPipelines > 0 || (deltaTextures > 0 && !depthRebuiltThisFrame)) {
+        console.warn(
+          "[phasor] webgpu per-frame allocations",
+          "frame=" + frameIndex,
+          "buffers=" + deltaBuffers,
+          "textures=" + deltaTextures,
+          "views=" + deltaViews,
+          "samplers=" + deltaSamplers,
+          "bindGroups=" + deltaBindGroups,
+          "pipelines=" + deltaPipelines,
+          "encoders=" + deltaEncoders,
+          "passes=" + deltaPasses,
+          "resize=" + resizeCalls,
+          "depthRebuilds=" + depthRebuilds,
+        );
+      }
+      lastFrameCounts.buffers = webgpuCreates.buffers;
+      lastFrameCounts.textures = webgpuCreates.textures;
+      lastFrameCounts.textureViews = webgpuCreates.textureViews;
+      lastFrameCounts.samplers = webgpuCreates.samplers;
+      lastFrameCounts.bindGroups = webgpuCreates.bindGroups;
+      lastFrameCounts.pipelines = webgpuCreates.pipelines;
+      lastFrameCounts.commandEncoders = webgpuCreates.commandEncoders;
+      lastFrameCounts.renderPasses = webgpuCreates.renderPasses;
       ctx.pass.end();
+      const submitStart = performance.now();
       ctx.queue.submit([ctx.encoder.finish()]);
       gpuFramesInFlight += 1;
       ctx.queue.onSubmittedWorkDone().then(() => {
+        const waitMs = performance.now() - submitStart;
+        lastQueueWaitMs = waitMs;
+        if (waitMs > maxQueueWaitMs) maxQueueWaitMs = waitMs;
         gpuFramesInFlight = Math.max(0, gpuFramesInFlight - 1);
       }).catch(() => {
         gpuFramesInFlight = Math.max(0, gpuFramesInFlight - 1);
@@ -972,12 +1045,45 @@ const imports = {
       let handle = 0;
       if (ctx.meshFree.length > 0) {
         handle = ctx.meshFree.pop();
-        ctx.meshes[handle] = { vertexBuffer, indexBuffer, indexCount };
+        ctx.meshes[handle] = {
+          vertexBuffer,
+          indexBuffer,
+          indexCount,
+          vertexSize: vLen,
+          indexSize: iLen,
+        };
       } else {
         handle = ctx.meshes.length;
-        ctx.meshes.push({ vertexBuffer, indexBuffer, indexCount });
+        ctx.meshes.push({
+          vertexBuffer,
+          indexBuffer,
+          indexCount,
+          vertexSize: vLen,
+          indexSize: iLen,
+        });
       }
       return handle;
+    },
+    webgpu_update_mesh(ctxId, handle, vPtr, vLen, iPtr, iLen) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      const mesh = ctx.meshes[handle];
+      if (!mesh) return;
+      const vertices = new Uint8Array(memory.buffer, vPtr, vLen);
+      const indices = new Uint8Array(memory.buffer, iPtr, iLen);
+      if (vLen > mesh.vertexSize || iLen > mesh.indexSize) {
+        if (mesh.vertexBuffer) mesh.vertexBuffer.destroy();
+        if (mesh.indexBuffer) mesh.indexBuffer.destroy();
+        webgpuDestroys.buffers += 2;
+        mesh.vertexBuffer = createBufferWithData(ctx.device, vertices, GPUBufferUsage.VERTEX);
+        mesh.indexBuffer = createBufferWithData(ctx.device, indices, GPUBufferUsage.INDEX);
+        mesh.vertexSize = vLen;
+        mesh.indexSize = iLen;
+      } else {
+        ctx.queue.writeBuffer(mesh.vertexBuffer, 0, vertices);
+        ctx.queue.writeBuffer(mesh.indexBuffer, 0, indices);
+      }
+      mesh.indexCount = iLen / 2;
     },
     webgpu_destroy_mesh(ctxId, handle) {
       const ctx = ctxs.get(ctxId);
@@ -1007,6 +1113,8 @@ const imports = {
       view.setUint32(createBase + 32, webgpuFramesBegun, true);
       view.setUint32(createBase + 36, webgpuFramesEnded, true);
       view.setUint32(createBase + 40, gpuFramesInFlight, true);
+      view.setUint32(createBase + 44, Math.floor(lastQueueWaitMs), true);
+      view.setUint32(createBase + 48, Math.floor(maxQueueWaitMs), true);
 
       const destroyBase = outDestroysPtr;
       view.setUint32(destroyBase + 0, webgpuDestroys.buffers, true);
@@ -1118,6 +1226,7 @@ async function start() {
           reason = readString(ptr, len);
         }
       }
+      console.error("[phasor] wasmCreate failed", reason);
       const hint = document.querySelector(".hint");
       if (hint) hint.textContent = `WebGPU: wasmCreate failed (${reason})`;
     }
@@ -1167,9 +1276,21 @@ function handleKeyEvent(isDown, event) {
         console.error("[phasor] simulation paused due to WebGPU failure");
         const hint = document.querySelector(".hint");
         if (hint) hint.textContent = "WebGPU: paused (device lost or GPU error)";
+        if (shouldRecoverSimulation()) {
+          recoverWebGpu().catch((err) => {
+            console.error("[phasor] webgpu recovery failed", err);
+          });
+        }
         return;
       }
-      if (simulationPaused) return;
+      if (simulationPaused) {
+        if (shouldRecoverSimulation()) {
+          recoverWebGpu().catch((err) => {
+            console.error("[phasor] webgpu recovery failed", err);
+          });
+        }
+        return;
+      }
       if (gpuFramesInFlight >= maxFramesInFlight) {
         if (useVsync) {
           requestAnimationFrame(frame);
@@ -1179,7 +1300,12 @@ function handleKeyEvent(isDown, event) {
         return;
       }
       if (wasm.exports.wasmFrame) {
+        frameTimeoutId = setTimeout(() => {
+          console.warn("[phasor] wasmFrame stall > 1s", "frame=" + frameIndex);
+        }, 1000);
         wasm.exports.wasmFrame(wasmApp);
+        clearTimeout(frameTimeoutId);
+        frameTimeoutId = null;
       }
     } catch (err) {
       console.error("[phasor] wasmFrame error:", err);

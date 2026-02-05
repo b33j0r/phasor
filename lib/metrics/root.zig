@@ -116,7 +116,7 @@ pub inline fn emit(comptime enabled: bool, io: std.Io, bus: *Bus, payload: anyty
 pub fn tryEmit(io: std.Io, bus: *Bus, payload: anytype) !void {
     if (!bus.enabled) return;
     const metric_event = try buildEvent(payload);
-    try bus.queue.putOneUncancelable(io, metric_event);
+    try putMetric(io, bus, metric_event);
 }
 
 pub inline fn emitBus(comptime enabled: bool, bus: *Bus, payload: anytype) void {
@@ -128,7 +128,15 @@ pub inline fn emitBus(comptime enabled: bool, bus: *Bus, payload: anytype) void 
 pub fn tryEmitBus(bus: *Bus, payload: anytype) !void {
     if (!bus.enabled) return;
     const metric_event = try buildEvent(payload);
-    try bus.queue.putOneUncancelable(bus.io.*, metric_event);
+    try putMetric(bus.io.*, bus, metric_event);
+}
+
+fn putMetric(io: std.Io, bus: *Bus, metric_event: Event) !void {
+    if (builtin.target.cpu.arch.isWasm()) {
+        _ = try bus.queue.put(io, &.{metric_event}, 0);
+        return;
+    }
+    try bus.queue.putOneUncancelable(io, metric_event);
 }
 
 fn buildEvent(payload: anytype) !Event {
@@ -251,3 +259,4 @@ fn addValues(a: MetricValue, b: MetricValue) MetricValue {
 
 // Imports
 const std = @import("std");
+const builtin = @import("builtin");

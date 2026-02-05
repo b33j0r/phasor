@@ -105,17 +105,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             if (!@hasDecl(AppSpec, "onDeviceLost")) return;
 
             const runner: *Runner = @ptrFromInt(handle);
-            const func = AppSpec.onDeviceLost;
-            const info = @typeInfo(@TypeOf(func)).Fn;
-            if (info.return_type) |ret| {
-                if (@typeInfo(ret) == .ErrorUnion) {
-                    _ = func(&runner.app) catch {};
-                } else {
-                    func(&runner.app);
-                }
-            } else {
-                func(&runner.app);
-            }
+            callDeviceHook(AppSpec.onDeviceLost, runner);
         }
 
         pub fn wasmOnDeviceRestored(handle: u32) callconv(.c) void {
@@ -124,16 +114,30 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             if (!@hasDecl(AppSpec, "onDeviceRestored")) return;
 
             const runner: *Runner = @ptrFromInt(handle);
-            const func = AppSpec.onDeviceRestored;
-            const info = @typeInfo(@TypeOf(func)).Fn;
-            if (info.return_type) |ret| {
-                if (@typeInfo(ret) == .ErrorUnion) {
-                    _ = func(&runner.app) catch {};
-                } else {
-                    func(&runner.app);
-                }
-            } else {
-                func(&runner.app);
+            callDeviceHook(AppSpec.onDeviceRestored, runner);
+        }
+
+        fn callDeviceHook(comptime hook: anytype, runner: *Runner) void {
+            switch (@typeInfo(@TypeOf(hook))) {
+                .@"fn" => |info| {
+                    if (info.return_type) |ret| {
+                        switch (@typeInfo(ret)) {
+                            .error_union => {
+                                hook(&runner.app) catch |e| {
+                                    wasm_last_error = @errorName(e);
+                                    return;
+                                };
+                                wasm_last_error = "ok";
+                            },
+                            else => {
+                                _ = hook(&runner.app);
+                            },
+                        }
+                    } else {
+                        hook(&runner.app);
+                    }
+                },
+                else => {},
             }
         }
 

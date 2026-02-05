@@ -24,6 +24,28 @@ pub const ViewportSize = struct {
     height: f32,
 };
 
+pub const RenderRecovery = struct {
+    lost: bool = false,
+    restored: bool = false,
+};
+
+pub const SpriteMeshCache = struct {
+    allocator: std.mem.Allocator,
+    map: std.AutoHashMap(u64, render.MeshHandle),
+
+    pub fn init(allocator: std.mem.Allocator) SpriteMeshCache {
+        return .{
+            .allocator = allocator,
+            .map = std.AutoHashMap(u64, render.MeshHandle).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *SpriteMeshCache) void {
+        self.map.deinit();
+        self.* = undefined;
+    }
+};
+
 pub const LayerCameras = struct {
     allocator: std.mem.Allocator,
     map: std.AutoHashMap(i32, LayerCamera),
@@ -60,6 +82,12 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(LayerCameras)) {
         try commands.insertResource(LayerCameras.init(commands.allocator));
     }
+    if (!commands.hasResource(RenderRecovery)) {
+        try commands.insertResource(RenderRecovery{});
+    }
+    if (!commands.hasResource(SpriteMeshCache)) {
+        try commands.insertResource(SpriteMeshCache.init(commands.allocator));
+    }
     try commands.registerEvent(common.WindowResized, 8);
     if (!commands.isEmpty()) {
         try commands.apply();
@@ -91,6 +119,11 @@ pub fn uninstall(app: *AppCommands) void {
 }
 
 fn initSystem(commands: *Commands) !void {
+    if (commands.getResource(RenderState) != null) return;
+    try initRenderer(commands);
+}
+
+fn initRenderer(commands: *Commands) !void {
     if (commands.getResource(RenderState) != null) return;
 
     const surface_res = commands.getResource(RenderSurface) orelse return;
@@ -182,6 +215,7 @@ fn extractSystem(
 fn updateSpriteMeshes(commands: *Commands, sprites: Query(.{ render.Sprite, common.Transform })) !void {
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
+    const sprite_cache = commands.getResourceMut(SpriteMeshCache) orelse return;
 
     var it = sprites.iterator();
     while (it.next()) |row| {
@@ -225,10 +259,20 @@ fn updateSpriteMeshes(commands: *Commands, sprites: Query(.{ render.Sprite, comm
         };
         const indices = [_]u16{ 0, 1, 2, 0, 2, 3 };
 
-        if (sprite.mesh_handle.isValid()) {
-            _ = mesh_library.destroyMesh(&state.renderer, sprite.mesh_handle);
+        var mesh_handle: render.MeshHandle = render.MeshHandle.invalid();
+        if (sprite_cache.map.get(size_hash)) |cached| {
+            if (mesh_library.get(cached) != null) {
+                mesh_handle = cached;
+            } else {
+                _ = sprite_cache.map.remove(size_hash);
+            }
         }
-        const mesh_handle = try mesh_library.addMesh(&state.renderer, vertices[0..], indices[0..]);
+
+        if (!mesh_handle.isValid()) {
+            mesh_handle = try mesh_library.addMesh(&state.renderer, vertices[0..], indices[0..]);
+            try sprite_cache.map.put(size_hash, mesh_handle);
+        }
+
         sprite.mesh_handle = mesh_handle;
         sprite.size_hash = size_hash;
 
@@ -273,11 +317,6 @@ fn updateTextMeshes(
             continue;
         }
         if (!text.mesh_handle.isValid() or text.layout_hash != layout_hash) {
-            if (text.mesh_handle.isValid()) {
-                _ = mesh_library.destroyMesh(&state.renderer, text.mesh_handle);
-                text.mesh_handle = render.MeshHandle.invalid();
-            }
-
             var mesh_data = render.buildTextMesh(commands.allocator, font, text.*) catch |err| {
                 if (err == error.EmptyText) {
                     text.layout_hash = layout_hash;
@@ -290,8 +329,18 @@ fn updateTextMeshes(
             };
             defer mesh_data.deinit(commands.allocator);
 
-            const mesh_handle = try mesh_library.addMesh(&state.renderer, mesh_data.vertices, mesh_data.indices);
-            text.mesh_handle = mesh_handle;
+            if (text.mesh_handle.isValid()) {
+                const updated = try mesh_library.updateMesh(&state.renderer, text.mesh_handle, mesh_data.vertices, mesh_data.indices);
+                if (!updated) {
+                    text.mesh_handle = render.MeshHandle.invalid();
+                }
+            }
+
+            if (!text.mesh_handle.isValid()) {
+                const mesh_handle = try mesh_library.addMesh(&state.renderer, mesh_data.vertices, mesh_data.indices);
+                text.mesh_handle = mesh_handle;
+            }
+
             text.layout_hash = layout_hash;
         }
 
@@ -336,6 +385,7 @@ fn updateLayerCameras(
 fn cleanupUnusedMeshes(
     commands: *Commands,
     instances: Query(.{ render.MeshInstance }),
+    sprite_cache_opt: ResOpt(SpriteMeshCache),
 ) !void {
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
@@ -355,6 +405,19 @@ fn cleanupUnusedMeshes(
         const slot = &mesh_library.slots.items[index];
         if (!slot.alive or slot.generation != instance.mesh_handle.generation) continue;
         used.set(index);
+    }
+
+    if (sprite_cache_opt.ptr) |cache| {
+        var cache_it = cache.map.iterator();
+        while (cache_it.next()) |entry| {
+            const handle = entry.value_ptr.*;
+            if (!handle.isValid()) continue;
+            const index: usize = @intCast(handle.index);
+            if (index >= slot_count) continue;
+            const slot = &mesh_library.slots.items[index];
+            if (!slot.alive or slot.generation != handle.generation) continue;
+            used.set(index);
+        }
     }
 
     for (mesh_library.slots.items, 0..) |*slot, index| {
@@ -797,6 +860,10 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.MeshLibrary);
     }
 
+    if (commands.getResourceMut(SpriteMeshCache)) |_| {
+        _ = commands.removeResource(SpriteMeshCache);
+    }
+
     if (commands.getResourceMut(render.DefaultFont)) |font| {
         font.font.unload(commands.allocator, &state.renderer);
         _ = commands.removeResource(render.DefaultFont);
@@ -807,6 +874,24 @@ fn shutdownSystem(commands: *Commands) void {
     _ = commands.removeResource(assets.AssetsContext);
     _ = commands.removeResource(render.RenderQueue);
     _ = commands.removeResource(RenderState);
+}
+
+pub fn signalDeviceLost(commands: *Commands) void {
+    if (commands.getResourceMut(RenderRecovery)) |recovery| {
+        recovery.lost = true;
+        recovery.restored = false;
+        return;
+    }
+    _ = commands.insertResource(RenderRecovery{ .lost = true, .restored = false }) catch {};
+}
+
+pub fn signalDeviceRestored(commands: *Commands) void {
+    if (commands.getResourceMut(RenderRecovery)) |recovery| {
+        recovery.lost = false;
+        recovery.restored = true;
+        return;
+    }
+    _ = commands.insertResource(RenderRecovery{ .lost = false, .restored = true }) catch {};
 }
 
 // Imports
