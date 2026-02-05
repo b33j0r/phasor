@@ -8,6 +8,7 @@ test "import tests" {
     _ = AssetsModule;
     _ = AudioModule;
     _ = InputModule;
+    _ = CrashDumpModule;
     _ = NoiseModule;
 }
 
@@ -36,6 +37,7 @@ pub const ParentModule = @import("ParentModule.zig");
 pub const AssetsModule = @import("AssetsModule.zig").AssetsModule;
 pub const AudioModule = @import("AudioModule.zig");
 pub const InputModule = @import("InputModule.zig");
+pub const CrashDumpModule = @import("CrashDumpModule.zig");
 pub const NoiseModule = @import("NoiseModule.zig").NoiseModule;
 pub const NoiseResource = @import("NoiseModule.zig").NoiseResource;
 pub const FastNoise = @import("NoiseModule.zig").FastNoise;

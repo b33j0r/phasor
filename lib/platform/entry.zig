@@ -18,6 +18,8 @@ pub const Options = struct {
     install_window_module: bool = true,
     auto_surface: bool = true,
     fullscreen: bool = false,
+    use_default_modules: bool = false,
+    install_crash_dump: bool = true,
 };
 
 pub fn EntryPoint(comptime AppSpec: type) type {
@@ -178,6 +180,18 @@ pub fn EntryPoint(comptime AppSpec: type) type {
                 try app.addSystemTo(schedule.DefaultSchedule.WindowCreate, setupSurface);
             }
 
+            if (options.use_default_modules) {
+                if (is_wasm) {
+                    try defaultWasm(app);
+                } else {
+                    try defaultBaseline(app);
+                }
+            }
+
+            if (options.install_crash_dump) {
+                try app.installModule(modules.CrashDumpModule);
+            }
+
             try AppSpec.configure(app);
         }
 
@@ -236,6 +250,18 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             }
         }
     };
+}
+
+pub fn defaultBaseline(app: *ecs.App) !void {
+    try app.installModule(modules.TimeModule);
+    try app.installModule(modules.TimerModule);
+    try app.installModule(modules.RenderModule);
+    try app.installModule(modules.InputModule);
+    try app.installModule(modules.AudioModule);
+}
+
+pub fn defaultWasm(app: *ecs.App) !void {
+    try defaultBaseline(app);
 }
 
 pub fn exportWasm(comptime AppSpec: type) void {

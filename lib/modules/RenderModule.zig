@@ -453,7 +453,6 @@ fn renderSystem(
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
 
-    render.surface_canvas.pollSize(&state.surface);
     const surface_size = state.surface.size();
     if (surface_size.width != state.renderer.surface_size.width or surface_size.height != state.renderer.surface_size.height) {
         state.renderer.resize(surface_size.width, surface_size.height);
