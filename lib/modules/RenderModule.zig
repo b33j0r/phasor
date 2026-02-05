@@ -385,6 +385,7 @@ fn updateLayerCameras(
 fn cleanupUnusedMeshes(
     commands: *Commands,
     instances: Query(.{ render.MeshInstance }),
+    texts: Query(.{ render.Text }),
     sprite_cache_opt: ResOpt(SpriteMeshCache),
 ) !void {
     const state = commands.getResourceMut(RenderState) orelse return;
@@ -404,6 +405,17 @@ fn cleanupUnusedMeshes(
         if (index >= slot_count) continue;
         const slot = &mesh_library.slots.items[index];
         if (!slot.alive or slot.generation != instance.mesh_handle.generation) continue;
+        used.set(index);
+    }
+
+    var text_it = texts.iterator();
+    while (text_it.next()) |row| {
+        const text = row.get(render.Text) orelse continue;
+        if (!text.mesh_handle.isValid()) continue;
+        const index: usize = @intCast(text.mesh_handle.index);
+        if (index >= slot_count) continue;
+        const slot = &mesh_library.slots.items[index];
+        if (!slot.alive or slot.generation != text.mesh_handle.generation) continue;
         used.set(index);
     }
 
