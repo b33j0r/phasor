@@ -905,6 +905,30 @@ pub fn signalDeviceRestored(commands: *Commands) void {
     _ = commands.insertResource(RenderRecovery{ .lost = false, .restored = true }) catch {};
 }
 
+pub fn setSurfaceSize(commands: *Commands, width: u32, height: u32) void {
+    const size = render.Size{ .width = width, .height = height };
+    if (commands.getResourceMut(RenderSurface)) |surface| {
+        switch (surface.target) {
+            .web => |*web| {
+                web.size = size;
+            },
+            else => {},
+        }
+    }
+    if (commands.getResourceMut(RenderState)) |state| {
+        switch (state.surface) {
+            .web => |*web| {
+                web.size = size;
+            },
+            else => {},
+        }
+    }
+    _ = commands.insertResource(ViewportSize{
+        .width = @floatFromInt(width),
+        .height = @floatFromInt(height),
+    }) catch {};
+}
+
 // Imports
 const std = @import("std");
 const common = @import("common");

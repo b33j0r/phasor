@@ -8,13 +8,17 @@ pub const ElapsedTime = struct {
 };
 
 const LastInstant = struct {
-    value: std.time.Instant,
+    value: InstantValue,
 };
+
+const InstantValue = if (builtin.target.cpu.arch.isWasm()) struct {
+    ms: f64,
+} else std.time.Instant;
 
 pub fn install(app: *AppCommands, cmds: *Commands) !void {
     try cmds.insertResource(DeltaTime{});
     try cmds.insertResource(ElapsedTime{});
-    try cmds.insertResource(LastInstant{ .value = try std.time.Instant.now() });
+    try cmds.insertResource(LastInstant{ .value = try currentInstant() });
     try app.addSystem("BeforeFrame", updateTimeSystem);
 }
 
@@ -30,21 +34,49 @@ fn updateTimeSystem(
     const delta_time = res_delta_time.deref();
     const elapsed_time = res_elapsed_time.deref();
     const last_instant = res_last_instant.deref();
-    const now = std.time.Instant.now() catch {
+    const now = currentInstant() catch {
         std.log.debug("Failed to get current time instant", .{});
         return;
     };
-    const dt_nanos = now.since(last_instant.value);
-    const dt = @as(f64, @floatFromInt(dt_nanos)) / std.time.ns_per_s;
+    const dt = deltaSeconds(last_instant.value, now);
     last_instant.value = now;
     delta_time.seconds = dt;
     elapsed_time.seconds += dt;
 }
 
+fn currentInstant() !InstantValue {
+    if (builtin.target.cpu.arch.isWasm()) {
+        return .{ .ms = WasmImports.timeMs() };
+    }
+    return std.time.Instant.now();
+}
+
+fn deltaSeconds(prev: InstantValue, now: InstantValue) f64 {
+    if (builtin.target.cpu.arch.isWasm()) {
+        const dt_ms = now.ms - prev.ms;
+        return dt_ms / 1000.0;
+    }
+    const dt_nanos = now.since(prev);
+    return @as(f64, @floatFromInt(dt_nanos)) / std.time.ns_per_s;
+}
+
 // Imports
 const std = @import("std");
+const builtin = @import("builtin");
 const ecs = @import("ecs");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const ResMut = ecs.system_params.ResMut;
 const schedule = ecs.schedule;
+
+const WasmImports = if (builtin.target.cpu.arch.isWasm()) struct {
+    extern "env" fn wasm_time_ms() f64;
+
+    pub fn timeMs() f64 {
+        return wasm_time_ms();
+    }
+} else struct {
+    pub fn timeMs() f64 {
+        return 0.0;
+    }
+};

@@ -1,6 +1,7 @@
 pub fn MetricsModule(comptime LayerT: ?type) type {
     return struct {
         update_ms: u32 = 250,
+        max_dt_seconds: f64 = 0.25,
         font_size: f32 = 60.0,
         text_color: common.Color = common.Color.BLACK,
         margin: f32 = 12.0,
@@ -32,6 +33,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
 
             try cmds.insertResource(MetricsConfig{
                 .update_interval = @as(f64, @floatFromInt(self.update_ms)) / 1000.0,
+                .max_dt_seconds = self.max_dt_seconds,
                 .font_size = self.font_size,
                 .text_color = self.text_color,
                 .margin = self.margin,
@@ -92,6 +94,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
 
 const MetricsConfig = struct {
     update_interval: f64,
+    max_dt_seconds: f64,
     font_size: f32,
     text_color: common.Color,
     margin: f32,
@@ -142,7 +145,8 @@ fn updateMetricsText(
 ) void {
     const bounds = resolveBounds(viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
     const dt_seconds = dt.deref().seconds;
-    metrics_res.ptr.frame_ms = @floatCast(dt_seconds * 1000.0);
+    const clamped_dt = std.math.clamp(dt_seconds, 0.0, config.ptr.max_dt_seconds);
+    metrics_res.ptr.frame_ms = @floatCast(clamped_dt * 1000.0);
 
     var iter = query.iterator();
     while (iter.next()) |row| {
@@ -158,8 +162,8 @@ fn updateMetricsText(
         text.vertical_alignment = .Bottom;
     }
 
-    if (dt_seconds <= 0.0) return;
-    state.ptr.timer += dt_seconds;
+    if (clamped_dt <= 0.0) return;
+    state.ptr.timer += clamped_dt;
     state.ptr.frames += 1;
 
     if (state.ptr.timer < config.ptr.update_interval) return;

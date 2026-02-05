@@ -445,7 +445,7 @@ async function recoverWebGpu() {
     const canvas = document.querySelector("#canvas");
     if (canvas && wasm && wasm.exports && wasm.exports.wasmResize) {
       const size = resizeCanvas(canvas);
-      wasm.exports.wasmResize(size.width, size.height);
+      wasm.exports.wasmResize(wasmApp, size.width, size.height);
     }
 
     simulationPaused = false;
@@ -1148,6 +1148,9 @@ const imports = {
       const view = getMemoryView();
       view.setUint32(outPtr, deviceLost ? 1 : 0, true);
     },
+    wasm_time_ms() {
+      return performance.now();
+    },
     wasmAudioLoad(ptr, len) {
       const ctx = ensureAudioContext();
       if (!ctx) return 0;
@@ -1215,8 +1218,13 @@ async function start() {
   console.log("[phasor] exports", Object.keys(wasm.exports));
 
   if (wasm.exports.wasmCreate) {
-    wasmApp = wasm.exports.wasmCreate();
-    console.log("[phasor] wasmCreate returned", wasmApp);
+    try {
+      wasmApp = wasm.exports.wasmCreate();
+      console.log("[phasor] wasmCreate returned", wasmApp);
+    } catch (err) {
+      console.error("[phasor] wasmCreate threw", err);
+      wasmApp = 0;
+    }
     if (!wasmApp) {
       let reason = "unknown";
       if (wasm.exports.wasmLastErrorPtr && wasm.exports.wasmLastErrorLen) {
@@ -1263,7 +1271,7 @@ function handleKeyEvent(isDown, event) {
     const canvas = document.querySelector("#canvas");
     const size = resizeCanvas(canvas);
     if (wasm.exports.wasmResize) {
-      wasm.exports.wasmResize(size.width, size.height);
+      wasm.exports.wasmResize(wasmApp, size.width, size.height);
     }
   }
   window.addEventListener("resize", resizeAndNotify);

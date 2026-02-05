@@ -47,7 +47,7 @@ fn updateCrashDump(
     if (!settings.ptr.enabled) return;
     const device_lost = detectDeviceLost();
     if (device_lost and !state.ptr.dumped) {
-        writeCrashDump(commands, settings.ptr, store_opt.ptr, elapsed_opt.ptr, render_state_opt.ptr) catch |err| {
+        writeCrashDump(commands, settings.ptr.*, store_opt.ptr, elapsed_opt.ptr, render_state_opt.ptr) catch |err| {
             std.log.err("CrashDump: failed to write ({s})", .{@errorName(err)});
         };
         state.ptr.dumped = true;
@@ -67,25 +67,27 @@ fn detectDeviceLost() bool {
 fn writeCrashDump(
     commands: *Commands,
     settings: CrashDumpSettings,
-    store: ?*metrics.Store,
-    elapsed: ?*time_mod.ElapsedTime,
+    store: ?*const metrics.Store,
+    elapsed: ?*const time_mod.ElapsedTime,
     render_state_opt: ?*const render_mod.RenderState,
 ) !void {
-    var buffer = std.ArrayList(u8).init(commands.allocator);
-    defer buffer.deinit();
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
+    defer buffer.deinit(commands.allocator);
 
     const now_ms: i64 = if (builtin.target.cpu.arch.isWasm()) 0 else std.time.milliTimestamp();
-    try buffer.writer().print(
+    try buffer.print(
+        commands.allocator,
         "phasor crash dump\n  time_ms={d}\n  target={s}\n  reason=webgpu_device_lost\n",
         .{ now_ms, if (builtin.target.cpu.arch.isWasm()) "wasm" else "native" },
     );
     if (elapsed) |elapsed_res| {
-        try buffer.writer().print("  elapsed_seconds={d:.3}\n", .{elapsed_res.seconds});
+        try buffer.print(commands.allocator, "  elapsed_seconds={d:.3}\n", .{elapsed_res.seconds});
     }
 
     if (render_state_opt) |state| {
         const stats = render.rendererStats(&state.renderer);
-        try buffer.writer().print(
+        try buffer.print(
+            commands.allocator,
             "  render_stats mesh={d}/{d} texture={d}/{d} material={d}/{d} sampler={d}/{d}\n",
             .{
                 stats.meshes_alive,
@@ -101,14 +103,15 @@ fn writeCrashDump(
     }
 
     if (builtin.target.cpu.arch.isWasm()) {
-        var mem_bytes: u64 = WasmImports.memoryBytes();
+        const mem_bytes: u64 = WasmImports.memoryBytes();
         var js_used: u32 = 0;
         var js_total: u32 = 0;
         WasmImports.jsHeap(&js_used, &js_total);
         var creates: [13]u32 = .{0} ** 13;
         var destroys: [5]u32 = .{0} ** 5;
         WasmImports.webgpuResourceCounts(&creates, &destroys);
-        try buffer.writer().print(
+        try buffer.print(
+            commands.allocator,
             "  wasm_mem_bytes={d}\n  js_heap_used_mb={d:.2}\n  js_heap_total_mb={d:.2}\n",
             .{
                 mem_bytes,
@@ -116,24 +119,26 @@ fn writeCrashDump(
                 @as(f64, @floatFromInt(js_total)) / (1024.0 * 1024.0),
             },
         );
-        try buffer.writer().print(
+        try buffer.print(
+            commands.allocator,
             "  webgpu_create buffers={d} textures={d} views={d} samplers={d} bind_groups={d} pipelines={d} encoders={d} passes={d}\n",
             .{ creates[0], creates[1], creates[2], creates[3], creates[4], creates[5], creates[6], creates[7] },
         );
-        try buffer.writer().print(
+        try buffer.print(
+            commands.allocator,
             "  webgpu_destroy buffers={d} textures={d} samplers={d} bind_groups={d} pipelines={d}\n",
             .{ destroys[0], destroys[1], destroys[2], destroys[3], destroys[4] },
         );
     }
 
     if (store) |metrics_store| {
-        try buffer.writer().print("  metrics:\n", .{});
+        try buffer.print(commands.allocator, "  metrics:\n", .{});
         var it = metrics_store.map.iterator();
         while (it.next()) |entry| {
             const sample = entry.value_ptr.*;
-            try buffer.writer().print("    {s} ", .{sample.name});
-            try writeMetricValue(buffer.writer(), sample.value);
-            try buffer.writer().print(" {s}\n", .{sample.unit orelse "-"});
+            try buffer.print(commands.allocator, "    {s} ", .{sample.name});
+            try appendMetricValue(&buffer, commands.allocator, sample.value);
+            try buffer.print(commands.allocator, " {s}\n", .{sample.unit orelse "-"});
         }
     }
 
@@ -151,12 +156,16 @@ fn writeCrashDump(
     try file.writeStreamingAll(io, buffer.items);
 }
 
-fn writeMetricValue(writer: anytype, value: metrics.MetricValue) !void {
+fn appendMetricValue(
+    buffer: *std.ArrayListUnmanaged(u8),
+    allocator: std.mem.Allocator,
+    value: metrics.MetricValue,
+) !void {
     switch (value) {
-        .f64 => |v| try writer.print("{d:.3}", .{v}),
-        .i64 => |v| try writer.print("{d}", .{v}),
-        .u64 => |v| try writer.print("{d}", .{v}),
-        .bool => |v| try writer.print("{s}", .{if (v) "true" else "false"}),
+        .f64 => |v| try buffer.print(allocator, "{d:.3}", .{v}),
+        .i64 => |v| try buffer.print(allocator, "{d}", .{v}),
+        .u64 => |v| try buffer.print(allocator, "{d}", .{v}),
+        .bool => |v| try buffer.print(allocator, "{s}", .{if (v) "true" else "false"}),
     }
 }
 

@@ -101,6 +101,16 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             _ = runner.app.step() catch {};
         }
 
+        pub fn wasmResize(handle: u32, width: u32, height: u32) callconv(.c) void {
+            if (!is_wasm) return;
+            if (handle == 0) return;
+            const runner: *Runner = @ptrFromInt(handle);
+            var commands = ecs.Commands.init(runner.app.allocator, runner.app.io, &runner.app.world);
+            defer commands.deinit();
+            modules.RenderModule.setSurfaceSize(&commands, width, height);
+            _ = commands.apply() catch {};
+        }
+
         pub fn wasmOnDeviceLost(handle: u32) callconv(.c) void {
             if (!is_wasm) return;
             if (handle == 0) return;
@@ -271,6 +281,7 @@ pub fn exportWasm(comptime AppSpec: type) void {
     @export(&Entry.wasmVsyncEnabled, .{ .name = "wasmVsyncEnabled" });
     @export(&Entry.wasmFullscreenEnabled, .{ .name = "wasmFullscreenEnabled" });
     @export(&Entry.wasmFrame, .{ .name = "wasmFrame" });
+    @export(&Entry.wasmResize, .{ .name = "wasmResize" });
     @export(&Entry.wasmOnDeviceLost, .{ .name = "wasmOnDeviceLost" });
     @export(&Entry.wasmOnDeviceRestored, .{ .name = "wasmOnDeviceRestored" });
     @export(&Entry.wasmDeinit, .{ .name = "wasmDeinit" });
