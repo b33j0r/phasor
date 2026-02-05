@@ -20,6 +20,7 @@ pub const Options = struct {
     fullscreen: bool = false,
     use_default_modules: bool = false,
     install_crash_dump: bool = true,
+    install_soak_monitor: bool = false,
 };
 
 pub fn EntryPoint(comptime AppSpec: type) type {
@@ -200,6 +201,9 @@ pub fn EntryPoint(comptime AppSpec: type) type {
 
             if (options.install_crash_dump) {
                 try app.installModule(modules.CrashDumpModule);
+            }
+            if (options.install_soak_monitor) {
+                try app.installModule(modules.SoakMonitorModule);
             }
 
             try AppSpec.configure(app);

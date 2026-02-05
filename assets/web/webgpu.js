@@ -52,6 +52,7 @@ let resizeCalls = 0;
 let depthRebuilds = 0;
 let lastQueueWaitMs = 0;
 let maxQueueWaitMs = 0;
+let queueWaitPending = false;
 let frameTimeoutId = null;
 const lastFrameCounts = {
   buffers: 0,
@@ -295,7 +296,7 @@ function createPipelines(ctx) {
   });
 }
 
-function createContext(canvas) {
+function createContext(canvas, enableValidation) {
   const context = canvas.getContext("webgpu");
   const format = navigator.gpu.getPreferredCanvasFormat();
   const size = resizeCanvas(canvas);
@@ -322,6 +323,7 @@ function createContext(canvas) {
     depthView: null,
     inFrame: false,
     errorScopeDepth: 0,
+    enableValidation: Boolean(enableValidation),
   };
 
   createPipelines(ctx);
@@ -374,6 +376,14 @@ function shouldRecoverSimulation() {
   return true;
 }
 
+function scheduleNextFrame(frame) {
+  if (useVsync) {
+    requestAnimationFrame(frame);
+  } else {
+    setTimeout(frame, 0);
+  }
+}
+
 function resetWebgpuErrors() {
   webgpuErrors.validation = 0;
   webgpuErrors.outOfMemory = 0;
@@ -405,6 +415,8 @@ async function initDevice() {
 async function handleDeviceLost(info, lostDevice) {
   if (lostDevice !== device) return;
   deviceLost = true;
+  queueWaitPending = false;
+  gpuFramesInFlight = 0;
   console.error("[phasor] webgpu device lost", info);
 }
 
@@ -430,6 +442,7 @@ async function recoverWebGpu() {
     ctxs.clear();
     nextCtxId = 1;
     gpuFramesInFlight = 0;
+    queueWaitPending = false;
 
     await initDevice();
     await loadShaders();
@@ -568,6 +581,25 @@ function collectWebGpuStats(ctx) {
     samplersAlive: samplers.alive,
     samplersSlots: samplers.slots,
   };
+}
+
+function scheduleQueueFence(ctx) {
+  if (queueWaitPending || gpuFramesInFlight === 0) return;
+  queueWaitPending = true;
+  const submitStart = performance.now();
+  const framesAtFence = gpuFramesInFlight;
+  ctx.queue.onSubmittedWorkDone().then(() => {
+    const waitMs = performance.now() - submitStart;
+    lastQueueWaitMs = waitMs;
+    if (waitMs > maxQueueWaitMs) maxQueueWaitMs = waitMs;
+    gpuFramesInFlight = Math.max(0, gpuFramesInFlight - framesAtFence);
+    queueWaitPending = false;
+    scheduleQueueFence(ctx);
+  }).catch(() => {
+    gpuFramesInFlight = Math.max(0, gpuFramesInFlight - framesAtFence);
+    queueWaitPending = false;
+    scheduleQueueFence(ctx);
+  });
 }
 
 const wasiBase = {
@@ -747,13 +779,13 @@ const imports = {
       view.setUint32(outW, size.width, true);
       view.setUint32(outH, size.height, true);
     },
-    webgpu_init(canvasPtr, canvasLen, _enableValidation) {
+    webgpu_init(canvasPtr, canvasLen, enableValidation) {
       const id = readString(canvasPtr, canvasLen);
       const canvas = document.querySelector(id);
       if (!canvas) {
         return 0;
       }
-      const ctx = createContext(canvas);
+      const ctx = createContext(canvas, enableValidation);
       const ctxId = nextCtxId++;
       ctxs.set(ctxId, ctx);
       return ctxId;
@@ -787,7 +819,7 @@ const imports = {
       }
       ctx.inFrame = true;
       webgpuFramesBegun += 1;
-      if (!deviceLost) {
+      if (!deviceLost && ctx.enableValidation) {
         ctx.device.pushErrorScope("validation");
         ctx.device.pushErrorScope("out-of-memory");
         ctx.device.pushErrorScope("internal");
@@ -920,28 +952,20 @@ const imports = {
       lastFrameCounts.commandEncoders = webgpuCreates.commandEncoders;
       lastFrameCounts.renderPasses = webgpuCreates.renderPasses;
       ctx.pass.end();
-      const submitStart = performance.now();
       ctx.queue.submit([ctx.encoder.finish()]);
       gpuFramesInFlight += 1;
-      ctx.queue.onSubmittedWorkDone().then(() => {
-        const waitMs = performance.now() - submitStart;
-        lastQueueWaitMs = waitMs;
-        if (waitMs > maxQueueWaitMs) maxQueueWaitMs = waitMs;
-        gpuFramesInFlight = Math.max(0, gpuFramesInFlight - 1);
-      }).catch(() => {
-        gpuFramesInFlight = Math.max(0, gpuFramesInFlight - 1);
-      });
+      scheduleQueueFence(ctx);
       ctx.pass = null;
       ctx.encoder = null;
       ctx.inFrame = false;
       webgpuFramesEnded += 1;
       if (deviceLost) return;
-      if (ctx.errorScopeDepth >= 3) {
+      if (ctx.enableValidation && ctx.errorScopeDepth >= 3) {
         ctx.errorScopeDepth -= 3;
         ctx.device.popErrorScope().then((err) => recordWebGpuError("internal", err)).catch(() => {});
         ctx.device.popErrorScope().then((err) => recordWebGpuError("out-of-memory", err)).catch(() => {});
         ctx.device.popErrorScope().then((err) => recordWebGpuError("validation", err)).catch(() => {});
-      } else {
+      } else if (ctx.enableValidation && ctx.errorScopeDepth < 3) {
         console.warn("[phasor] webgpu_end_frame missing error scopes");
       }
     },
@@ -1289,6 +1313,7 @@ function handleKeyEvent(isDown, event) {
             console.error("[phasor] webgpu recovery failed", err);
           });
         }
+        scheduleNextFrame(frame);
         return;
       }
       if (simulationPaused) {
@@ -1297,14 +1322,11 @@ function handleKeyEvent(isDown, event) {
             console.error("[phasor] webgpu recovery failed", err);
           });
         }
+        scheduleNextFrame(frame);
         return;
       }
       if (gpuFramesInFlight >= maxFramesInFlight) {
-        if (useVsync) {
-          requestAnimationFrame(frame);
-        } else {
-          setTimeout(frame, 0);
-        }
+        scheduleNextFrame(frame);
         return;
       }
       if (wasm.exports.wasmFrame) {
@@ -1319,20 +1341,13 @@ function handleKeyEvent(isDown, event) {
       console.error("[phasor] wasmFrame error:", err);
       const hint = document.querySelector(".hint");
       if (hint) hint.textContent = "WebGPU: wasmFrame error (see console)";
+      scheduleNextFrame(frame);
       return;
     }
-    if (useVsync) {
-      requestAnimationFrame(frame);
-    } else {
-      setTimeout(frame, 0);
-    }
+    scheduleNextFrame(frame);
   }
   resumeFrameLoop = () => {
-    if (useVsync) {
-      requestAnimationFrame(frame);
-    } else {
-      setTimeout(frame, 0);
-    }
+    scheduleNextFrame(frame);
   };
   resumeFrameLoop();
 
