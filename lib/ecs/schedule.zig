@@ -11,22 +11,10 @@ pub const DefaultSchedule = struct {
     pub const WindowDestroy = "WindowDestroy";
 };
 
-pub const MainThreadAffinity = struct {
-    pub const labels = [_][]const u8{
-        DefaultSchedule.WindowCreate,
-        DefaultSchedule.BeforeFrame,
-        DefaultSchedule.Update,
-        DefaultSchedule.Render,
-        DefaultSchedule.AfterFrame,
-        DefaultSchedule.WindowDestroy,
-    };
-
-    pub fn requiresMainThread(label: []const u8) bool {
-        for (labels) |thread_label| {
-            if (std.mem.eql(u8, label, thread_label)) return true;
-        }
-        return false;
-    }
+pub const ScheduleAffinity = enum {
+    Any,
+    MainThreadOnly,
+    BackgroundOnly,
 };
 
 pub const ScheduleManager = struct {
@@ -153,6 +141,16 @@ pub const ScheduleManager = struct {
         return self.scheduleAt(index);
     }
 
+    pub fn setScheduleAffinity(self: *Self, label: []const u8, affinity: ScheduleAffinity) !void {
+        const schedule = self.schedulePtr(label) orelse return Error.ScheduleNotFound;
+        schedule.affinity = affinity;
+    }
+
+    pub fn scheduleAffinity(self: *Self, label: []const u8) !ScheduleAffinity {
+        const schedule = self.schedulePtr(label) orelse return Error.ScheduleNotFound;
+        return schedule.affinity;
+    }
+
     fn addDefaultSchedules(self: *Self) !void {
         const default_order = [_][]const u8{
             DefaultSchedule.WindowCreate,
@@ -189,6 +187,14 @@ pub const ScheduleManager = struct {
 
         try self.addEdgeByLabel(DefaultSchedule.Shutdown, DefaultSchedule.AssetsUnload);
         try self.addEdgeByLabel(DefaultSchedule.AssetsUnload, DefaultSchedule.WindowDestroy);
+
+        // Default frame/window schedules require root thread affinity for UI/GPU backends.
+        try self.setScheduleAffinity(DefaultSchedule.WindowCreate, .MainThreadOnly);
+        try self.setScheduleAffinity(DefaultSchedule.BeforeFrame, .MainThreadOnly);
+        try self.setScheduleAffinity(DefaultSchedule.Update, .MainThreadOnly);
+        try self.setScheduleAffinity(DefaultSchedule.Render, .MainThreadOnly);
+        try self.setScheduleAffinity(DefaultSchedule.AfterFrame, .MainThreadOnly);
+        try self.setScheduleAffinity(DefaultSchedule.WindowDestroy, .MainThreadOnly);
     }
 
     fn addEdgeByLabel(self: *Self, from_label: []const u8, to_label: []const u8) !void {
@@ -232,6 +238,7 @@ pub const ScheduleManager = struct {
 pub const Schedule = struct {
     label: []const u8,
     label_owned: bool,
+    affinity: ScheduleAffinity = .Any,
     systems: SystemGraph,
     system_order: []usize = &.{},
     system_order_allocated: bool = false,
