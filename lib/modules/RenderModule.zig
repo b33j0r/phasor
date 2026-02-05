@@ -100,8 +100,8 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try app.addSystem("BeforeFrame", updateTextMeshes);
     try app.addSystem("BeforeFrame", updateLayerCameras);
     try app.addSystem("BeforeFrame", extractSystem);
+    try app.addSystem(schedule.DefaultSchedule.Render, renderSystem);
     try app.addSystem("AfterFrame", cleanupUnusedMeshes);
-    try app.addSystem("AfterFrame", renderSystem);
     try app.addSystem(schedule.DefaultSchedule.WindowDestroy, shutdownSystem);
 }
 
@@ -384,8 +384,8 @@ fn updateLayerCameras(
 
 fn cleanupUnusedMeshes(
     commands: *Commands,
-    instances: Query(.{ render.MeshInstance }),
-    texts: Query(.{ render.Text }),
+    instances: Query(.{render.MeshInstance}),
+    texts: Query(.{render.Text}),
     sprite_cache_opt: ResOpt(SpriteMeshCache),
 ) !void {
     const state = commands.getResourceMut(RenderState) orelse return;

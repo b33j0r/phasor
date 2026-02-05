@@ -4,10 +4,29 @@ pub const DefaultSchedule = struct {
     pub const Startup = "Startup";
     pub const BeforeFrame = "BeforeFrame";
     pub const Update = "Update";
+    pub const Render = "Render";
     pub const AfterFrame = "AfterFrame";
     pub const Shutdown = "Shutdown";
     pub const AssetsUnload = "AssetsUnload";
     pub const WindowDestroy = "WindowDestroy";
+};
+
+pub const MainThreadAffinity = struct {
+    pub const labels = [_][]const u8{
+        DefaultSchedule.WindowCreate,
+        DefaultSchedule.BeforeFrame,
+        DefaultSchedule.Update,
+        DefaultSchedule.Render,
+        DefaultSchedule.AfterFrame,
+        DefaultSchedule.WindowDestroy,
+    };
+
+    pub fn requiresMainThread(label: []const u8) bool {
+        for (labels) |thread_label| {
+            if (std.mem.eql(u8, label, thread_label)) return true;
+        }
+        return false;
+    }
 };
 
 pub const ScheduleManager = struct {
@@ -141,6 +160,7 @@ pub const ScheduleManager = struct {
             DefaultSchedule.Startup,
             DefaultSchedule.BeforeFrame,
             DefaultSchedule.Update,
+            DefaultSchedule.Render,
             DefaultSchedule.AfterFrame,
             DefaultSchedule.Shutdown,
             DefaultSchedule.AssetsUnload,
@@ -154,6 +174,7 @@ pub const ScheduleManager = struct {
         const frame_order = [_][]const u8{
             DefaultSchedule.BeforeFrame,
             DefaultSchedule.Update,
+            DefaultSchedule.Render,
             DefaultSchedule.AfterFrame,
         };
 
@@ -338,6 +359,7 @@ test "schedule manager orders default frame schedules" {
     const expected = [_][]const u8{
         DefaultSchedule.BeforeFrame,
         DefaultSchedule.Update,
+        DefaultSchedule.Render,
         DefaultSchedule.AfterFrame,
     };
 
