@@ -1,4 +1,12 @@
-console.log("[phasor] webgpu.js loaded");
+const debugParams = new URLSearchParams(window.location.search);
+const phasorDebug = {
+  lifecycleLogs: debugParams.has("phasor_debug_lifecycle"),
+  hotPathWarnings: debugParams.has("phasor_debug_hotpath"),
+  frameWatchdog: debugParams.has("phasor_debug_watchdog"),
+};
+if (phasorDebug.lifecycleLogs) {
+  console.log("[phasor] webgpu.js loaded");
+}
 
 const wasmUrl = new URL("app.wasm", import.meta.url);
 const triangleShaderUrl = new URL("shaders/triangle.wgsl", import.meta.url);
@@ -918,39 +926,41 @@ const imports = {
       if (!ctx.inFrame) {
         console.warn("[phasor] webgpu_end_frame called without begin_frame");
       }
-      const deltaBuffers = webgpuCreates.buffers - lastFrameCounts.buffers;
-      const deltaTextures = webgpuCreates.textures - lastFrameCounts.textures;
-      const deltaViews = webgpuCreates.textureViews - lastFrameCounts.textureViews;
-      const deltaSamplers = webgpuCreates.samplers - lastFrameCounts.samplers;
-      const deltaBindGroups = webgpuCreates.bindGroups - lastFrameCounts.bindGroups;
-      const deltaPipelines = webgpuCreates.pipelines - lastFrameCounts.pipelines;
-      const deltaEncoders = webgpuCreates.commandEncoders - lastFrameCounts.commandEncoders;
-      const deltaPasses = webgpuCreates.renderPasses - lastFrameCounts.renderPasses;
-      const depthRebuiltThisFrame = lastDepthRebuildFrame == frameIndex;
-      if (deltaBuffers > 0 || deltaBindGroups > 0 || deltaPipelines > 0 || (deltaTextures > 0 && !depthRebuiltThisFrame)) {
-        console.warn(
-          "[phasor] webgpu per-frame allocations",
-          "frame=" + frameIndex,
-          "buffers=" + deltaBuffers,
-          "textures=" + deltaTextures,
-          "views=" + deltaViews,
-          "samplers=" + deltaSamplers,
-          "bindGroups=" + deltaBindGroups,
-          "pipelines=" + deltaPipelines,
-          "encoders=" + deltaEncoders,
-          "passes=" + deltaPasses,
-          "resize=" + resizeCalls,
-          "depthRebuilds=" + depthRebuilds,
-        );
+      if (phasorDebug.hotPathWarnings) {
+        const deltaBuffers = webgpuCreates.buffers - lastFrameCounts.buffers;
+        const deltaTextures = webgpuCreates.textures - lastFrameCounts.textures;
+        const deltaViews = webgpuCreates.textureViews - lastFrameCounts.textureViews;
+        const deltaSamplers = webgpuCreates.samplers - lastFrameCounts.samplers;
+        const deltaBindGroups = webgpuCreates.bindGroups - lastFrameCounts.bindGroups;
+        const deltaPipelines = webgpuCreates.pipelines - lastFrameCounts.pipelines;
+        const deltaEncoders = webgpuCreates.commandEncoders - lastFrameCounts.commandEncoders;
+        const deltaPasses = webgpuCreates.renderPasses - lastFrameCounts.renderPasses;
+        const depthRebuiltThisFrame = lastDepthRebuildFrame == frameIndex;
+        if (deltaBuffers > 0 || deltaBindGroups > 0 || deltaPipelines > 0 || (deltaTextures > 0 && !depthRebuiltThisFrame)) {
+          console.warn(
+            "[phasor] webgpu per-frame allocations",
+            "frame=" + frameIndex,
+            "buffers=" + deltaBuffers,
+            "textures=" + deltaTextures,
+            "views=" + deltaViews,
+            "samplers=" + deltaSamplers,
+            "bindGroups=" + deltaBindGroups,
+            "pipelines=" + deltaPipelines,
+            "encoders=" + deltaEncoders,
+            "passes=" + deltaPasses,
+            "resize=" + resizeCalls,
+            "depthRebuilds=" + depthRebuilds,
+          );
+        }
+        lastFrameCounts.buffers = webgpuCreates.buffers;
+        lastFrameCounts.textures = webgpuCreates.textures;
+        lastFrameCounts.textureViews = webgpuCreates.textureViews;
+        lastFrameCounts.samplers = webgpuCreates.samplers;
+        lastFrameCounts.bindGroups = webgpuCreates.bindGroups;
+        lastFrameCounts.pipelines = webgpuCreates.pipelines;
+        lastFrameCounts.commandEncoders = webgpuCreates.commandEncoders;
+        lastFrameCounts.renderPasses = webgpuCreates.renderPasses;
       }
-      lastFrameCounts.buffers = webgpuCreates.buffers;
-      lastFrameCounts.textures = webgpuCreates.textures;
-      lastFrameCounts.textureViews = webgpuCreates.textureViews;
-      lastFrameCounts.samplers = webgpuCreates.samplers;
-      lastFrameCounts.bindGroups = webgpuCreates.bindGroups;
-      lastFrameCounts.pipelines = webgpuCreates.pipelines;
-      lastFrameCounts.commandEncoders = webgpuCreates.commandEncoders;
-      lastFrameCounts.renderPasses = webgpuCreates.renderPasses;
       ctx.pass.end();
       ctx.queue.submit([ctx.encoder.finish()]);
       gpuFramesInFlight += 1;
@@ -1239,12 +1249,16 @@ async function start() {
   wasm = result.instance;
   memory = wasm.exports.memory;
 
-  console.log("[phasor] exports", Object.keys(wasm.exports));
+  if (phasorDebug.lifecycleLogs) {
+    console.log("[phasor] exports", Object.keys(wasm.exports));
+  }
 
   if (wasm.exports.wasmCreate) {
     try {
       wasmApp = wasm.exports.wasmCreate();
-      console.log("[phasor] wasmCreate returned", wasmApp);
+      if (phasorDebug.lifecycleLogs) {
+        console.log("[phasor] wasmCreate returned", wasmApp);
+      }
     } catch (err) {
       console.error("[phasor] wasmCreate threw", err);
       wasmApp = 0;
@@ -1330,12 +1344,16 @@ function handleKeyEvent(isDown, event) {
         return;
       }
       if (wasm.exports.wasmFrame) {
-        frameTimeoutId = setTimeout(() => {
-          console.warn("[phasor] wasmFrame stall > 1s", "frame=" + frameIndex);
-        }, 1000);
+        if (phasorDebug.frameWatchdog) {
+          frameTimeoutId = setTimeout(() => {
+            console.warn("[phasor] wasmFrame stall > 1s", "frame=" + frameIndex);
+          }, 1000);
+        }
         wasm.exports.wasmFrame(wasmApp);
-        clearTimeout(frameTimeoutId);
-        frameTimeoutId = null;
+        if (frameTimeoutId != null) {
+          clearTimeout(frameTimeoutId);
+          frameTimeoutId = null;
+        }
       }
     } catch (err) {
       console.error("[phasor] wasmFrame error:", err);
