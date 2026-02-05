@@ -162,29 +162,37 @@ fn updateMetricsText(
         text.vertical_alignment = .Bottom;
     }
 
-    if (clamped_dt <= 0.0) return;
-    state.ptr.timer += clamped_dt;
-    state.ptr.frames += 1;
+    var should_emit_fps_window = false;
+    if (clamped_dt > 0.0) {
+        state.ptr.timer += clamped_dt;
+        state.ptr.frames += 1;
+        should_emit_fps_window = state.ptr.timer >= config.ptr.update_interval;
+    }
 
-    if (state.ptr.timer < config.ptr.update_interval) return;
-
-    const fps = @as(f32, @floatFromInt(state.ptr.frames)) / @as(f32, @floatCast(state.ptr.timer));
-    const max_fps = if (fps > metrics_res.ptr.max_fps) fps else metrics_res.ptr.max_fps;
-    metrics.emitBus(true, bus.ptr, .{
-        .fps = metrics.stat(fps),
-        .max_fps = metrics.stat(max_fps),
-        .frame_ms = metrics.stat(metrics_res.ptr.frame_ms),
-        .elapsed_seconds = metrics.stat(elapsed.ptr.seconds),
-    });
-    state.ptr.timer = 0.0;
-    state.ptr.frames = 0;
+    if (should_emit_fps_window) {
+        const fps = @as(f32, @floatFromInt(state.ptr.frames)) / @as(f32, @floatCast(state.ptr.timer));
+        const max_fps = if (fps > metrics_res.ptr.max_fps) fps else metrics_res.ptr.max_fps;
+        metrics.emitBus(true, bus.ptr, .{
+            .fps = metrics.stat(fps),
+            .max_fps = metrics.stat(max_fps),
+            .frame_ms = metrics.stat(metrics_res.ptr.frame_ms),
+            .elapsed_seconds = metrics.stat(elapsed.ptr.seconds),
+        });
+        state.ptr.timer = 0.0;
+        state.ptr.frames = 0;
+    } else {
+        // Keep elapsed text monotonic even when a frame reports zero/invalid dt.
+        metrics.emitBus(true, bus.ptr, .{
+            .elapsed_seconds = metrics.stat(elapsed.ptr.seconds),
+        });
+    }
 
     drainMetrics(bus.ptr, store.ptr);
     maybeLogSnapshot(config.ptr, state.ptr, elapsed.ptr.seconds, store.ptr);
 
-    const fps_value = metricF64(store.ptr, "fps", fps);
+    const fps_value = metricF64(store.ptr, "fps", metrics_res.ptr.fps);
     const frame_ms_value = metricF64(store.ptr, "frame_ms", metrics_res.ptr.frame_ms);
-    const max_fps_value = metricF64(store.ptr, "max_fps", max_fps);
+    const max_fps_value = metricF64(store.ptr, "max_fps", metrics_res.ptr.max_fps);
     const elapsed_value = metricF64(store.ptr, "elapsed_seconds", elapsed.ptr.seconds);
 
     metrics_res.ptr.fps = @floatCast(fps_value);
@@ -455,7 +463,6 @@ fn metricF64(store: *metrics.Store, name: []const u8, fallback: f64) f64 {
     }
     return fallback;
 }
-
 
 fn maybeLogSnapshot(
     config: *const MetricsConfig,

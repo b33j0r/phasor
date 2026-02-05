@@ -11,14 +11,20 @@ const LastInstant = struct {
     value: InstantValue,
 };
 
+const StartInstant = struct {
+    value: InstantValue,
+};
+
 const InstantValue = if (builtin.target.cpu.arch.isWasm()) struct {
     ms: f64,
 } else std.time.Instant;
 
 pub fn install(app: *AppCommands, cmds: *Commands) !void {
+    const now = try currentInstant();
     try cmds.insertResource(DeltaTime{});
     try cmds.insertResource(ElapsedTime{});
-    try cmds.insertResource(LastInstant{ .value = try currentInstant() });
+    try cmds.insertResource(LastInstant{ .value = now });
+    try cmds.insertResource(StartInstant{ .value = now });
     try app.addSystem("BeforeFrame", updateTimeSystem);
 }
 
@@ -30,6 +36,7 @@ fn updateTimeSystem(
     res_delta_time: ResMut(DeltaTime),
     res_elapsed_time: ResMut(ElapsedTime),
     res_last_instant: ResMut(LastInstant),
+    res_start_instant: ResMut(StartInstant),
 ) void {
     const delta_time = res_delta_time.deref();
     const elapsed_time = res_elapsed_time.deref();
@@ -38,9 +45,21 @@ fn updateTimeSystem(
         std.log.debug("Failed to get current time instant", .{});
         return;
     };
-    const dt = deltaSeconds(last_instant.value, now);
+    const dt_raw = deltaSeconds(last_instant.value, now);
+    const dt = sanitizeDelta(dt_raw);
     last_instant.value = now;
     delta_time.seconds = dt;
+
+    if (builtin.target.cpu.arch.isWasm()) {
+        const elapsed_raw = deltaSeconds(res_start_instant.deref().value, now);
+        if (std.math.isFinite(elapsed_raw) and elapsed_raw >= elapsed_time.seconds) {
+            elapsed_time.seconds = elapsed_raw;
+        } else {
+            elapsed_time.seconds += dt;
+        }
+        return;
+    }
+
     elapsed_time.seconds += dt;
 }
 
@@ -58,6 +77,12 @@ fn deltaSeconds(prev: InstantValue, now: InstantValue) f64 {
     }
     const dt_nanos = now.since(prev);
     return @as(f64, @floatFromInt(dt_nanos)) / std.time.ns_per_s;
+}
+
+fn sanitizeDelta(dt: f64) f64 {
+    if (!std.math.isFinite(dt)) return 0.0;
+    if (dt < 0.0) return 0.0;
+    return dt;
 }
 
 // Imports
