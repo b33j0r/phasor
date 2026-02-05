@@ -15,7 +15,7 @@ const ResMut = ecs.system_params.ResMut;
 const ResOpt = ecs.system_params.ResOpt;
 
 pub const SoakMonitorSettings = struct {
-    enabled: bool = true,
+    enabled: bool = false,
     warmup_seconds: f64 = 10.0,
     snapshot_interval_seconds: f64 = 60.0,
     output_dir: []const u8 = "local/logs/soak",

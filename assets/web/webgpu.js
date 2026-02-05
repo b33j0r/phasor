@@ -22,6 +22,7 @@ let shaderSources = null;
 let audioCtx = null;
 let deviceLost = false;
 let simulationPaused = false;
+let pauseOnGpuError = false;
 let useVsync = true;
 let resumeFrameLoop = null;
 let recoveringDevice = false;
@@ -370,6 +371,7 @@ function recordWebGpuError(kind, err) {
 }
 
 function shouldPauseSimulation() {
+  if (!pauseOnGpuError) return false;
   if (deviceLost) return true;
   if (webgpuErrors.outOfMemory > 0) return true;
   if (webgpuErrors.internal > 0) return true;
@@ -1286,6 +1288,10 @@ async function start() {
   let useFullscreen = false;
   if (wasm.exports.wasmFullscreenEnabled) {
     useFullscreen = Boolean(wasm.exports.wasmFullscreenEnabled());
+  }
+  pauseOnGpuError = false;
+  if (wasm.exports.wasmPauseOnGpuErrorEnabled) {
+    pauseOnGpuError = Boolean(wasm.exports.wasmPauseOnGpuErrorEnabled());
   }
   if (useFullscreen) {
     document.documentElement.classList.add("fullscreen");

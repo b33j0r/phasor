@@ -18,6 +18,7 @@ pub const Options = struct {
     install_window_module: bool = true,
     auto_surface: bool = true,
     fullscreen: bool = false,
+    pause_on_gpu_error: bool = false,
     use_default_modules: bool = false,
     install_crash_dump: bool = false,
     install_soak_monitor: bool = false,
@@ -92,6 +93,11 @@ pub fn EntryPoint(comptime AppSpec: type) type {
         pub fn wasmFullscreenEnabled() callconv(.c) bool {
             if (!is_wasm) return false;
             return options.fullscreen;
+        }
+
+        pub fn wasmPauseOnGpuErrorEnabled() callconv(.c) bool {
+            if (!is_wasm) return false;
+            return options.pause_on_gpu_error;
         }
 
         pub fn wasmFrame(handle: u32) callconv(.c) void {
