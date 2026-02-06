@@ -62,7 +62,12 @@ let depthRebuilds = 0;
 let lastQueueWaitMs = 0;
 let maxQueueWaitMs = 0;
 let queueWaitPending = false;
+let lastFrameScheduledAtMs = 0;
+let lastFrameStartedAtMs = 0;
+let lastFrameFinishedAtMs = 0;
+let lastWatchdogKickAtMs = 0;
 let frameTimeoutId = null;
+let frameWatchdogIntervalId = null;
 const lastFrameCounts = {
   buffers: 0,
   textures: 0,
@@ -387,6 +392,7 @@ function shouldRecoverSimulation() {
 }
 
 function scheduleNextFrame(frame) {
+  lastFrameScheduledAtMs = performance.now();
   if (useVsync) {
     requestAnimationFrame(frame);
   } else {
@@ -556,6 +562,26 @@ function destroyContextResources(ctx) {
     // BindGroup doesn't have a destroy method; rely on GC.
     webgpuDestroys.bindGroups += 1;
     ctx.materials[i] = null;
+  }
+}
+
+function reconfigureContextSurface(ctx, reason) {
+  if (!ctx || !ctx.context || !ctx.device || !ctx.canvas) return false;
+  try {
+    const size = resizeCanvas(ctx.canvas);
+    ctx.context.configure({
+      device: ctx.device,
+      format: ctx.format,
+      alphaMode: "premultiplied",
+    });
+    createDepthTexture(ctx, size.width, size.height);
+    if (phasorDebug.lifecycleLogs) {
+      console.log("[phasor] webgpu surface reconfigured", reason, size.width, size.height);
+    }
+    return true;
+  } catch (err) {
+    console.warn("[phasor] webgpu surface reconfigure failed", reason, err);
+    return false;
   }
 }
 
@@ -813,12 +839,7 @@ const imports = {
       resizeCalls += 1;
       ctx.canvas.width = width;
       ctx.canvas.height = height;
-      ctx.context.configure({
-        device: ctx.device,
-        format: ctx.format,
-        alphaMode: "premultiplied",
-      });
-      createDepthTexture(ctx, width, height);
+      reconfigureContextSurface(ctx, "webgpu_resize");
     },
     webgpu_begin_frame(ctxId, r, g, b, a) {
       const ctx = ctxs.get(ctxId);
@@ -836,27 +857,39 @@ const imports = {
         ctx.errorScopeDepth += 3;
       }
       ctx.instanceOffset = 0;
-      const encoder = ctx.device.createCommandEncoder();
-      webgpuCreates.commandEncoders += 1;
-      const view = ctx.context.getCurrentTexture().createView();
-      webgpuCreates.textureViews += 1;
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view,
-          loadOp: "clear",
-          storeOp: "store",
-          clearValue: { r, g, b, a },
-        }],
-        depthStencilAttachment: {
-          view: ctx.depthView,
-          depthLoadOp: "clear",
-          depthStoreOp: "store",
-          depthClearValue: 1.0,
-        },
-      });
-      webgpuCreates.renderPasses += 1;
-      ctx.encoder = encoder;
-      ctx.pass = pass;
+      try {
+        const encoder = ctx.device.createCommandEncoder();
+        webgpuCreates.commandEncoders += 1;
+        const view = ctx.context.getCurrentTexture().createView();
+        webgpuCreates.textureViews += 1;
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view,
+            loadOp: "clear",
+            storeOp: "store",
+            clearValue: { r, g, b, a },
+          }],
+          depthStencilAttachment: {
+            view: ctx.depthView,
+            depthLoadOp: "clear",
+            depthStoreOp: "store",
+            depthClearValue: 1.0,
+          },
+        });
+        webgpuCreates.renderPasses += 1;
+        ctx.encoder = encoder;
+        ctx.pass = pass;
+      } catch (err) {
+        ctx.inFrame = false;
+        if (ctx.enableValidation && ctx.errorScopeDepth >= 3) {
+          ctx.errorScopeDepth -= 3;
+          ctx.device.popErrorScope().catch(() => {});
+          ctx.device.popErrorScope().catch(() => {});
+          ctx.device.popErrorScope().catch(() => {});
+        }
+        reconfigureContextSurface(ctx, "begin_frame_exception");
+        throw err;
+      }
     },
     webgpu_draw_triangle(ctxId) {
       const ctx = ctxs.get(ctxId);
@@ -1318,10 +1351,31 @@ function handleKeyEvent(isDown, event) {
       wasm.exports.wasmResize(wasmApp, size.width, size.height);
     }
   }
+
+  function resumeFromBackground(reason) {
+    if (document.visibilityState && document.visibilityState !== "visible") return;
+    ensureAudioContext();
+    resizeAndNotify();
+    for (const ctx of ctxs.values()) {
+      reconfigureContextSurface(ctx, reason);
+    }
+    if (resumeFrameLoop) {
+      resumeFrameLoop();
+    }
+  }
+
   window.addEventListener("resize", resizeAndNotify);
+  window.addEventListener("focus", () => resumeFromBackground("focus"));
+  window.addEventListener("pageshow", () => resumeFromBackground("pageshow"));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      resumeFromBackground("visibilitychange");
+    }
+  });
   resizeAndNotify();
 
   function frame() {
+    lastFrameStartedAtMs = performance.now();
     try {
       if (!simulationPaused && shouldPauseSimulation()) {
         simulationPaused = true;
@@ -1360,6 +1414,7 @@ function handleKeyEvent(isDown, event) {
           clearTimeout(frameTimeoutId);
           frameTimeoutId = null;
         }
+        lastFrameFinishedAtMs = performance.now();
       }
     } catch (err) {
       console.error("[phasor] wasmFrame error:", err);
@@ -1375,7 +1430,33 @@ function handleKeyEvent(isDown, event) {
   };
   resumeFrameLoop();
 
+  if (phasorDebug.frameWatchdog && frameWatchdogIntervalId == null) {
+    frameWatchdogIntervalId = setInterval(() => {
+      if (document.visibilityState && document.visibilityState !== "visible") return;
+      if (!wasm || !wasm.exports || !wasmApp) return;
+      if (recoveringDevice) return;
+
+      const now = performance.now();
+      const lastActive = Math.max(lastFrameFinishedAtMs, lastFrameStartedAtMs, lastFrameScheduledAtMs);
+      if (lastActive <= 0) return;
+      const stalledMs = now - lastActive;
+      if (stalledMs < 4000) return;
+      if ((now - lastWatchdogKickAtMs) < 1500) return;
+      lastWatchdogKickAtMs = now;
+
+      const hint = document.querySelector(".hint");
+      if (hint) {
+        hint.textContent = "WebGPU: frame stall detected, attempting resume";
+      }
+      resumeFromBackground("watchdog_stall");
+    }, 1000);
+  }
+
   window.addEventListener("beforeunload", () => {
+    if (frameWatchdogIntervalId != null) {
+      clearInterval(frameWatchdogIntervalId);
+      frameWatchdogIntervalId = null;
+    }
     if (wasm.exports.wasmDeinit && wasmApp) {
       wasm.exports.wasmDeinit(wasmApp);
       wasmApp = 0;
