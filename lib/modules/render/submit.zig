@@ -213,7 +213,7 @@ const BatchKey = struct {
 const BatchItem = struct {
     key: BatchKey,
     mesh: render.Mesh,
-    material: render.Material,
+    material: render.BackendMaterial,
     instance: render.BackendMeshInstance,
 };
 
@@ -253,7 +253,7 @@ fn shaderBatchItemLessThan(_: void, a: ShaderBatchItem, b: ShaderBatchItem) bool
     return a.key.shader.generation < b.key.shader.generation;
 }
 
-fn materialKey(material: render.Material) usize {
+fn materialKey(material: render.BackendMaterial) usize {
     const T = @TypeOf(material);
     if (@hasField(T, "handle")) {
         return @as(usize, @intCast(material.handle));
@@ -375,7 +375,7 @@ const BlendItem = struct {
     depth: f32,
     entity_id: u64,
     mesh: render.Mesh,
-    material: render.Material,
+    material: render.BackendMaterial,
     instance: render.BackendMeshInstance,
 };
 

@@ -15,16 +15,16 @@ pub const Texture = backend.Texture;
 pub const Sampler = backend.Sampler;
 pub const Pipeline = backend.Pipeline;
 pub const Shader = backend.Shader;
-pub const Material = backend.Material;
+pub const BackendMaterial = backend.Material;
+pub const Material = mesh.Material;
 pub const MaterialInstance = struct {
-    material: Material,
+    material: BackendMaterial,
 
     pub const default: MaterialInstance = .{ .material = undefined };
 };
 pub const Mesh = backend.Mesh;
 pub const BackendMeshInstance = backend.MeshInstance;
 pub const MeshInstance = mesh.MeshInstance;
-pub const MaterialRef = mesh.MaterialRef;
 pub const ShaderInstance = mesh.ShaderInstance;
 pub const MeshHandle = mesh.MeshHandle;
 pub const ShaderHandle = mesh.ShaderHandle;

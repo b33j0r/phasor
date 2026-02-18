@@ -37,7 +37,7 @@ fn setupScene(commands: *ecs.Commands) !void {
         render.MeshInstance{
             .mesh_handle = cube_assets.cube_mesh.handle,
             .color = Color.WHITE,
-            .material = .{ .shader = cube_assets.cube_shader.handle },
+            .material = render.Material.withShader(cube_assets.cube_shader.handle),
         },
         render.Layer(0){},
     });

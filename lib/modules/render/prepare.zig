@@ -133,12 +133,12 @@ pub fn updateTextMeshes(
         if (row.get(render.MeshInstance)) |instance| {
             instance.mesh_handle = text.mesh_handle;
             instance.color = text.color;
-            instance.material = .{ .textured = material };
+            instance.material = render.Material.withTextured(material);
         } else {
             try commands.addComponent(row.entity_id, render.MeshInstance{
                 .mesh_handle = text.mesh_handle,
                 .color = text.color,
-                .material = .{ .textured = material },
+                .material = render.Material.withTextured(material),
             });
         }
     }
@@ -170,7 +170,7 @@ pub fn syncLegacyMaterialBindings(
     while (mat_it.next()) |row| {
         const mesh = row.get(render.MeshInstance) orelse continue;
         const mat = row.get(render.MaterialInstance) orelse continue;
-        mesh.material = .{ .textured = mat.material };
+        mesh.material = render.Material.withTextured(mat.material);
     }
 
     var shader_it = legacy_shaders.iterator();
@@ -178,7 +178,7 @@ pub fn syncLegacyMaterialBindings(
         const mesh = row.get(render.MeshInstance) orelse continue;
         const shader = row.get(render.ShaderInstance) orelse continue;
         if (!shader.shader_handle.isValid()) continue;
-        mesh.material = .{ .shader = shader.shader_handle };
+        mesh.material = render.Material.withShader(shader.shader_handle);
     }
 }
 

@@ -13,7 +13,7 @@ pub const Texture = struct {
     width: u32 = 0,
     height: u32 = 0,
     texture: ?render.Texture = null,
-    material: ?render.Material = null,
+    material: ?render.BackendMaterial = null,
 
     pub fn load(self: *Texture, ctx: AssetsContext) !void {
         if (self.material != null) return;

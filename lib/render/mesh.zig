@@ -27,19 +27,50 @@ pub const ShaderHandle = struct {
 pub const MeshInstance = struct {
     mesh_handle: MeshHandle = MeshHandle.invalid(),
     color: common.Color = common.Color.WHITE,
-    material: MaterialRef = .default,
+    material: Material = Material.default,
 
     pub const default: MeshInstance = .{
         .mesh_handle = MeshHandle.invalid(),
         .color = common.Color.WHITE,
-        .material = .default,
+        .material = Material.default,
     };
 };
 
-pub const MaterialRef = union(enum) {
-    default,
-    textured: backend.Material,
-    shader: ShaderHandle,
+pub const Material = struct {
+    binding: Binding = .default,
+    alpha_mode: AlphaMode = .Opaque,
+    alpha_cutoff: f32 = 0.5,
+    double_sided: bool = false,
+    base_color_factor: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+    metallic_factor: f32 = 1.0,
+    roughness_factor: f32 = 1.0,
+
+    pub const Binding = union(enum) {
+        default,
+        textured: backend.Material,
+        shader: ShaderHandle,
+    };
+
+    pub const AlphaMode = enum {
+        Opaque,
+        Mask,
+        Blend,
+    };
+
+    pub const default: Material = .{};
+
+    pub fn withTextured(material: backend.Material) Material {
+        return .{
+            .binding = .{ .textured = material },
+            .alpha_mode = .Blend,
+        };
+    }
+
+    pub fn withShader(shader_handle: ShaderHandle) Material {
+        return .{
+            .binding = .{ .shader = shader_handle },
+        };
+    }
 };
 
 pub const ShaderInstance = struct {

@@ -232,7 +232,7 @@ const WindowBounds = common.WindowBounds;
 const RenderBounds = common.RenderBounds;
 const ClearColor = common.ClearColor;
 
-const Material = render.Material;
+const Material = render.BackendMaterial;
 const MeshLibrary = render.MeshLibrary;
 const MeshInstance = render.MeshInstance;
 const MaterialInstance = render.MaterialInstance;

@@ -7,7 +7,7 @@ pub const RenderState = struct {
     surface: render.SurfaceTarget,
     default_sampler: render.Sampler,
     default_texture: render.Texture,
-    default_material: render.Material,
+    default_material: render.BackendMaterial,
 
     pub fn deinit(self: *RenderState) void {
         self.renderer.destroyMaterial(&self.default_material);
