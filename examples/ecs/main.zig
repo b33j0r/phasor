@@ -11,7 +11,6 @@ const Velocity = struct {
 
 const SpawnerTag = struct {};
 const ParticleTag = struct {};
-const ParticleTable = struct { index: usize };
 const SpawnCounter = struct { value: u64 = 0 };
 const ExitRequested = struct { code: u8 };
 
@@ -140,11 +139,9 @@ const PhaseContext = modules.PhasesModule.PhaseContext;
 const DeltaTime = modules.TimeModule.DeltaTime;
 const CountdownTimer = modules.TimerModule.CountdownTimer;
 const StopwatchTimer = modules.TimerModule.StopwatchTimer;
-const schedule = ecs.schedule;
 const system_params = ecs.system_params;
 const Query = system_params.Query;
 const Res = system_params.Res;
 const events = ecs.events;
-const Events = events.Events;
 const EventWriter = events.EventWriter;
 const EventReader = events.EventReader;

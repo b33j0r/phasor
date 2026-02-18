@@ -1,16 +1,3 @@
-const phasor = @import("phasor");
-
-const ecs = phasor.ecs;
-const modules = phasor.modules;
-const render = phasor.renderer;
-const common = phasor.common;
-const platform = phasor.platform;
-
-const RenderState = modules.RenderModule.RenderState;
-const ElapsedTime = modules.TimeModule.ElapsedTime;
-const Query = ecs.system_params.Query;
-const Res = ecs.system_params.Res;
-
 const CubeRoot = struct {};
 
 const App = struct {
@@ -28,7 +15,7 @@ const App = struct {
         try app.installModule(modules.RenderModule);
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
             .font_size = 36.0,
-            .text_color = common.Color.WHITE,
+            .text_color = Color.WHITE,
         });
 
         try app.addSystemTo("Startup", setupScene);
@@ -45,43 +32,43 @@ fn setupScene(commands: *ecs.Commands) !void {
     const quad = try factory.quad(&state.renderer);
 
     const cube_entity = try commands.createEntity(.{
-        common.Transform{ .translation = .{ .x = 0.0, .y = 0.0, .z = -4.0 } },
+        Transform{ .translation = .{ .x = 0.0, .y = 0.0, .z = -4.0 } },
         CubeRoot{},
     });
 
     const size: f32 = 1.6;
     const half = size * 0.5;
-    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = 0.0, .z = half }, common.Quat.identity(), common.Color.RED);
-    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = 0.0, .z = -half }, common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi), common.Color.BLUE);
-    try spawnFace(commands, cube_entity, quad, size, .{ .x = half, .y = 0.0, .z = 0.0 }, common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, -std.math.pi / 2.0), common.Color.GREEN);
-    try spawnFace(commands, cube_entity, quad, size, .{ .x = -half, .y = 0.0, .z = 0.0 }, common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi / 2.0), common.Color.ORANGE);
-    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = half, .z = 0.0 }, common.Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, std.math.pi / 2.0), common.Color.YELLOW);
-    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = -half, .z = 0.0 }, common.Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, -std.math.pi / 2.0), common.Color.PURPLE);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = 0.0, .z = half }, Quat.identity(), Color.RED);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = 0.0, .z = -half }, Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi), Color.BLUE);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = half, .y = 0.0, .z = 0.0 }, Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, -std.math.pi / 2.0), Color.GREEN);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = -half, .y = 0.0, .z = 0.0 }, Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi / 2.0), Color.ORANGE);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = half, .z = 0.0 }, Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, std.math.pi / 2.0), Color.YELLOW);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = -half, .z = 0.0 }, Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, -std.math.pi / 2.0), Color.PURPLE);
 
-    try commands.insertResource(common.ClearColor{ .color = common.Color.DARKBLUE });
+    try commands.insertResource(ClearColor{ .color = Color.DARKBLUE });
     _ = try commands.createEntity(.{
-        common.Transform{},
-        common.Camera3d{ .Perspective = .{
+        Transform{},
+        Camera3d{ .Perspective = .{
             .fov = std.math.pi / 3.0,
             .near = 0.1,
             .far = 100.0,
         } },
-        render.CameraLayer(0){},
+        CameraLayer(0){},
     });
     _ = try commands.createEntity(.{
-        common.Transform{},
-        common.Camera3d{ .Viewport = .{ .mode = .TopLeft } },
-        render.CameraLayer(1000){},
+        Transform{},
+        Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+        CameraLayer(1000){},
     });
 }
 
-fn spinCube(elapsed: Res(ElapsedTime), query: Query(.{ common.Transform, CubeRoot })) void {
+fn spinCube(elapsed: Res(ElapsedTime), query: Query(.{ Transform, CubeRoot })) void {
     const t: f32 = @floatCast(elapsed.deref().seconds);
     var it = query.iterator();
     while (it.next()) |row| {
-        const transform = row.get(common.Transform) orelse continue;
-        const rot_x = common.Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, t * 0.7);
-        const rot_y = common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, t * 1.1);
+        const transform = row.get(Transform) orelse continue;
+        const rot_x = Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, t * 0.7);
+        const rot_y = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, t * 1.1);
         transform.rotation = rot_y.mul(rot_x).normalize();
     }
 }
@@ -91,18 +78,18 @@ fn spawnFace(
     cube_entity: u64,
     quad: render.MeshHandle,
     size: f32,
-    translation: common.Vec3,
-    rotation: common.Quat,
-    color: common.Color,
+    translation: Vec3,
+    rotation: Quat,
+    color: Color,
 ) !void {
     _ = try commands.createEntity(.{
-        common.Parent{ .id = cube_entity },
-        common.LocalTransform{
+        Parent{ .id = cube_entity },
+        LocalTransform{
             .translation = translation,
             .rotation = rotation,
             .scale = .{ .x = size, .y = size, .z = size },
         },
-        common.Transform{},
+        Transform{},
         render.MeshInstance{ .mesh_handle = quad, .color = color },
         render.Layer(0){},
     });
@@ -110,3 +97,25 @@ fn spawnFace(
 
 // Imports
 const std = @import("std");
+const phasor = @import("phasor");
+
+const ecs = phasor.ecs;
+const modules = phasor.modules;
+const render = phasor.renderer;
+const common = phasor.common;
+const platform = phasor.platform;
+
+const RenderState = modules.RenderModule.RenderState;
+const ElapsedTime = modules.TimeModule.ElapsedTime;
+const Query = ecs.system_params.Query;
+const Res = ecs.system_params.Res;
+
+const Vec3 = common.Vec3;
+const Quat = common.Quat;
+const Color = common.Color;
+const Parent = common.Parent;
+const Transform = common.Transform;
+const LocalTransform = common.LocalTransform;
+const Camera3d = common.Camera3d;
+const ClearColor = common.ClearColor;
+const CameraLayer = render.CameraLayer;

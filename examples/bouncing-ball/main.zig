@@ -3,12 +3,12 @@ const Ball = struct {
 };
 
 const Velocity = struct {
-    v: common.Vec2 = .{},
+    v: Vec2 = .{},
 };
 
 const DecalSpinTag = struct {};
 const decal_spin_speed: f32 = 2.5;
-const decal_centroid_offset = common.Vec3{
+const decal_centroid_offset = Vec3{
     // favicon.png alpha centroid (~47.49,56.20) in a 96x96 image -> ~8.70px below center.
     .x = 0.0,
     .y = 8.7043 * (60.0 / 96.0),
@@ -54,13 +54,13 @@ pub const main = platform.main(App);
 fn setupScene(
     commands: *ecs.Commands,
     viewport_opt: ResOpt(ViewportSize),
-    window_bounds_opt: ResOpt(common.WindowBounds),
-    render_bounds_opt: ResOpt(common.RenderBounds),
+    window_bounds_opt: ResOpt(WindowBounds),
+    render_bounds_opt: ResOpt(RenderBounds),
     render_state_opt: ResOpt(RenderState),
 ) !void {
     const state = commands.getResourceMut(RenderState) orelse return;
-    const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
-    var decal_material: ?render.Material = null;
+    const mesh_library = commands.getResourceMut(MeshLibrary) orelse return;
+    var decal_material: ?Material = null;
     if (commands.getResource(Assets)) |asset_data| {
         decal_material = asset_data.favicon.material;
     }
@@ -72,54 +72,54 @@ fn setupScene(
     const outer_mesh = try factory.circle(&state.renderer, radius, 48);
     const inner_mesh = try factory.circle(&state.renderer, inset_radius, 48);
 
-    const start = common.Vec3{ .x = bounds.width * 0.5, .y = bounds.height * 0.5, .z = -10.0 };
+    const start = Vec3{ .x = bounds.width * 0.5, .y = bounds.height * 0.5, .z = -10.0 };
     const ball_entity = try commands.createEntity(.{
         Ball{ .radius = radius },
         Velocity{ .v = .{ .x = 220.0, .y = 160.0 } },
-        common.Transform{ .translation = start },
-        render.MeshInstance{ .mesh_handle = outer_mesh, .color = common.Color.BLACK },
+        Transform{ .translation = start },
+        MeshInstance{ .mesh_handle = outer_mesh, .color = Color.BLACK },
     });
 
     _ = try commands.createEntity(.{
-        common.Parent{ .id = ball_entity },
-        common.LocalTransform{
+        Parent{ .id = ball_entity },
+        LocalTransform{
             .translation = .{ .x = 0.0, .y = 0.0, .z = 0.5 },
         },
-        common.Transform{},
-        render.MeshInstance{ .mesh_handle = inner_mesh, .color = common.Color.WHITE },
+        Transform{},
+        MeshInstance{ .mesh_handle = inner_mesh, .color = Color.WHITE },
     });
 
     if (decal_material) |material| {
         const decal_size: f32 = 60.0;
         _ = try commands.createEntity(.{
-            common.Parent{ .id = ball_entity },
-            common.LocalTransform{
+            Parent{ .id = ball_entity },
+            LocalTransform{
                 .translation = .{ .x = 0.0, .y = 0.0, .z = 1.0 },
             },
-            common.Transform{},
-            render.Sprite{
-                .color = common.Color.WHITE,
+            Transform{},
+            Sprite{
+                .color = Color.WHITE,
                 .size_mode = .{ .Manual = .{ .width = decal_size, .height = decal_size } },
             },
-            render.MaterialInstance{ .material = material },
+            MaterialInstance{ .material = material },
             DecalSpinTag{},
         });
     }
 
-    try commands.insertResource(common.ClearColor{ .color = common.Color.WHITE });
+    try commands.insertResource(ClearColor{ .color = Color.WHITE });
     _ = try commands.createEntity(.{
-        common.Transform{},
-        common.Camera3d{ .Viewport = .{ .mode = .TopLeft } },
-        render.CameraLayer(0){},
+        Transform{},
+        Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+        CameraLayer(0){},
     });
 }
 
-fn spinDecalLocal(elapsed: Res(ElapsedTime), query: Query(.{ common.LocalTransform, DecalSpinTag })) void {
+fn spinDecalLocal(elapsed: Res(ElapsedTime), query: Query(.{ LocalTransform, DecalSpinTag })) void {
     const t: f32 = @floatCast(elapsed.deref().seconds);
     var it = query.iterator();
     while (it.next()) |row| {
-        const local = row.get(common.LocalTransform) orelse continue;
-        const rotation = common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, t * decal_spin_speed);
+        const local = row.get(LocalTransform) orelse continue;
+        const rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, t * decal_spin_speed);
         const rotated_offset = rotation.rotateVec3(decal_centroid_offset);
         local.rotation = rotation;
         local.translation.x = -rotated_offset.x;
@@ -128,11 +128,11 @@ fn spinDecalLocal(elapsed: Res(ElapsedTime), query: Query(.{ common.LocalTransfo
     }
 }
 
-fn integrateMotion(dt: Res(DeltaTime), query: Query(.{ common.Transform, Velocity })) void {
+fn integrateMotion(dt: Res(DeltaTime), query: Query(.{ Transform, Velocity })) void {
     const step: f32 = @floatCast(dt.deref().seconds);
     var it = query.iterator();
     while (it.next()) |row| {
-        const transform = row.get(common.Transform) orelse continue;
+        const transform = row.get(Transform) orelse continue;
         const velocity = row.get(Velocity) orelse continue;
         transform.translation.x += velocity.v.x * step;
         transform.translation.y += velocity.v.y * step;
@@ -141,16 +141,16 @@ fn integrateMotion(dt: Res(DeltaTime), query: Query(.{ common.Transform, Velocit
 
 fn bounceBall(
     viewport_opt: ResOpt(ViewportSize),
-    window_bounds_opt: ResOpt(common.WindowBounds),
-    render_bounds_opt: ResOpt(common.RenderBounds),
+    window_bounds_opt: ResOpt(WindowBounds),
+    render_bounds_opt: ResOpt(RenderBounds),
     render_state_opt: ResOpt(RenderState),
-    query: Query(.{ common.Transform, Velocity, Ball }),
+    query: Query(.{ Transform, Velocity, Ball }),
 ) void {
     const bounds = resolveBounds(viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
 
     var it = query.iterator();
     while (it.next()) |row| {
-        const transform = row.get(common.Transform) orelse continue;
+        const transform = row.get(Transform) orelse continue;
         const velocity = row.get(Velocity) orelse continue;
         const ball = row.get(Ball) orelse continue;
         const radius = ball.radius;
@@ -175,8 +175,8 @@ fn bounceBall(
 
 fn resolveBounds(
     viewport_opt: ResOpt(ViewportSize),
-    window_bounds_opt: ResOpt(common.WindowBounds),
-    render_bounds_opt: ResOpt(common.RenderBounds),
+    window_bounds_opt: ResOpt(WindowBounds),
+    render_bounds_opt: ResOpt(RenderBounds),
     render_state_opt: ResOpt(RenderState),
 ) ?Bounds {
     if (viewport_opt.ptr) |vp| {
@@ -219,3 +219,22 @@ const system_params = ecs.system_params;
 const Query = system_params.Query;
 const Res = system_params.Res;
 const ResOpt = system_params.ResOpt;
+
+const Vec2 = common.Vec2;
+const Vec3 = common.Vec3;
+const Quat = common.Quat;
+const Color = common.Color;
+const Parent = common.Parent;
+const Transform = common.Transform;
+const LocalTransform = common.LocalTransform;
+const Camera3d = common.Camera3d;
+const WindowBounds = common.WindowBounds;
+const RenderBounds = common.RenderBounds;
+const ClearColor = common.ClearColor;
+
+const Material = render.Material;
+const MeshLibrary = render.MeshLibrary;
+const MeshInstance = render.MeshInstance;
+const MaterialInstance = render.MaterialInstance;
+const Sprite = render.Sprite;
+const CameraLayer = render.CameraLayer;
