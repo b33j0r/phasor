@@ -564,7 +564,7 @@ pub const Frame = struct {
         self.render_pass.setPipeline(pipeline);
         self.render_pass.setBindGroup(0, material.bind_group, 0, null);
         self.render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
-        self.render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, @sizeOf(InstanceData));
+        self.render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
         self.render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
         self.render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
     }

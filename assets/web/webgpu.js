@@ -951,7 +951,7 @@ const imports = {
       ctx.pass.setPipeline(pipeline);
       ctx.pass.setBindGroup(0, material.bindGroup);
       ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
-      ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, stride);
+      ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
       ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
       ctx.pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, 0);
     },

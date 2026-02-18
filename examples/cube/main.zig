@@ -7,20 +7,11 @@ const common = phasor.common;
 const platform = phasor.platform;
 
 const RenderState = modules.RenderModule.RenderState;
-const DeltaTime = modules.TimeModule.DeltaTime;
+const ElapsedTime = modules.TimeModule.ElapsedTime;
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 
-const Rotator = struct {
-    angle_x: f32 = 0.0,
-    angle_y: f32 = 0.0,
-};
-
-const Face = struct {
-    translation: common.Vec3,
-    rotation: common.Quat,
-    color: common.Color,
-};
+const CubeRoot = struct {};
 
 const App = struct {
     pub const options = platform.Options{
@@ -55,57 +46,17 @@ fn setupScene(commands: *ecs.Commands) !void {
 
     const cube_entity = try commands.createEntity(.{
         common.Transform{ .translation = .{ .x = 0.0, .y = 0.0, .z = -4.0 } },
-        Rotator{},
+        CubeRoot{},
     });
 
     const size: f32 = 1.6;
     const half = size * 0.5;
-    const faces = [_]Face{
-        .{
-            .translation = .{ .x = 0.0, .y = 0.0, .z = half },
-            .rotation = common.Quat.identity(),
-            .color = common.Color.RED,
-        },
-        .{
-            .translation = .{ .x = 0.0, .y = 0.0, .z = -half },
-            .rotation = common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi),
-            .color = common.Color.BLUE,
-        },
-        .{
-            .translation = .{ .x = half, .y = 0.0, .z = 0.0 },
-            .rotation = common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, -std.math.pi / 2.0),
-            .color = common.Color.GREEN,
-        },
-        .{
-            .translation = .{ .x = -half, .y = 0.0, .z = 0.0 },
-            .rotation = common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi / 2.0),
-            .color = common.Color.ORANGE,
-        },
-        .{
-            .translation = .{ .x = 0.0, .y = half, .z = 0.0 },
-            .rotation = common.Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, std.math.pi / 2.0),
-            .color = common.Color.YELLOW,
-        },
-        .{
-            .translation = .{ .x = 0.0, .y = -half, .z = 0.0 },
-            .rotation = common.Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, -std.math.pi / 2.0),
-            .color = common.Color.PURPLE,
-        },
-    };
-
-    for (faces) |face| {
-        _ = try commands.createEntity(.{
-            common.Parent{ .id = cube_entity },
-            common.LocalTransform{
-                .translation = face.translation,
-                .rotation = face.rotation,
-                .scale = .{ .x = size, .y = size, .z = size },
-            },
-            common.Transform{},
-            render.MeshInstance{ .mesh_handle = quad, .color = face.color },
-            render.Layer(0){},
-        });
-    }
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = 0.0, .z = half }, common.Quat.identity(), common.Color.RED);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = 0.0, .z = -half }, common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi), common.Color.BLUE);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = half, .y = 0.0, .z = 0.0 }, common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, -std.math.pi / 2.0), common.Color.GREEN);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = -half, .y = 0.0, .z = 0.0 }, common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi / 2.0), common.Color.ORANGE);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = half, .z = 0.0 }, common.Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, std.math.pi / 2.0), common.Color.YELLOW);
+    try spawnFace(commands, cube_entity, quad, size, .{ .x = 0.0, .y = -half, .z = 0.0 }, common.Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, -std.math.pi / 2.0), common.Color.PURPLE);
 
     try commands.insertResource(common.ClearColor{ .color = common.Color.DARKBLUE });
     _ = try commands.createEntity(.{
@@ -124,20 +75,37 @@ fn setupScene(commands: *ecs.Commands) !void {
     });
 }
 
-fn spinCube(dt: Res(DeltaTime), query: Query(.{ common.Transform, Rotator })) void {
-    const step: f32 = @floatCast(dt.deref().seconds);
+fn spinCube(elapsed: Res(ElapsedTime), query: Query(.{ common.Transform, CubeRoot })) void {
+    const t: f32 = @floatCast(elapsed.deref().seconds);
     var it = query.iterator();
     while (it.next()) |row| {
         const transform = row.get(common.Transform) orelse continue;
-        const rotator = row.get(Rotator) orelse continue;
-
-        rotator.angle_x += step * 0.7;
-        rotator.angle_y += step * 1.1;
-
-        const rot_x = common.Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, rotator.angle_x);
-        const rot_y = common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, rotator.angle_y);
+        const rot_x = common.Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, t * 0.7);
+        const rot_y = common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, t * 1.1);
         transform.rotation = rot_y.mul(rot_x).normalize();
     }
+}
+
+fn spawnFace(
+    commands: *ecs.Commands,
+    cube_entity: u64,
+    quad: render.MeshHandle,
+    size: f32,
+    translation: common.Vec3,
+    rotation: common.Quat,
+    color: common.Color,
+) !void {
+    _ = try commands.createEntity(.{
+        common.Parent{ .id = cube_entity },
+        common.LocalTransform{
+            .translation = translation,
+            .rotation = rotation,
+            .scale = .{ .x = size, .y = size, .z = size },
+        },
+        common.Transform{},
+        render.MeshInstance{ .mesh_handle = quad, .color = color },
+        render.Layer(0){},
+    });
 }
 
 // Imports
