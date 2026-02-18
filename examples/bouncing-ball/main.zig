@@ -6,6 +6,15 @@ const Velocity = struct {
     v: common.Vec2 = .{},
 };
 
+const DecalSpinTag = struct {};
+const decal_spin_speed: f32 = 2.5;
+const decal_centroid_offset = common.Vec3{
+    // favicon.png alpha centroid (~47.49,56.20) in a 96x96 image -> ~8.70px below center.
+    .x = 0.0,
+    .y = 8.7043 * (60.0 / 96.0),
+    .z = 0.0,
+};
+
 const Bounds = struct {
     width: f32,
     height: f32,
@@ -31,11 +40,12 @@ const App = struct {
         try app.installModule(modules.ParentModule);
         try app.installModule(modules.RenderModule);
         try app.installModule(modules.AssetsModule(Assets));
-        try app.installModule(modules.MetricsModule{ .font_size = 60.0 });
+        try app.installModule(modules.MetricsModule{ .font_size = 24.0 });
 
         try app.addSystemTo("Startup", setupScene);
         try app.addSystemTo("Update", integrateMotion);
         try app.addSystemTo("Update", bounceBall);
+        try app.addSystemTo("Update", spinDecalLocal);
     }
 };
 
@@ -57,15 +67,26 @@ fn setupScene(
     const bounds = resolveBounds(viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
 
     const radius: f32 = 40.0;
+    const inset_radius: f32 = 34.0;
     var factory = render.MeshFactory.init(commands.allocator, mesh_library);
-    const mesh_handle = try factory.circle(&state.renderer, radius, 48);
+    const outer_mesh = try factory.circle(&state.renderer, radius, 48);
+    const inner_mesh = try factory.circle(&state.renderer, inset_radius, 48);
 
     const start = common.Vec3{ .x = bounds.width * 0.5, .y = bounds.height * 0.5, .z = -10.0 };
     const ball_entity = try commands.createEntity(.{
         Ball{ .radius = radius },
         Velocity{ .v = .{ .x = 220.0, .y = 160.0 } },
         common.Transform{ .translation = start },
-        render.MeshInstance{ .mesh_handle = mesh_handle, .color = common.Color.RED },
+        render.MeshInstance{ .mesh_handle = outer_mesh, .color = common.Color.BLACK },
+    });
+
+    _ = try commands.createEntity(.{
+        common.Parent{ .id = ball_entity },
+        common.LocalTransform{
+            .translation = .{ .x = 0.0, .y = 0.0, .z = 0.5 },
+        },
+        common.Transform{},
+        render.MeshInstance{ .mesh_handle = inner_mesh, .color = common.Color.WHITE },
     });
 
     if (decal_material) |material| {
@@ -81,6 +102,7 @@ fn setupScene(
                 .size_mode = .{ .Manual = .{ .width = decal_size, .height = decal_size } },
             },
             render.MaterialInstance{ .material = material },
+            DecalSpinTag{},
         });
     }
 
@@ -90,6 +112,20 @@ fn setupScene(
         common.Camera3d{ .Viewport = .{ .mode = .TopLeft } },
         render.CameraLayer(0){},
     });
+}
+
+fn spinDecalLocal(elapsed: Res(ElapsedTime), query: Query(.{ common.LocalTransform, DecalSpinTag })) void {
+    const t: f32 = @floatCast(elapsed.deref().seconds);
+    var it = query.iterator();
+    while (it.next()) |row| {
+        const local = row.get(common.LocalTransform) orelse continue;
+        const rotation = common.Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, t * decal_spin_speed);
+        const rotated_offset = rotation.rotateVec3(decal_centroid_offset);
+        local.rotation = rotation;
+        local.translation.x = -rotated_offset.x;
+        local.translation.y = -rotated_offset.y;
+        local.translation.z = 1.0;
+    }
 }
 
 fn integrateMotion(dt: Res(DeltaTime), query: Query(.{ common.Transform, Velocity })) void {
@@ -178,6 +214,7 @@ const platform = phasor.platform;
 const RenderState = modules.RenderModule.RenderState;
 const ViewportSize = modules.RenderModule.ViewportSize;
 const DeltaTime = modules.TimeModule.DeltaTime;
+const ElapsedTime = modules.TimeModule.ElapsedTime;
 const system_params = ecs.system_params;
 const Query = system_params.Query;
 const Res = system_params.Res;
