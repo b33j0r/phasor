@@ -6,13 +6,25 @@ pub fn renderSystem(
     layer_cameras_opt: ResOpt(types.LayerCameras),
     layer_viewports_opt: ResOpt(types.LayerViewports),
     viewport_opt: ResOpt(types.ViewportSize),
+    render_bounds_opt: ResOpt(common.RenderBounds),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
     const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
 
-    const surface_size = state.surface.size();
+    const surface_size = if (render_bounds_opt.ptr) |bounds|
+        render.Size{
+            .width = @intFromFloat(@max(1.0, bounds.width)),
+            .height = @intFromFloat(@max(1.0, bounds.height)),
+        }
+    else
+        state.surface.size();
+
+    switch (state.surface) {
+        .native => |*native| native.size = surface_size,
+        .web => |*web| web.size = surface_size,
+    }
     if (surface_size.width != state.renderer.surface_size.width or surface_size.height != state.renderer.surface_size.height) {
         state.renderer.resize(surface_size.width, surface_size.height);
     }

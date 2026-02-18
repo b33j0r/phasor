@@ -234,6 +234,13 @@ pub fn handleViewportResize(
     }
 
     if (latest) |evt| {
+        if (render_bounds_opt.ptr) |bounds| {
+            try commands.insertResource(types.ViewportSize{
+                .width = bounds.width,
+                .height = bounds.height,
+            });
+            return;
+        }
         try commands.insertResource(types.ViewportSize{
             .width = @floatFromInt(evt.width),
             .height = @floatFromInt(evt.height),

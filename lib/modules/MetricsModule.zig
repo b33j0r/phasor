@@ -1,3 +1,16 @@
+pub const MetricsViewport = union(enum) {
+    Screen,
+    Layer: i32,
+
+    pub fn screen() MetricsViewport {
+        return .Screen;
+    }
+
+    pub fn layer(layer_index: i32) MetricsViewport {
+        return .{ .Layer = layer_index };
+    }
+};
+
 pub fn MetricsModule(comptime LayerT: ?type) type {
     return struct {
         update_ms: u32 = 250,
@@ -12,6 +25,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
         bus_capacity: usize = 256,
         bus_enabled: bool = true,
         log_interval_seconds: f64 = 0.0,
+        viewport: MetricsViewport = defaultViewportMode(LayerT),
 
         pub fn install(self: *const @This(), app: *AppCommands, cmds: *Commands) !void {
             if (!cmds.hasResource(TimeModule.DeltaTime) or !cmds.hasResource(TimeModule.ElapsedTime)) {
@@ -42,6 +56,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
                 .prepend_lines = self.prepend_lines,
                 .extra_lines = self.extra_lines,
                 .log_interval_seconds = self.log_interval_seconds,
+                .viewport = self.viewport,
             });
 
             const components = if (LayerT) |Layer| .{
@@ -92,6 +107,19 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
     };
 }
 
+fn defaultViewportMode(comptime LayerT: ?type) MetricsViewport {
+    if (LayerT) |Layer| {
+        if (@hasDecl(Layer, "__traits__")) {
+            inline for (Layer.__traits__) |Trait| {
+                if (@hasDecl(Trait, "key")) {
+                    return MetricsViewport.layer(Trait.key);
+                }
+            }
+        }
+    }
+    return MetricsViewport.screen();
+}
+
 const MetricsConfig = struct {
     update_interval: f64,
     max_dt_seconds: f64,
@@ -103,6 +131,7 @@ const MetricsConfig = struct {
     prepend_lines: []const MetricLine,
     extra_lines: []const MetricLine,
     log_interval_seconds: f64,
+    viewport: MetricsViewport,
 };
 
 const MetricsState = struct {
@@ -132,6 +161,7 @@ fn updateMetricsText(
     dt: Res(TimeModule.DeltaTime),
     elapsed: Res(TimeModule.ElapsedTime),
     viewport_opt: ResOpt(ViewportSize),
+    layer_viewports_opt: ResOpt(LayerViewports),
     window_bounds_opt: ResOpt(common.WindowBounds),
     render_bounds_opt: ResOpt(common.RenderBounds),
     render_state_opt: ResOpt(RenderState),
@@ -143,7 +173,7 @@ fn updateMetricsText(
     metrics_res: ResMut(metrics.Metrics),
     query: Query(.{ render.Text, common.Transform, MetricsTextTag }),
 ) void {
-    const bounds = resolveBounds(viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
+    const bounds = resolveBounds(config.ptr.viewport, layer_viewports_opt, viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
     const dt_seconds = dt.deref().seconds;
     const clamped_dt = std.math.clamp(dt_seconds, 0.0, config.ptr.max_dt_seconds);
     metrics_res.ptr.frame_ms = @floatCast(clamped_dt * 1000.0);
@@ -503,28 +533,40 @@ fn logSnapshot(elapsed_seconds: f64, store: *metrics.Store) void {
 }
 
 fn resolveBounds(
+    viewport_mode: MetricsViewport,
+    layer_viewports_opt: ResOpt(LayerViewports),
     viewport_opt: ResOpt(ViewportSize),
     window_bounds_opt: ResOpt(common.WindowBounds),
     render_bounds_opt: ResOpt(common.RenderBounds),
     render_state_opt: ResOpt(RenderState),
 ) ?Bounds {
-    if (viewport_opt.ptr) |vp| {
-        return .{ .width = vp.width, .height = vp.height };
-    }
-    if (window_bounds_opt.ptr) |bounds| {
-        return .{
-            .width = @floatFromInt(bounds.width),
-            .height = @floatFromInt(bounds.height),
-        };
+    switch (viewport_mode) {
+        .Layer => |layer| {
+            if (layer_viewports_opt.ptr) |viewports| {
+                if (viewports.map.get(layer)) |rect| {
+                    return .{ .width = rect.width, .height = rect.height };
+                }
+            }
+        },
+        .Screen => {},
     }
     if (render_bounds_opt.ptr) |bounds| {
         return .{ .width = bounds.width, .height = bounds.height };
+    }
+    if (viewport_opt.ptr) |vp| {
+        return .{ .width = vp.width, .height = vp.height };
     }
     if (render_state_opt.ptr) |state| {
         const size = state.surface.size();
         return .{
             .width = @floatFromInt(size.width),
             .height = @floatFromInt(size.height),
+        };
+    }
+    if (window_bounds_opt.ptr) |bounds| {
+        return .{
+            .width = @floatFromInt(bounds.width),
+            .height = @floatFromInt(bounds.height),
         };
     }
     return null;
@@ -547,3 +589,4 @@ const TimeModule = @import("TimeModule.zig");
 const RenderModule = @import("RenderModule.zig");
 const ViewportSize = RenderModule.ViewportSize;
 const RenderState = RenderModule.RenderState;
+const LayerViewports = RenderModule.LayerViewports;

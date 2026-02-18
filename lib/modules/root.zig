@@ -25,6 +25,7 @@ pub const MetricLine = @import("MetricsModule.zig").MetricLine;
 pub const MetricLineKind = @import("MetricsModule.zig").MetricLineKind;
 pub const MetricLineStore = @import("MetricsModule.zig").MetricLineStore;
 pub const MetricValueFormat = @import("MetricsModule.zig").MetricValueFormat;
+pub const MetricsViewport = @import("MetricsModule.zig").MetricsViewport;
 pub const MetricLineElapsedTime = @import("MetricsModule.zig").MetricLineElapsedTime;
 pub const MetricLineFps = @import("MetricsModule.zig").MetricLineFps;
 pub const MetricLineFrameMs = @import("MetricsModule.zig").MetricLineFrameMs;

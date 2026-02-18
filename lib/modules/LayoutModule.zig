@@ -49,8 +49,8 @@ const Bounds = struct {
 };
 
 fn viewportBounds(viewport_opt: ?*const types.ViewportSize, render_bounds_opt: ?*const common.RenderBounds) Bounds {
-    if (viewport_opt) |vp| return .{ .width = vp.width, .height = vp.height };
     if (render_bounds_opt) |rb| return .{ .width = rb.width, .height = rb.height };
+    if (viewport_opt) |vp| return .{ .width = vp.width, .height = vp.height };
     return .{ .width = 1280.0, .height = 720.0 };
 }
 
