@@ -11,6 +11,7 @@ pub const RenderRecovery = render_types.RenderRecovery;
 pub const SpriteMeshCache = render_types.SpriteMeshCache;
 pub const LayerCameras = render_types.LayerCameras;
 pub const LayerCamera = render_types.LayerCamera;
+pub const LayerViewports = render_types.LayerViewports;
 
 pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(common.ClearColor)) {
@@ -138,13 +139,15 @@ fn ensureAssetsContextSystem(commands: *Commands) !void {
 
 fn shutdownSystem(commands: *Commands) void {
     const state = commands.getResourceMut(RenderState) orelse {
+        _ = commands.removeResource(SpriteMeshCache);
+        _ = commands.removeResource(LayerCameras);
+        _ = commands.removeResource(LayerViewports);
         _ = commands.removeResource(render.MeshLibrary);
         _ = commands.removeResource(render.ShaderLibrary);
         _ = commands.removeResource(render.TextureLibrary);
         _ = commands.removeResource(render.MaterialLibrary);
         _ = commands.removeResource(render.RenderQueue);
         _ = commands.removeResource(render.DefaultFont);
-        _ = commands.removeResource(LayerCameras);
         return;
     };
 
@@ -165,9 +168,7 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.TextureLibrary);
     }
 
-    if (commands.getResourceMut(SpriteMeshCache)) |_| {
-        _ = commands.removeResource(SpriteMeshCache);
-    }
+    _ = commands.removeResource(SpriteMeshCache);
 
     if (commands.getResourceMut(render.DefaultFont)) |font| {
         font.font.unload(commands.allocator, &state.renderer);
@@ -175,6 +176,7 @@ fn shutdownSystem(commands: *Commands) void {
     }
 
     _ = commands.removeResource(LayerCameras);
+    _ = commands.removeResource(LayerViewports);
 
     _ = commands.removeResource(assets.AssetsContext);
     _ = commands.removeResource(render.RenderQueue);

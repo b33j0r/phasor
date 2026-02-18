@@ -4,6 +4,7 @@ test "import tests" {
     _ = mat4;
     _ = quat;
     _ = camera;
+    _ = layout;
     _ = transform;
     _ = parent;
     _ = traits;
@@ -16,6 +17,7 @@ pub const vec = @import("vec.zig");
 pub const mat4 = @import("mat4.zig");
 pub const quat = @import("quat.zig");
 pub const camera = @import("camera.zig");
+pub const layout = @import("layout.zig");
 pub const transform = @import("transform.zig");
 pub const parent = @import("parent.zig");
 pub const traits = @import("traits.zig");
@@ -26,6 +28,8 @@ pub const Vec3 = vec.Vec3;
 pub const Mat4 = mat4.Mat4;
 pub const Quat = quat.Quat;
 pub const Camera3d = camera.Camera3d;
+pub const ViewportLayout = layout.ViewportLayout;
+pub const LayoutValue = layout.LayoutValue;
 pub const Transform = transform.Transform;
 pub const Parent = parent.Parent;
 pub const LocalTransform = parent.LocalTransform;
@@ -65,7 +69,6 @@ pub const WindowBounds = struct {
     width: u32,
     height: u32,
 };
-
 
 pub const ContentScale = struct {
     x: f32,

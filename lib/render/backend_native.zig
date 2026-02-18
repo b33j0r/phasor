@@ -632,6 +632,15 @@ pub const Frame = struct {
         }
     }
 
+    pub fn setViewportScissor(self: *Frame, x: f32, y: f32, width: f32, height: f32) void {
+        self.render_pass.setViewport(x, y, width, height, 0.0, 1.0);
+        const sx: u32 = @intFromFloat(@max(0.0, x));
+        const sy: u32 = @intFromFloat(@max(0.0, y));
+        const sw: u32 = @intFromFloat(@max(0.0, width));
+        const sh: u32 = @intFromFloat(@max(0.0, height));
+        self.render_pass.setScissorRect(sx, sy, sw, sh);
+    }
+
     fn drawTriangle(self: *Frame, triangle: Triangle) void {
         const data = std.mem.asBytes(&triangle.vertices);
         self.renderer.queue.writeBuffer(self.renderer.triangle_vertex_buffer.buffer, 0, data.ptr, data.len);

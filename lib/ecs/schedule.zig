@@ -3,6 +3,7 @@ pub const DefaultSchedule = struct {
     pub const AssetsLoad = "AssetsLoad";
     pub const Startup = "Startup";
     pub const BeforeFrame = "BeforeFrame";
+    pub const Layout = "Layout";
     pub const Update = "Update";
     pub const Render = "Render";
     pub const AfterFrame = "AfterFrame";
@@ -157,6 +158,7 @@ pub const ScheduleManager = struct {
             DefaultSchedule.AssetsLoad,
             DefaultSchedule.Startup,
             DefaultSchedule.BeforeFrame,
+            DefaultSchedule.Layout,
             DefaultSchedule.Update,
             DefaultSchedule.Render,
             DefaultSchedule.AfterFrame,
@@ -171,6 +173,7 @@ pub const ScheduleManager = struct {
 
         const frame_order = [_][]const u8{
             DefaultSchedule.BeforeFrame,
+            DefaultSchedule.Layout,
             DefaultSchedule.Update,
             DefaultSchedule.Render,
             DefaultSchedule.AfterFrame,
@@ -191,6 +194,7 @@ pub const ScheduleManager = struct {
         // Default frame/window schedules require root thread affinity for UI/GPU backends.
         try self.setScheduleAffinity(DefaultSchedule.WindowCreate, .MainThreadOnly);
         try self.setScheduleAffinity(DefaultSchedule.BeforeFrame, .MainThreadOnly);
+        try self.setScheduleAffinity(DefaultSchedule.Layout, .MainThreadOnly);
         try self.setScheduleAffinity(DefaultSchedule.Update, .MainThreadOnly);
         try self.setScheduleAffinity(DefaultSchedule.Render, .MainThreadOnly);
         try self.setScheduleAffinity(DefaultSchedule.AfterFrame, .MainThreadOnly);

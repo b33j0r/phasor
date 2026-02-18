@@ -154,7 +154,7 @@ pub fn updateLayerCameras(
     while (it.next()) |row| {
         const cam = row.get(common.Camera3d) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
-        const layer = cameraLayerKeyForRow(row);
+        const layer = types.cameraLayerKeyForRow(row);
         try layer_cameras.ptr.map.put(layer, .{
             .camera = cam.*,
             .view = viewMatrix(transform.*),
@@ -253,22 +253,6 @@ pub fn handleViewportResize(
     }
 }
 
-fn cameraLayerKeyForRow(row: db.QueryResult.Row) i32 {
-    const table = &row.database.tables.items[row.table_index];
-    return cameraLayerKeyForTable(table);
-}
-
-fn cameraLayerKeyForTable(table: *const db.table.Table) i32 {
-    const trait_id = db.meta.typeId(render.CameraLayerN);
-    for (table.columns) |column| {
-        for (column.group_traits) |group_trait| {
-            if (group_trait.trait_id != trait_id) continue;
-            return group_trait.key;
-        }
-    }
-    return 0;
-}
-
 fn viewMatrix(transform: common.Transform) common.Mat4 {
     const inv_scale = common.Vec3{
         .x = if (transform.scale.x != 0.0) 1.0 / transform.scale.x else 0.0,
@@ -285,7 +269,6 @@ const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
 const render = @import("render");
-const db = @import("db");
 const types = @import("types.zig");
 
 const Commands = ecs.Commands;

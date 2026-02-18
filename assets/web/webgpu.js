@@ -982,6 +982,21 @@ const imports = {
       ctx.pass.setVertexBuffer(0, ctx.triangleVertexBuffer);
       ctx.pass.draw(3, 1, 0, 0);
     },
+    webgpu_set_viewport_scissor(ctxId, x, y, width, height) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || !ctx.pass) return;
+      const vx = Math.max(0, x);
+      const vy = Math.max(0, y);
+      const vw = Math.max(0, width);
+      const vh = Math.max(0, height);
+      ctx.pass.setViewport(vx, vy, vw, vh, 0.0, 1.0);
+      ctx.pass.setScissorRect(
+        Math.floor(vx),
+        Math.floor(vy),
+        Math.floor(vw),
+        Math.floor(vh),
+      );
+    },
     webgpu_draw_textured_quad(ctxId, meshHandle, materialHandle, instancePtr, blend) {
       const ctx = ctxs.get(ctxId);
       if (!ctx || deviceLost || recoveringDevice) return;

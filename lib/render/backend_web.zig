@@ -117,6 +117,7 @@ extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_h
 extern "env" fn webgpu_draw_textured_quads(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_draw_colored_meshes(ctx: u32, mesh_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_end_frame(ctx: u32) void;
+extern "env" fn webgpu_set_viewport_scissor(ctx: u32, x: f32, y: f32, width: f32, height: f32) void;
 extern "env" fn webgpu_create_sampler(ctx: u32) u32;
 extern "env" fn webgpu_destroy_sampler(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_texture_rgba8(ctx: u32, sampler_handle: u32, data_ptr: [*]const u8, data_len: usize, width: u32, height: u32) u32;
@@ -262,6 +263,10 @@ pub const Frame = struct {
             .triangle => webgpu_draw_triangle(self.renderer.ctx),
             .textured_quad => |quad| self.drawTexturedQuad(quad),
         }
+    }
+
+    pub fn setViewportScissor(self: *Frame, x: f32, y: f32, width: f32, height: f32) void {
+        webgpu_set_viewport_scissor(self.renderer.ctx, x, y, width, height);
     }
 
     fn drawTexturedQuad(self: *Frame, quad: TexturedQuad) void {

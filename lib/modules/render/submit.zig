@@ -4,6 +4,7 @@ pub fn renderSystem(
     clear_opt: ResOpt(common.ClearColor),
     camera_opt: ResOpt(common.Camera3d),
     layer_cameras_opt: ResOpt(types.LayerCameras),
+    layer_viewports_opt: ResOpt(types.LayerViewports),
     viewport_opt: ResOpt(types.ViewportSize),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
@@ -28,17 +29,25 @@ pub fn renderSystem(
     defer commands.allocator.free(layers);
 
     for (layers) |layer| {
+        const layer_rect = layerViewportRect(layer, layer_viewports_opt.ptr, viewport_size);
+        if (layer_rect.width <= 0.0 or layer_rect.height <= 0.0) continue;
+        frame.setViewportScissor(layer_rect.x, layer_rect.y, layer_rect.width, layer_rect.height);
+
+        const layer_size = render.Size{
+            .width = @intFromFloat(layer_rect.width),
+            .height = @intFromFloat(layer_rect.height),
+        };
         const camera = cameraForLayer(layer, layer_cameras_opt.ptr, camera_opt.ptr);
         const view = if (camera) |cam| cam.view else common.Mat4.identity();
         const viewport_matrix = if (camera) |cam|
             switch (cam.camera) {
-                .Viewport => |vp| viewportMatrix(vp, viewport_size),
+                .Viewport => |vp| viewportMatrix(vp, layer_size),
                 else => null,
             }
         else
             null;
         const projection = if (camera) |cam|
-            projectionMatrix(cam.camera, viewport_size)
+            projectionMatrix(cam.camera, layer_size)
         else
             null;
         const view_proj = if (viewport_matrix) |vp|
@@ -59,7 +68,7 @@ pub fn renderSystem(
                     if (tri.layer != layer) continue;
                     const draw_tri = if (camera) |cam|
                         switch (cam.camera) {
-                            .Viewport => |vp| applyViewport(tri.triangle, vp, viewport_size, view),
+                            .Viewport => |vp| applyViewport(tri.triangle, vp, layer_size, view),
                             else => tri.triangle,
                         }
                     else
@@ -295,6 +304,22 @@ fn collectLayers(allocator: std.mem.Allocator, items: []const render.RenderItem)
     }
 
     return allocator.dupe(i32, list.items[0..unique_count]);
+}
+
+fn layerViewportRect(
+    layer: i32,
+    viewports: ?*const types.LayerViewports,
+    fallback_size: render.Size,
+) types.ViewportRect {
+    if (viewports) |vps| {
+        if (vps.map.get(layer)) |rect| return rect;
+    }
+    return .{
+        .x = 0.0,
+        .y = 0.0,
+        .width = @floatFromInt(fallback_size.width),
+        .height = @floatFromInt(fallback_size.height),
+    };
 }
 
 fn cameraForLayer(
