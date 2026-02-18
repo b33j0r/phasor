@@ -24,6 +24,32 @@ pub const ShaderHandle = struct {
     }
 };
 
+pub const TextureHandle = struct {
+    index: u32,
+    generation: u32,
+
+    pub fn invalid() TextureHandle {
+        return .{ .index = std.math.maxInt(u32), .generation = 0 };
+    }
+
+    pub fn isValid(self: TextureHandle) bool {
+        return self.index != std.math.maxInt(u32);
+    }
+};
+
+pub const MaterialHandle = struct {
+    index: u32,
+    generation: u32,
+
+    pub fn invalid() MaterialHandle {
+        return .{ .index = std.math.maxInt(u32), .generation = 0 };
+    }
+
+    pub fn isValid(self: MaterialHandle) bool {
+        return self.index != std.math.maxInt(u32);
+    }
+};
+
 pub const MeshInstance = struct {
     mesh_handle: MeshHandle = MeshHandle.invalid(),
     color: common.Color = common.Color.WHITE,
@@ -39,15 +65,11 @@ pub const MeshInstance = struct {
 pub const Material = struct {
     binding: Binding = .default,
     alpha_mode: AlphaMode = .Opaque,
-    alpha_cutoff: f32 = 0.5,
-    double_sided: bool = false,
-    base_color_factor: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
-    metallic_factor: f32 = 1.0,
-    roughness_factor: f32 = 1.0,
 
     pub const Binding = union(enum) {
         default,
-        textured: backend.Material,
+        textured: MaterialHandle,
+        backend: backend.Material,
         shader: ShaderHandle,
     };
 
@@ -59,9 +81,16 @@ pub const Material = struct {
 
     pub const default: Material = .{};
 
-    pub fn withTextured(material: backend.Material) Material {
+    pub fn withTextured(material: MaterialHandle) Material {
         return .{
             .binding = .{ .textured = material },
+            .alpha_mode = .Blend,
+        };
+    }
+
+    pub fn withBackend(material: backend.Material) Material {
+        return .{
+            .binding = .{ .backend = material },
             .alpha_mode = .Blend,
         };
     }
@@ -287,6 +316,162 @@ const MeshSlot = struct {
 
 const ShaderSlot = struct {
     shader: backend.Shader,
+    generation: u32,
+    alive: bool,
+};
+
+pub const TextureLibrary = struct {
+    allocator: std.mem.Allocator,
+    slots: std.ArrayListUnmanaged(TextureSlot) = .empty,
+    free_list: std.ArrayListUnmanaged(u32) = .empty,
+
+    pub fn init(allocator: std.mem.Allocator) TextureLibrary {
+        return .{
+            .allocator = allocator,
+            .slots = .empty,
+            .free_list = .empty,
+        };
+    }
+
+    pub fn deinit(self: *TextureLibrary) void {
+        self.slots.deinit(self.allocator);
+        self.free_list.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    pub fn destroyTextures(self: *TextureLibrary, renderer: *backend.Renderer) void {
+        self.free_list.clearRetainingCapacity();
+        for (self.slots.items, 0..) |*slot, index| {
+            if (!slot.alive) continue;
+            renderer.destroyTexture(&slot.texture);
+            slot.alive = false;
+            slot.generation +%= 1;
+            _ = self.free_list.append(self.allocator, @intCast(index)) catch {};
+        }
+    }
+
+    pub fn addTexture(self: *TextureLibrary, texture: backend.Texture) !TextureHandle {
+        if (self.free_list.items.len > 0) {
+            const index = self.free_list.pop() orelse unreachable;
+            var slot = &self.slots.items[@intCast(index)];
+            slot.texture = texture;
+            slot.alive = true;
+            return .{ .index = index, .generation = slot.generation };
+        }
+
+        const index: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(self.allocator, .{
+            .texture = texture,
+            .generation = 1,
+            .alive = true,
+        });
+        return .{ .index = index, .generation = 1 };
+    }
+
+    pub fn get(self: *TextureLibrary, handle: TextureHandle) ?*backend.Texture {
+        const slot = self.slotPtr(handle) orelse return null;
+        return &slot.texture;
+    }
+
+    pub fn destroyTexture(self: *TextureLibrary, renderer: *backend.Renderer, handle: TextureHandle) bool {
+        const slot = self.slotPtr(handle) orelse return false;
+        renderer.destroyTexture(&slot.texture);
+        slot.alive = false;
+        slot.generation +%= 1;
+        _ = self.free_list.append(self.allocator, handle.index) catch {};
+        return true;
+    }
+
+    fn slotPtr(self: *TextureLibrary, handle: TextureHandle) ?*TextureSlot {
+        if (!handle.isValid()) return null;
+        const index: usize = @intCast(handle.index);
+        if (index >= self.slots.items.len) return null;
+        const slot = &self.slots.items[index];
+        if (!slot.alive or slot.generation != handle.generation) return null;
+        return slot;
+    }
+};
+
+pub const MaterialLibrary = struct {
+    allocator: std.mem.Allocator,
+    slots: std.ArrayListUnmanaged(MaterialSlot) = .empty,
+    free_list: std.ArrayListUnmanaged(u32) = .empty,
+
+    pub fn init(allocator: std.mem.Allocator) MaterialLibrary {
+        return .{
+            .allocator = allocator,
+            .slots = .empty,
+            .free_list = .empty,
+        };
+    }
+
+    pub fn deinit(self: *MaterialLibrary) void {
+        self.slots.deinit(self.allocator);
+        self.free_list.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    pub fn destroyMaterials(self: *MaterialLibrary, renderer: *backend.Renderer) void {
+        self.free_list.clearRetainingCapacity();
+        for (self.slots.items, 0..) |*slot, index| {
+            if (!slot.alive) continue;
+            renderer.destroyMaterial(&slot.material);
+            slot.alive = false;
+            slot.generation +%= 1;
+            _ = self.free_list.append(self.allocator, @intCast(index)) catch {};
+        }
+    }
+
+    pub fn addMaterial(self: *MaterialLibrary, material: backend.Material) !MaterialHandle {
+        if (self.free_list.items.len > 0) {
+            const index = self.free_list.pop() orelse unreachable;
+            var slot = &self.slots.items[@intCast(index)];
+            slot.material = material;
+            slot.alive = true;
+            return .{ .index = index, .generation = slot.generation };
+        }
+
+        const index: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(self.allocator, .{
+            .material = material,
+            .generation = 1,
+            .alive = true,
+        });
+        return .{ .index = index, .generation = 1 };
+    }
+
+    pub fn get(self: *MaterialLibrary, handle: MaterialHandle) ?*backend.Material {
+        const slot = self.slotPtr(handle) orelse return null;
+        return &slot.material;
+    }
+
+    pub fn destroyMaterial(self: *MaterialLibrary, renderer: *backend.Renderer, handle: MaterialHandle) bool {
+        const slot = self.slotPtr(handle) orelse return false;
+        renderer.destroyMaterial(&slot.material);
+        slot.alive = false;
+        slot.generation +%= 1;
+        _ = self.free_list.append(self.allocator, handle.index) catch {};
+        return true;
+    }
+
+    fn slotPtr(self: *MaterialLibrary, handle: MaterialHandle) ?*MaterialSlot {
+        if (!handle.isValid()) return null;
+        const index: usize = @intCast(handle.index);
+        if (index >= self.slots.items.len) return null;
+        const slot = &self.slots.items[index];
+        if (!slot.alive or slot.generation != handle.generation) return null;
+        return slot;
+    }
+};
+
+const TextureSlot = struct {
+    texture: backend.Texture,
+    generation: u32,
+    alive: bool,
+};
+
+const MaterialSlot = struct {
+    material: backend.Material,
     generation: u32,
     alive: bool,
 };

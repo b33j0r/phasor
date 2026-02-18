@@ -9,6 +9,7 @@ pub fn renderSystem(
     const state = commands.getResourceMut(types.RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
+    const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
 
     const surface_size = state.surface.size();
     if (surface_size.width != state.renderer.surface_size.width or surface_size.height != state.renderer.surface_size.height) {
@@ -92,7 +93,10 @@ pub fn renderSystem(
                         continue;
                     }
 
-                    const material = instance.material orelse state.default_material;
+                    const material = if (instance.material_handle) |handle|
+                        (material_library.get(handle) orelse continue).*
+                    else
+                        instance.material orelse state.default_material;
                     const key = BatchKey{
                         .mesh = instance.mesh_handle,
                         .material = materialKey(material),
@@ -177,7 +181,10 @@ pub fn renderSystem(
                         frame.drawColoredMeshes(mesh.*, shader.*, &[_]render.BackendMeshInstance{gpu_instance}, true);
                         continue;
                     }
-                    const material = instance.material orelse state.default_material;
+                    const material = if (instance.material_handle) |handle|
+                        (material_library.get(handle) orelse continue).*
+                    else
+                        instance.material orelse state.default_material;
                     try blended.append(commands.allocator, .{
                         .depth = clipDepth(model),
                         .entity_id = instance.entity_id,

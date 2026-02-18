@@ -101,7 +101,7 @@ fn setupScene(
                 .color = Color.WHITE,
                 .size_mode = .{ .Manual = .{ .width = decal_size, .height = decal_size } },
             },
-            MaterialInstance{ .material = material },
+            MeshInstance{ .material = material },
             DecalSpinTag{},
         });
     }
@@ -232,9 +232,8 @@ const WindowBounds = common.WindowBounds;
 const RenderBounds = common.RenderBounds;
 const ClearColor = common.ClearColor;
 
-const Material = render.BackendMaterial;
+const Material = render.Material;
 const MeshLibrary = render.MeshLibrary;
 const MeshInstance = render.MeshInstance;
-const MaterialInstance = render.MaterialInstance;
 const Sprite = render.Sprite;
 const CameraLayer = render.CameraLayer;

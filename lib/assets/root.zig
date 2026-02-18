@@ -5,6 +5,8 @@ pub const AssetsContext = struct {
     sampler: ?*render.Sampler = null,
     mesh_library: ?*render.MeshLibrary = null,
     shader_library: ?*render.ShaderLibrary = null,
+    texture_library: ?*render.TextureLibrary = null,
+    material_library: ?*render.MaterialLibrary = null,
 };
 
 pub const Texture = struct {
@@ -12,14 +14,17 @@ pub const Texture = struct {
     data: ?[]const u8 = null,
     width: u32 = 0,
     height: u32 = 0,
-    texture: ?render.Texture = null,
-    material: ?render.BackendMaterial = null,
+    texture_handle: render.TextureHandle = render.TextureHandle.invalid(),
+    material_handle: render.MaterialHandle = render.MaterialHandle.invalid(),
+    material: render.Material = render.Material.default,
 
     pub fn load(self: *Texture, ctx: AssetsContext) !void {
-        if (self.material != null) return;
+        if (self.material_handle.isValid()) return;
 
         const renderer = ctx.renderer orelse return error.MissingRenderer;
         const sampler = ctx.sampler orelse return error.MissingSampler;
+        const texture_library = ctx.texture_library orelse return error.MissingTextureLibrary;
+        const material_library = ctx.material_library orelse return error.MissingMaterialLibrary;
 
         if (builtin.target.cpu.arch.isWasm()) {
             const image = if (self.data) |bytes|
@@ -31,13 +36,26 @@ pub const Texture = struct {
             self.width = image.width;
             self.height = image.height;
 
-            var texture = try renderer.createTextureRgba8(self.width, self.height, image.data);
-            errdefer renderer.destroyTexture(&texture);
+            const texture = try renderer.createTextureRgba8(self.width, self.height, image.data);
+            errdefer {
+                var t = texture;
+                renderer.destroyTexture(&t);
+            }
+            const texture_handle = try texture_library.addTexture(texture);
+            errdefer _ = texture_library.destroyTexture(renderer, texture_handle);
 
-            const material = try renderer.createMaterial(texture, sampler.*);
+            const texture_ptr = texture_library.get(texture_handle) orelse return error.MissingTexture;
+            const material = try renderer.createMaterial(texture_ptr.*, sampler.*);
+            errdefer {
+                var m = material;
+                renderer.destroyMaterial(&m);
+            }
+            const material_handle = try material_library.addMaterial(material);
+            errdefer _ = material_library.destroyMaterial(renderer, material_handle);
 
-            self.texture = texture;
-            self.material = material;
+            self.texture_handle = texture_handle;
+            self.material_handle = material_handle;
+            self.material = render.Material.withTextured(material_handle);
             return;
         }
 
@@ -52,26 +70,42 @@ pub const Texture = struct {
         self.width = image.width;
         self.height = image.height;
 
-        var texture = try renderer.createTextureRgba8(self.width, self.height, image.data);
-        errdefer renderer.destroyTexture(&texture);
+        const texture = try renderer.createTextureRgba8(self.width, self.height, image.data);
+        errdefer {
+            var t = texture;
+            renderer.destroyTexture(&t);
+        }
+        const texture_handle = try texture_library.addTexture(texture);
+        errdefer _ = texture_library.destroyTexture(renderer, texture_handle);
 
-        const material = try renderer.createMaterial(texture, sampler.*);
+        const texture_ptr = texture_library.get(texture_handle) orelse return error.MissingTexture;
+        const material = try renderer.createMaterial(texture_ptr.*, sampler.*);
+        errdefer {
+            var m = material;
+            renderer.destroyMaterial(&m);
+        }
+        const material_handle = try material_library.addMaterial(material);
+        errdefer _ = material_library.destroyMaterial(renderer, material_handle);
 
-        self.texture = texture;
-        self.material = material;
+        self.texture_handle = texture_handle;
+        self.material_handle = material_handle;
+        self.material = render.Material.withTextured(material_handle);
     }
 
     pub fn unload(self: *Texture, ctx: AssetsContext) !void {
         const renderer = ctx.renderer orelse return;
+        const texture_library = ctx.texture_library orelse return;
+        const material_library = ctx.material_library orelse return;
 
-        if (self.material) |*material| {
-            renderer.destroyMaterial(material);
-            self.material = null;
+        if (self.material_handle.isValid()) {
+            _ = material_library.destroyMaterial(renderer, self.material_handle);
+            self.material_handle = render.MaterialHandle.invalid();
         }
-        if (self.texture) |*texture| {
-            renderer.destroyTexture(texture);
-            self.texture = null;
+        if (self.texture_handle.isValid()) {
+            _ = texture_library.destroyTexture(renderer, self.texture_handle);
+            self.texture_handle = render.TextureHandle.invalid();
         }
+        self.material = render.Material.default;
     }
 };
 

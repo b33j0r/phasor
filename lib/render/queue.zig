@@ -11,6 +11,7 @@ pub const TriangleDraw = struct {
 pub const MeshDraw = struct {
     mesh_handle: mesh.MeshHandle,
     shader_handle: ?mesh.ShaderHandle = null,
+    material_handle: ?mesh.MaterialHandle = null,
     transform: common.Mat4,
     color: common.Color,
     material: ?backend.Material = null,
@@ -48,11 +49,16 @@ pub const RenderQueue = struct {
         entity_id: u64,
     ) !void {
         var material: ?backend.Material = null;
+        var material_handle: ?mesh.MaterialHandle = null;
         var shader_handle: ?mesh.ShaderHandle = null;
         var blend = instance.color.a < 255 or instance.material.alpha_mode == .Blend;
         switch (instance.material.binding) {
             .default => {},
             .textured => |mat| {
+                material_handle = mat;
+                blend = true;
+            },
+            .backend => |mat| {
                 material = mat;
                 blend = true;
             },
@@ -64,6 +70,7 @@ pub const RenderQueue = struct {
             .mesh = .{
                 .mesh_handle = instance.mesh_handle,
                 .shader_handle = shader_handle,
+                .material_handle = material_handle,
                 .transform = transform,
                 .color = instance.color,
                 .material = material,
@@ -86,6 +93,7 @@ pub const RenderQueue = struct {
             .mesh = .{
                 .mesh_handle = instance.mesh_handle,
                 .shader_handle = null,
+                .material_handle = null,
                 .transform = transform,
                 .color = instance.color,
                 .material = material,
@@ -108,6 +116,7 @@ pub const RenderQueue = struct {
             .mesh = .{
                 .mesh_handle = instance.mesh_handle,
                 .shader_handle = shader_handle,
+                .material_handle = null,
                 .transform = transform,
                 .color = instance.color,
                 .material = null,

@@ -38,7 +38,6 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try app.addSystem("BeforeFrame", render_prepare.handleViewportResize);
     try app.addSystem("BeforeFrame", render_prepare.updateSpriteMeshes);
     try app.addSystem("BeforeFrame", render_prepare.updateTextMeshes);
-    try app.addSystem("BeforeFrame", render_prepare.syncLegacyMaterialBindings);
     try app.addSystem("BeforeFrame", render_prepare.updateLayerCameras);
     try app.addSystem("BeforeFrame", render_extract.extractSystem);
     try app.addSystem(schedule.DefaultSchedule.Render, render_submit.renderSystem);
@@ -52,7 +51,6 @@ pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(render_prepare.handleViewportResize);
     app.removeSystem(render_prepare.updateSpriteMeshes);
     app.removeSystem(render_prepare.updateTextMeshes);
-    app.removeSystem(render_prepare.syncLegacyMaterialBindings);
     app.removeSystem(render_prepare.updateLayerCameras);
     app.removeSystem(render_extract.extractSystem);
     app.removeSystem(render_prepare.cleanupUnusedMeshes);
@@ -111,6 +109,12 @@ fn initRenderer(commands: *Commands) !void {
     if (!commands.hasResource(render.ShaderLibrary)) {
         try commands.insertResource(render.ShaderLibrary.init(commands.allocator));
     }
+    if (!commands.hasResource(render.TextureLibrary)) {
+        try commands.insertResource(render.TextureLibrary.init(commands.allocator));
+    }
+    if (!commands.hasResource(render.MaterialLibrary)) {
+        try commands.insertResource(render.MaterialLibrary.init(commands.allocator));
+    }
 }
 
 fn ensureAssetsContextSystem(commands: *Commands) !void {
@@ -118,6 +122,8 @@ fn ensureAssetsContextSystem(commands: *Commands) !void {
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
+    const texture_library = commands.getResourceMut(render.TextureLibrary) orelse return;
+    const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
     try commands.insertResource(assets.AssetsContext{
         .allocator = commands.allocator,
         .io = commands.io,
@@ -125,6 +131,8 @@ fn ensureAssetsContextSystem(commands: *Commands) !void {
         .sampler = &state.default_sampler,
         .mesh_library = mesh_library,
         .shader_library = shader_library,
+        .texture_library = texture_library,
+        .material_library = material_library,
     });
 }
 
@@ -132,6 +140,8 @@ fn shutdownSystem(commands: *Commands) void {
     const state = commands.getResourceMut(RenderState) orelse {
         _ = commands.removeResource(render.MeshLibrary);
         _ = commands.removeResource(render.ShaderLibrary);
+        _ = commands.removeResource(render.TextureLibrary);
+        _ = commands.removeResource(render.MaterialLibrary);
         _ = commands.removeResource(render.RenderQueue);
         _ = commands.removeResource(render.DefaultFont);
         _ = commands.removeResource(LayerCameras);
@@ -145,6 +155,14 @@ fn shutdownSystem(commands: *Commands) void {
     if (commands.getResourceMut(render.ShaderLibrary)) |library| {
         library.destroyShaders(&state.renderer);
         _ = commands.removeResource(render.ShaderLibrary);
+    }
+    if (commands.getResourceMut(render.MaterialLibrary)) |library| {
+        library.destroyMaterials(&state.renderer);
+        _ = commands.removeResource(render.MaterialLibrary);
+    }
+    if (commands.getResourceMut(render.TextureLibrary)) |library| {
+        library.destroyTextures(&state.renderer);
+        _ = commands.removeResource(render.TextureLibrary);
     }
 
     if (commands.getResourceMut(SpriteMeshCache)) |_| {
