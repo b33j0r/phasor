@@ -8,6 +8,7 @@ pub fn renderSystem(
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
+    const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
 
     const surface_size = state.surface.size();
     if (surface_size.width != state.renderer.surface_size.width or surface_size.height != state.renderer.surface_size.height) {
@@ -48,6 +49,8 @@ pub fn renderSystem(
 
         var batch_items: std.ArrayListUnmanaged(BatchItem) = .empty;
         defer batch_items.deinit(commands.allocator);
+        var shader_batch_items: std.ArrayListUnmanaged(ShaderBatchItem) = .empty;
+        defer shader_batch_items.deinit(commands.allocator);
 
         for (queue.ptr.items.items) |item| {
             switch (item) {
@@ -73,6 +76,21 @@ pub fn renderSystem(
                         .transform = model,
                         .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
                     };
+
+                    if (instance.shader_handle) |shader_handle| {
+                        const shader = shader_library.get(shader_handle) orelse continue;
+                        const key = ShaderBatchKey{
+                            .mesh = instance.mesh_handle,
+                            .shader = shader_handle,
+                        };
+                        try shader_batch_items.append(commands.allocator, .{
+                            .key = key,
+                            .mesh = mesh.*,
+                            .shader = shader.*,
+                            .instance = gpu_instance,
+                        });
+                        continue;
+                    }
 
                     const material = instance.material orelse state.default_material;
                     const key = BatchKey{
@@ -114,6 +132,31 @@ pub fn renderSystem(
             }
         }
 
+        if (shader_batch_items.items.len > 0) {
+            std.sort.pdq(ShaderBatchItem, shader_batch_items.items, {}, shaderBatchItemLessThan);
+            var shader_instances: std.ArrayListUnmanaged(render.BackendMeshInstance) = .empty;
+            defer shader_instances.deinit(commands.allocator);
+
+            var idx_shader: usize = 0;
+            while (idx_shader < shader_batch_items.items.len) {
+                const first = shader_batch_items.items[idx_shader];
+                const key = first.key;
+                shader_instances.clearRetainingCapacity();
+                try shader_instances.append(commands.allocator, first.instance);
+                idx_shader += 1;
+                while (idx_shader < shader_batch_items.items.len and shaderBatchKeyEqual(shader_batch_items.items[idx_shader].key, key)) : (idx_shader += 1) {
+                    try shader_instances.append(commands.allocator, shader_batch_items.items[idx_shader].instance);
+                }
+                const max_instances: usize = render.max_instances_per_draw;
+                var start: usize = 0;
+                while (start < shader_instances.items.len) {
+                    const end = @min(start + max_instances, shader_instances.items.len);
+                    frame.drawColoredMeshes(first.mesh, first.shader, shader_instances.items[start..end], false);
+                    start = end;
+                }
+            }
+        }
+
         var blended: std.ArrayListUnmanaged(BlendItem) = .empty;
         defer blended.deinit(commands.allocator);
 
@@ -129,6 +172,11 @@ pub fn renderSystem(
                         .transform = model,
                         .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
                     };
+                    if (instance.shader_handle) |shader_handle| {
+                        const shader = shader_library.get(shader_handle) orelse continue;
+                        frame.drawColoredMeshes(mesh.*, shader.*, &[_]render.BackendMeshInstance{gpu_instance}, true);
+                        continue;
+                    }
                     const material = instance.material orelse state.default_material;
                     try blended.append(commands.allocator, .{
                         .depth = clipDepth(model),
@@ -169,14 +217,40 @@ const BatchItem = struct {
     instance: render.BackendMeshInstance,
 };
 
+const ShaderBatchKey = struct {
+    mesh: render.MeshHandle,
+    shader: render.ShaderHandle,
+};
+
+const ShaderBatchItem = struct {
+    key: ShaderBatchKey,
+    mesh: render.Mesh,
+    shader: render.Shader,
+    instance: render.BackendMeshInstance,
+};
+
 fn batchKeyEqual(a: BatchKey, b: BatchKey) bool {
     return a.mesh.index == b.mesh.index and a.mesh.generation == b.mesh.generation and a.material == b.material;
+}
+
+fn shaderBatchKeyEqual(a: ShaderBatchKey, b: ShaderBatchKey) bool {
+    return a.mesh.index == b.mesh.index and
+        a.mesh.generation == b.mesh.generation and
+        a.shader.index == b.shader.index and
+        a.shader.generation == b.shader.generation;
 }
 
 fn batchItemLessThan(_: void, a: BatchItem, b: BatchItem) bool {
     if (a.key.mesh.index != b.key.mesh.index) return a.key.mesh.index < b.key.mesh.index;
     if (a.key.mesh.generation != b.key.mesh.generation) return a.key.mesh.generation < b.key.mesh.generation;
     return a.key.material < b.key.material;
+}
+
+fn shaderBatchItemLessThan(_: void, a: ShaderBatchItem, b: ShaderBatchItem) bool {
+    if (a.key.mesh.index != b.key.mesh.index) return a.key.mesh.index < b.key.mesh.index;
+    if (a.key.mesh.generation != b.key.mesh.generation) return a.key.mesh.generation < b.key.mesh.generation;
+    if (a.key.shader.index != b.key.shader.index) return a.key.shader.index < b.key.shader.index;
+    return a.key.shader.generation < b.key.shader.generation;
 }
 
 fn materialKey(material: render.Material) usize {

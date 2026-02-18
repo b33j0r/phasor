@@ -11,13 +11,42 @@ pub const MeshHandle = struct {
     }
 };
 
+pub const ShaderHandle = struct {
+    index: u32,
+    generation: u32,
+
+    pub fn invalid() ShaderHandle {
+        return .{ .index = std.math.maxInt(u32), .generation = 0 };
+    }
+
+    pub fn isValid(self: ShaderHandle) bool {
+        return self.index != std.math.maxInt(u32);
+    }
+};
+
 pub const MeshInstance = struct {
     mesh_handle: MeshHandle = MeshHandle.invalid(),
     color: common.Color = common.Color.WHITE,
+    material: MaterialRef = .default,
 
     pub const default: MeshInstance = .{
         .mesh_handle = MeshHandle.invalid(),
         .color = common.Color.WHITE,
+        .material = .default,
+    };
+};
+
+pub const MaterialRef = union(enum) {
+    default,
+    textured: backend.Material,
+    shader: ShaderHandle,
+};
+
+pub const ShaderInstance = struct {
+    shader_handle: ShaderHandle = ShaderHandle.invalid(),
+
+    pub const default: ShaderInstance = .{
+        .shader_handle = ShaderHandle.invalid(),
     };
 };
 
@@ -57,7 +86,31 @@ pub const MeshLibrary = struct {
         vertices: []const backend.VertexUv,
         indices: []const u16,
     ) !MeshHandle {
-        const mesh = try renderer.createMesh(vertices, indices);
+        const mesh = try renderer.createMeshUv(vertices, indices);
+        if (self.free_list.items.len > 0) {
+            const index = self.free_list.pop() orelse unreachable;
+            var slot = &self.slots.items[@intCast(index)];
+            slot.mesh = mesh;
+            slot.alive = true;
+            return .{ .index = index, .generation = slot.generation };
+        }
+
+        const index: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(self.allocator, .{
+            .mesh = mesh,
+            .generation = 1,
+            .alive = true,
+        });
+        return .{ .index = index, .generation = 1 };
+    }
+
+    pub fn addMeshPos3Color(
+        self: *MeshLibrary,
+        renderer: *backend.Renderer,
+        vertices: []const backend.VertexPos3Color,
+        indices: []const u16,
+    ) !MeshHandle {
+        const mesh = try renderer.createMeshPos3Color(vertices, indices);
         if (self.free_list.items.len > 0) {
             const index = self.free_list.pop() orelse unreachable;
             var slot = &self.slots.items[@intCast(index)];
@@ -97,7 +150,19 @@ pub const MeshLibrary = struct {
         indices: []const u16,
     ) !bool {
         const slot = self.slotPtr(handle) orelse return false;
-        try renderer.updateMesh(&slot.mesh, vertices, indices);
+        try renderer.updateMeshUv(&slot.mesh, vertices, indices);
+        return true;
+    }
+
+    pub fn updateMeshPos3Color(
+        self: *MeshLibrary,
+        renderer: *backend.Renderer,
+        handle: MeshHandle,
+        vertices: []const backend.VertexPos3Color,
+        indices: []const u16,
+    ) !bool {
+        const slot = self.slotPtr(handle) orelse return false;
+        try renderer.updateMeshPos3Color(&slot.mesh, vertices, indices);
         return true;
     }
 
@@ -111,8 +176,86 @@ pub const MeshLibrary = struct {
     }
 };
 
+pub const ShaderLibrary = struct {
+    allocator: std.mem.Allocator,
+    slots: std.ArrayListUnmanaged(ShaderSlot) = .empty,
+    free_list: std.ArrayListUnmanaged(u32) = .empty,
+
+    pub fn init(allocator: std.mem.Allocator) ShaderLibrary {
+        return .{
+            .allocator = allocator,
+            .slots = .empty,
+            .free_list = .empty,
+        };
+    }
+
+    pub fn deinit(self: *ShaderLibrary) void {
+        self.slots.deinit(self.allocator);
+        self.free_list.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    pub fn destroyShaders(self: *ShaderLibrary, renderer: *backend.Renderer) void {
+        self.free_list.clearRetainingCapacity();
+        for (self.slots.items, 0..) |*slot, index| {
+            if (!slot.alive) continue;
+            renderer.destroyShader(&slot.shader);
+            slot.alive = false;
+            slot.generation +%= 1;
+            _ = self.free_list.append(self.allocator, @intCast(index)) catch {};
+        }
+    }
+
+    pub fn addShader(self: *ShaderLibrary, shader: backend.Shader) !ShaderHandle {
+        if (self.free_list.items.len > 0) {
+            const index = self.free_list.pop() orelse unreachable;
+            var slot = &self.slots.items[@intCast(index)];
+            slot.shader = shader;
+            slot.alive = true;
+            return .{ .index = index, .generation = slot.generation };
+        }
+
+        const index: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(self.allocator, .{
+            .shader = shader,
+            .generation = 1,
+            .alive = true,
+        });
+        return .{ .index = index, .generation = 1 };
+    }
+
+    pub fn get(self: *ShaderLibrary, handle: ShaderHandle) ?*backend.Shader {
+        const slot = self.slotPtr(handle) orelse return null;
+        return &slot.shader;
+    }
+
+    pub fn destroyShader(self: *ShaderLibrary, renderer: *backend.Renderer, handle: ShaderHandle) bool {
+        const slot = self.slotPtr(handle) orelse return false;
+        renderer.destroyShader(&slot.shader);
+        slot.alive = false;
+        slot.generation +%= 1;
+        _ = self.free_list.append(self.allocator, handle.index) catch {};
+        return true;
+    }
+
+    fn slotPtr(self: *ShaderLibrary, handle: ShaderHandle) ?*ShaderSlot {
+        if (!handle.isValid()) return null;
+        const index: usize = @intCast(handle.index);
+        if (index >= self.slots.items.len) return null;
+        const slot = &self.slots.items[index];
+        if (!slot.alive or slot.generation != handle.generation) return null;
+        return slot;
+    }
+};
+
 const MeshSlot = struct {
     mesh: backend.Mesh,
+    generation: u32,
+    alive: bool,
+};
+
+const ShaderSlot = struct {
+    shader: backend.Shader,
     generation: u32,
     alive: bool,
 };

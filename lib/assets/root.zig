@@ -3,6 +3,8 @@ pub const AssetsContext = struct {
     io: *const std.Io,
     renderer: ?*render.Renderer = null,
     sampler: ?*render.Sampler = null,
+    mesh_library: ?*render.MeshLibrary = null,
+    shader_library: ?*render.ShaderLibrary = null,
 };
 
 pub const Texture = struct {
@@ -79,6 +81,67 @@ pub const DecodedSound = struct {
     sample_rate: u32,
     frame_count: u64,
     pcm: []f32,
+};
+
+pub const Mesh = struct {
+    uv_vertices: ?[]const render.VertexUv = null,
+    pos3_color_vertices: ?[]const render.VertexPos3Color = null,
+    indices: []const u16 = &.{},
+    handle: render.MeshHandle = render.MeshHandle.invalid(),
+
+    pub fn load(self: *Mesh, ctx: AssetsContext) !void {
+        if (self.handle.isValid()) return;
+        const renderer = ctx.renderer orelse return error.MissingRenderer;
+        const library = ctx.mesh_library orelse return error.MissingMeshLibrary;
+        if (self.indices.len == 0) return error.EmptyMeshIndices;
+
+        if (self.uv_vertices) |vertices| {
+            self.handle = try library.addMesh(renderer, vertices, self.indices);
+            return;
+        }
+        if (self.pos3_color_vertices) |vertices| {
+            self.handle = try library.addMeshPos3Color(renderer, vertices, self.indices);
+            return;
+        }
+
+        return error.MissingMeshVertices;
+    }
+
+    pub fn unload(self: *Mesh, ctx: AssetsContext) !void {
+        if (!self.handle.isValid()) return;
+        const renderer = ctx.renderer orelse return;
+        const library = ctx.mesh_library orelse return;
+        _ = library.destroyMesh(renderer, self.handle);
+        self.handle = render.MeshHandle.invalid();
+    }
+};
+
+pub const Shader = struct {
+    wgsl_source: ?[]const u8 = null,
+    glsl_vertex_source: ?[]const u8 = null,
+    glsl_fragment_source: ?[]const u8 = null,
+    handle: render.ShaderHandle = render.ShaderHandle.invalid(),
+
+    pub fn load(self: *Shader, ctx: AssetsContext) !void {
+        if (self.handle.isValid()) return;
+        const renderer = ctx.renderer orelse return error.MissingRenderer;
+        const library = ctx.shader_library orelse return error.MissingShaderLibrary;
+
+        const shader = try renderer.createShader(.{
+            .wgsl = self.wgsl_source,
+            .glsl_vertex = self.glsl_vertex_source,
+            .glsl_fragment = self.glsl_fragment_source,
+        });
+        self.handle = try library.addShader(shader);
+    }
+
+    pub fn unload(self: *Shader, ctx: AssetsContext) !void {
+        if (!self.handle.isValid()) return;
+        const renderer = ctx.renderer orelse return;
+        const library = ctx.shader_library orelse return;
+        _ = library.destroyShader(renderer, self.handle);
+        self.handle = render.ShaderHandle.invalid();
+    }
 };
 
 pub const Sound = struct {

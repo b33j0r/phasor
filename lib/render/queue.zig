@@ -10,6 +10,7 @@ pub const TriangleDraw = struct {
 
 pub const MeshDraw = struct {
     mesh_handle: mesh.MeshHandle,
+    shader_handle: ?mesh.ShaderHandle = null,
     transform: common.Mat4,
     color: common.Color,
     material: ?backend.Material = null,
@@ -46,13 +47,27 @@ pub const RenderQueue = struct {
         layer: i32,
         entity_id: u64,
     ) !void {
+        var material: ?backend.Material = null;
+        var shader_handle: ?mesh.ShaderHandle = null;
+        var blend = instance.color.a < 255;
+        switch (instance.material) {
+            .default => {},
+            .textured => |mat| {
+                material = mat;
+                blend = true;
+            },
+            .shader => |shader| {
+                shader_handle = shader;
+            },
+        }
         try self.items.append(self.allocator, .{
             .mesh = .{
                 .mesh_handle = instance.mesh_handle,
+                .shader_handle = shader_handle,
                 .transform = transform,
                 .color = instance.color,
-                .material = null,
-                .blend = instance.color.a < 255,
+                .material = material,
+                .blend = blend,
                 .layer = layer,
                 .entity_id = entity_id,
             },
@@ -70,10 +85,33 @@ pub const RenderQueue = struct {
         try self.items.append(self.allocator, .{
             .mesh = .{
                 .mesh_handle = instance.mesh_handle,
+                .shader_handle = null,
                 .transform = transform,
                 .color = instance.color,
                 .material = material,
                 .blend = true,
+                .layer = layer,
+                .entity_id = entity_id,
+            },
+        });
+    }
+
+    pub fn pushMeshInstanceWithShader(
+        self: *RenderQueue,
+        instance: mesh.MeshInstance,
+        shader_handle: mesh.ShaderHandle,
+        transform: common.Mat4,
+        layer: i32,
+        entity_id: u64,
+    ) !void {
+        try self.items.append(self.allocator, .{
+            .mesh = .{
+                .mesh_handle = instance.mesh_handle,
+                .shader_handle = shader_handle,
+                .transform = transform,
+                .color = instance.color,
+                .material = null,
+                .blend = instance.color.a < 255,
                 .layer = layer,
                 .entity_id = entity_id,
             },

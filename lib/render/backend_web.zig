@@ -26,12 +26,28 @@ pub const Pipeline = struct {
     handle: u32,
 };
 
+pub const Shader = struct {
+    handle: u32,
+};
+
 pub const Material = struct {
     handle: u32,
 };
 
+pub const ShaderSource = struct {
+    wgsl: ?[]const u8 = null,
+    glsl_vertex: ?[]const u8 = null,
+    glsl_fragment: ?[]const u8 = null,
+};
+
+pub const MeshVertexLayout = enum(u32) {
+    uv2 = 1,
+    pos3_color4 = 2,
+};
+
 pub const Mesh = struct {
     handle: u32,
+    vertex_layout: MeshVertexLayout,
 };
 
 pub const max_instances_per_draw: usize = 6000;
@@ -61,6 +77,11 @@ pub const VertexColor = extern struct {
 pub const VertexUv = extern struct {
     position: [2]f32,
     uv: [2]f32,
+};
+
+pub const VertexPos3Color = extern struct {
+    position: [3]f32,
+    color: [4]f32,
 };
 
 pub const Triangle = struct {
@@ -94,14 +115,17 @@ extern "env" fn webgpu_begin_frame(ctx: u32, clear_r: f32, clear_g: f32, clear_b
 extern "env" fn webgpu_draw_triangle(ctx: u32) void;
 extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: *const InstanceData, blend: u32) void;
 extern "env" fn webgpu_draw_textured_quads(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
+extern "env" fn webgpu_draw_colored_meshes(ctx: u32, mesh_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_end_frame(ctx: u32) void;
 extern "env" fn webgpu_create_sampler(ctx: u32) u32;
 extern "env" fn webgpu_destroy_sampler(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_texture_rgba8(ctx: u32, sampler_handle: u32, data_ptr: [*]const u8, data_len: usize, width: u32, height: u32) u32;
 extern "env" fn webgpu_destroy_texture(ctx: u32, handle: u32) void;
-extern "env" fn webgpu_create_mesh(ctx: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) u32;
+extern "env" fn webgpu_create_mesh(ctx: u32, vertex_layout: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) u32;
 extern "env" fn webgpu_update_mesh(ctx: u32, handle: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) void;
 extern "env" fn webgpu_destroy_mesh(ctx: u32, handle: u32) void;
+extern "env" fn webgpu_create_shader(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize) u32;
+extern "env" fn webgpu_destroy_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_material(ctx: u32, texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_destroy_material(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_stats(ctx: u32, out_ptr: *RendererStats) void;
@@ -174,14 +198,30 @@ pub const Renderer = struct {
         material.handle = 0;
     }
 
-    pub fn createMesh(self: *Renderer, vertices: []const VertexUv, indices: []const u16) !Mesh {
+    pub fn createMeshUv(self: *Renderer, vertices: []const VertexUv, indices: []const u16) !Mesh {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
-        const handle = webgpu_create_mesh(self.ctx, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
-        return Mesh{ .handle = handle };
+        const handle = webgpu_create_mesh(self.ctx, @intFromEnum(MeshVertexLayout.uv2), vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        return Mesh{ .handle = handle, .vertex_layout = .uv2 };
     }
 
-    pub fn updateMesh(self: *Renderer, mesh: *Mesh, vertices: []const VertexUv, indices: []const u16) !void {
+    pub fn updateMeshUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexUv, indices: []const u16) !void {
+        if (mesh.vertex_layout != .uv2) return error.InvalidMeshLayout;
+        if (mesh.handle == 0) return;
+        const vbytes = std.mem.sliceAsBytes(vertices);
+        const ibytes = std.mem.sliceAsBytes(indices);
+        webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+    }
+
+    pub fn createMeshPos3Color(self: *Renderer, vertices: []const VertexPos3Color, indices: []const u16) !Mesh {
+        const vbytes = std.mem.sliceAsBytes(vertices);
+        const ibytes = std.mem.sliceAsBytes(indices);
+        const handle = webgpu_create_mesh(self.ctx, @intFromEnum(MeshVertexLayout.pos3_color4), vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        return Mesh{ .handle = handle, .vertex_layout = .pos3_color4 };
+    }
+
+    pub fn updateMeshPos3Color(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3Color, indices: []const u16) !void {
+        if (mesh.vertex_layout != .pos3_color4) return error.InvalidMeshLayout;
         if (mesh.handle == 0) return;
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
@@ -192,6 +232,19 @@ pub const Renderer = struct {
         if (mesh.handle == 0) return;
         webgpu_destroy_mesh(self.ctx, mesh.handle);
         mesh.handle = 0;
+    }
+
+    pub fn createShader(self: *Renderer, source: ShaderSource) !Shader {
+        const wgsl = source.wgsl orelse return error.MissingShaderSource;
+        const handle = webgpu_create_shader(self.ctx, wgsl.ptr, wgsl.len);
+        if (handle == 0) return error.ShaderCreationFailed;
+        return Shader{ .handle = handle };
+    }
+
+    pub fn destroyShader(self: *Renderer, shader: *Shader) void {
+        if (shader.handle == 0) return;
+        webgpu_destroy_shader(self.ctx, shader.handle);
+        shader.handle = 0;
     }
 
     pub fn stats(self: *const Renderer) RendererStats {
@@ -212,18 +265,34 @@ pub const Frame = struct {
     }
 
     fn drawTexturedQuad(self: *Frame, quad: TexturedQuad) void {
+        if (quad.mesh.vertex_layout != .uv2) return;
         const instance = buildInstanceData(quad.instance);
         const blend: u32 = if (quad.blend) 1 else 0;
         webgpu_draw_textured_quad(self.renderer.ctx, quad.mesh.handle, quad.material.handle, &instance, blend);
     }
 
     pub fn drawTexturedQuads(self: *Frame, mesh: Mesh, material: Material, instances: []const MeshInstance, blend: bool) void {
+        if (mesh.vertex_layout != .uv2) return;
         if (instances.len == 0) return;
         const blend_flag: u32 = if (blend) 1 else 0;
         webgpu_draw_textured_quads(
             self.renderer.ctx,
             mesh.handle,
             material.handle,
+            instances.ptr,
+            @intCast(instances.len),
+            blend_flag,
+        );
+    }
+
+    pub fn drawColoredMeshes(self: *Frame, mesh: Mesh, shader: Shader, instances: []const MeshInstance, blend: bool) void {
+        if (mesh.vertex_layout != .pos3_color4) return;
+        if (instances.len == 0) return;
+        const blend_flag: u32 = if (blend) 1 else 0;
+        webgpu_draw_colored_meshes(
+            self.renderer.ctx,
+            mesh.handle,
+            shader.handle,
             instances.ptr,
             @intCast(instances.len),
             blend_flag,

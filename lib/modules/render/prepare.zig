@@ -133,18 +133,12 @@ pub fn updateTextMeshes(
         if (row.get(render.MeshInstance)) |instance| {
             instance.mesh_handle = text.mesh_handle;
             instance.color = text.color;
+            instance.material = .{ .textured = material };
         } else {
             try commands.addComponent(row.entity_id, render.MeshInstance{
                 .mesh_handle = text.mesh_handle,
                 .color = text.color,
-            });
-        }
-
-        if (row.get(render.MaterialInstance)) |mat| {
-            mat.material = material;
-        } else {
-            try commands.addComponent(row.entity_id, render.MaterialInstance{
-                .material = material,
+                .material = .{ .textured = material },
             });
         }
     }
@@ -165,6 +159,26 @@ pub fn updateLayerCameras(
             .camera = cam.*,
             .view = viewMatrix(transform.*),
         });
+    }
+}
+
+pub fn syncLegacyMaterialBindings(
+    legacy_materials: Query(.{ render.MeshInstance, render.MaterialInstance }),
+    legacy_shaders: Query(.{ render.MeshInstance, render.ShaderInstance }),
+) !void {
+    var mat_it = legacy_materials.iterator();
+    while (mat_it.next()) |row| {
+        const mesh = row.get(render.MeshInstance) orelse continue;
+        const mat = row.get(render.MaterialInstance) orelse continue;
+        mesh.material = .{ .textured = mat.material };
+    }
+
+    var shader_it = legacy_shaders.iterator();
+    while (shader_it.next()) |row| {
+        const mesh = row.get(render.MeshInstance) orelse continue;
+        const shader = row.get(render.ShaderInstance) orelse continue;
+        if (!shader.shader_handle.isValid()) continue;
+        mesh.material = .{ .shader = shader.shader_handle };
     }
 }
 

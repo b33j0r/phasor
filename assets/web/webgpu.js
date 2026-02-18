@@ -310,6 +310,80 @@ function createPipelines(ctx) {
   });
 }
 
+function createColorPipelinesFromWgsl(ctx, wgslSource) {
+  const module = ctx.device.createShaderModule({ code: wgslSource });
+  const depthState = {
+    format: "depth24plus",
+    depthWriteEnabled: true,
+    depthCompare: "less-equal",
+  };
+  const depthStateBlend = {
+    format: "depth24plus",
+    depthWriteEnabled: false,
+    depthCompare: "less-equal",
+  };
+  const vertexBuffers = [
+    {
+      arrayStride: 28,
+      attributes: [
+        { shaderLocation: 0, offset: 0, format: "float32x3" },
+        { shaderLocation: 1, offset: 12, format: "float32x4" },
+      ],
+    },
+    {
+      arrayStride: 80,
+      stepMode: "instance",
+      attributes: [
+        { shaderLocation: 2, offset: 0, format: "float32x4" },
+        { shaderLocation: 3, offset: 16, format: "float32x4" },
+        { shaderLocation: 4, offset: 32, format: "float32x4" },
+        { shaderLocation: 5, offset: 48, format: "float32x4" },
+        { shaderLocation: 6, offset: 64, format: "float32x4" },
+      ],
+    },
+  ];
+
+  const opaque = ctx.device.createRenderPipeline({
+    layout: "auto",
+    vertex: {
+      module,
+      entryPoint: "vs_main",
+      buffers: vertexBuffers,
+    },
+    fragment: {
+      module,
+      entryPoint: "fs_main",
+      targets: [{ format: ctx.format }],
+    },
+    depthStencil: depthState,
+    primitive: { topology: "triangle-list" },
+  });
+
+  const blend = ctx.device.createRenderPipeline({
+    layout: "auto",
+    vertex: {
+      module,
+      entryPoint: "vs_main",
+      buffers: vertexBuffers,
+    },
+    fragment: {
+      module,
+      entryPoint: "fs_main",
+      targets: [{
+        format: ctx.format,
+        blend: {
+          color: { operation: "add", srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
+          alpha: { operation: "add", srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+        },
+      }],
+    },
+    depthStencil: depthStateBlend,
+    primitive: { topology: "triangle-list" },
+  });
+  webgpuCreates.pipelines += 2;
+  return { opaque, blend };
+}
+
 function createContext(canvas, enableValidation) {
   const context = canvas.getContext("webgpu");
   const format = navigator.gpu.getPreferredCanvasFormat();
@@ -328,6 +402,8 @@ function createContext(canvas, enableValidation) {
     format,
     meshes: [null],
     meshFree: [],
+    shaders: [null],
+    shaderFree: [],
     textures: [null],
     samplers: [null],
     materials: [null],
@@ -538,6 +614,14 @@ function destroyContextResources(ctx) {
     ctx.meshes[i] = null;
   }
   ctx.meshFree.length = 0;
+
+  for (let i = 1; i < ctx.shaders.length; i += 1) {
+    const shader = ctx.shaders[i];
+    if (!shader) continue;
+    webgpuDestroys.pipelines += 2;
+    ctx.shaders[i] = null;
+  }
+  ctx.shaderFree.length = 0;
 
   for (let i = 1; i < ctx.textures.length; i += 1) {
     const tex = ctx.textures[i];
@@ -904,6 +988,7 @@ const imports = {
       const mesh = ctx.meshes[meshHandle];
       const material = ctx.materials[materialHandle];
       if (!mesh || !material) return;
+      if (mesh.vertexLayout !== 1) return;
       const instanceData = new Float32Array(memory.buffer, instancePtr, 20);
       const stride = 80;
       const alignment = 256;
@@ -928,6 +1013,7 @@ const imports = {
       const mesh = ctx.meshes[meshHandle];
       const material = ctx.materials[materialHandle];
       if (!mesh || !material) return;
+      if (mesh.vertexLayout !== 1) return;
       if (!instanceCount) return;
       const stride = 80;
       const alignment = 256;
@@ -950,6 +1036,39 @@ const imports = {
       const pipeline = blend ? ctx.quadPipelineBlend : ctx.quadPipelineOpaque;
       ctx.pass.setPipeline(pipeline);
       ctx.pass.setBindGroup(0, material.bindGroup);
+      ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
+      ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
+      ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
+      ctx.pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, 0);
+    },
+    webgpu_draw_colored_meshes(ctxId, meshHandle, shaderHandle, instancePtr, instanceCount, blend) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || deviceLost || recoveringDevice) return;
+      const mesh = ctx.meshes[meshHandle];
+      const shader = ctx.shaders[shaderHandle];
+      if (!mesh || !shader) return;
+      if (mesh.vertexLayout !== 2) return;
+      if (!instanceCount) return;
+      const stride = 80;
+      const alignment = 256;
+      const byteLength = instanceCount * stride;
+      if (byteLength > ctx.instanceBufferSize) {
+        console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
+        return;
+      }
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 20);
+      ensureInstanceScratch(byteLength);
+      const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
+      scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
+      let offset = Math.ceil(ctx.instanceOffset / alignment) * alignment;
+      if (offset + byteLength > ctx.instanceBufferSize) {
+        offset = 0;
+      }
+      ctx.instanceOffset = offset + byteLength;
+      ctx.queue.writeBuffer(ctx.instanceBuffer, offset, scratch);
+
+      const pipeline = blend ? shader.blend : shader.opaque;
+      ctx.pass.setPipeline(pipeline);
       ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
       ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
       ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
@@ -1103,7 +1222,7 @@ const imports = {
       ctx.materials[handle] = null;
       webgpuDestroys.bindGroups += 1;
     },
-    webgpu_create_mesh(ctxId, vPtr, vLen, iPtr, iLen) {
+    webgpu_create_mesh(ctxId, vertexLayout, vPtr, vLen, iPtr, iLen) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return 0;
       const vertices = new Uint8Array(memory.buffer, vPtr, vLen);
@@ -1118,6 +1237,7 @@ const imports = {
           vertexBuffer,
           indexBuffer,
           indexCount,
+          vertexLayout,
           vertexSize: vLen,
           indexSize: iLen,
         };
@@ -1127,6 +1247,7 @@ const imports = {
           vertexBuffer,
           indexBuffer,
           indexCount,
+          vertexLayout,
           vertexSize: vLen,
           indexSize: iLen,
         });
@@ -1153,6 +1274,32 @@ const imports = {
         ctx.queue.writeBuffer(mesh.indexBuffer, 0, indices);
       }
       mesh.indexCount = iLen / 2;
+    },
+    webgpu_create_shader(ctxId, wgslPtr, wgslLen) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const wgsl = readString(wgslPtr, wgslLen);
+      const shader = createColorPipelinesFromWgsl(ctx, wgsl);
+      let handle = 0;
+      if (ctx.shaderFree.length > 0) {
+        handle = ctx.shaderFree.pop();
+        ctx.shaders[handle] = shader;
+      } else {
+        handle = ctx.shaders.length;
+        ctx.shaders.push(shader);
+      }
+      return handle;
+    },
+    webgpu_destroy_shader(ctxId, handle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      const shader = ctx.shaders[handle];
+      if (!shader) return;
+      ctx.shaders[handle] = null;
+      webgpuDestroys.pipelines += 2;
+      if (handle !== 0) {
+        ctx.shaderFree.push(handle);
+      }
     },
     webgpu_destroy_mesh(ctxId, handle) {
       const ctx = ctxs.get(ctxId);

@@ -1,7 +1,6 @@
 pub fn extractSystem(
     queue: ResMut(render.RenderQueue),
-    mesh_query: Query(.{ render.MeshInstance, common.Transform, render.MaterialInstance }),
-    mesh_default_query: Query(.{ render.MeshInstance, common.Transform, Without(render.MaterialInstance) }),
+    mesh_query: Query(.{ render.MeshInstance, common.Transform }),
     triangle_query: Query(.{render.Triangle}),
 ) !void {
     queue.ptr.reset();
@@ -15,15 +14,6 @@ pub fn extractSystem(
 
     var it = mesh_query.iterator();
     while (it.next()) |row| {
-        const instance = row.get(render.MeshInstance) orelse continue;
-        const transform = row.get(common.Transform) orelse continue;
-        const material = row.get(render.MaterialInstance) orelse continue;
-        const layer = layerKeyForRow(row);
-        try queue.ptr.pushMeshInstanceWithMaterial(instance.*, transform.toMat4(), material.material, layer, row.entity_id);
-    }
-
-    var default_it = mesh_default_query.iterator();
-    while (default_it.next()) |row| {
         const instance = row.get(render.MeshInstance) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
         const layer = layerKeyForRow(row);
@@ -55,4 +45,3 @@ const db = @import("db");
 const system_params = ecs.system_params;
 const Query = system_params.Query;
 const ResMut = system_params.ResMut;
-const Without = system_params.Without;
