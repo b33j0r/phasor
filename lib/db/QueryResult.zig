@@ -1,6 +1,7 @@
 allocator: std.mem.Allocator,
 database: *Database,
-table_indices: std.ArrayListUnmanaged(usize) = .empty,
+table_indices: []const usize = &.{},
+owned_table_indices: ?[]usize = null,
 
 const QueryResult = @This();
 
@@ -11,19 +12,13 @@ pub fn fromSpec(allocator: std.mem.Allocator, database: *Database, comptime Spec
         }
     }
 
-    var matches: std.ArrayListUnmanaged(usize) = .empty;
-    errdefer matches.deinit(allocator);
-
-    for (database.tables.items, 0..) |*table, idx| {
-        if (table.schema.hasAll(&Spec.with) and !table.schema.hasAny(&Spec.without)) {
-            try matches.append(allocator, idx);
-        }
-    }
+    const matches = try database.queryTableIndices(Spec);
 
     return .{
         .allocator = allocator,
         .database = database,
         .table_indices = matches,
+        .owned_table_indices = null,
     };
 }
 
@@ -45,21 +40,25 @@ pub fn fromComponentTypesAndTableIndices(
         }
     }
 
+    const owned = try matches.toOwnedSlice(allocator);
     return .{
         .allocator = allocator,
         .database = database,
-        .table_indices = matches,
+        .table_indices = owned,
+        .owned_table_indices = owned,
     };
 }
 
 pub fn deinit(self: *QueryResult) void {
-    self.table_indices.deinit(self.allocator);
+    if (self.owned_table_indices) |owned| {
+        if (owned.len > 0) self.allocator.free(owned);
+    }
     self.* = undefined;
 }
 
 pub fn count(self: *const QueryResult) usize {
     var total: usize = 0;
-    for (self.table_indices.items) |table_index| {
+    for (self.table_indices) |table_index| {
         const table = &self.database.tables.items[table_index];
         total += table.entity_ids.items.len;
     }
@@ -83,7 +82,7 @@ pub fn groupBy(self: *const QueryResult, TraitT: anytype) !GroupByResult {
     return GroupByResult.fromTraitTypeAndTableIndices(
         self.allocator,
         self.database,
-        self.table_indices.items,
+        self.table_indices,
         TraitT,
     );
 }
@@ -123,8 +122,8 @@ pub const Iterator = struct {
     row_index: usize,
 
     pub fn next(self: *Iterator) ?Row {
-        while (self.table_index < self.query.table_indices.items.len) {
-            const table_index = self.query.table_indices.items[self.table_index];
+        while (self.table_index < self.query.table_indices.len) {
+            const table_index = self.query.table_indices[self.table_index];
             const table = &self.query.database.tables.items[table_index];
             if (self.row_index < table.entity_ids.items.len) {
                 const entity_id = table.entity_ids.items[self.row_index];

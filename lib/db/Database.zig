@@ -3,6 +3,8 @@ allocator: std.mem.Allocator,
 tables: std.ArrayListUnmanaged(Table) = .empty,
 table_index_by_hash: std.AutoArrayHashMapUnmanaged(u64, usize) = .empty,
 entities: std.AutoArrayHashMapUnmanaged(Entity.Id, EntityLocation) = .empty,
+query_cache: std.ArrayListUnmanaged(QueryCacheEntry) = .empty,
+query_generation: u64 = 0,
 next_entity_id: Entity.Id = 0,
 hooks: ?*const hooks_mod.DatabaseHooks = null,
 table_hooks: hooks_mod.TableHooks = hooks_mod.TableHooks.none(),
@@ -21,6 +23,26 @@ pub const Error = error{
     EntityAlreadyExists,
 };
 
+const QueryCacheEntry = struct {
+    generation: u64,
+    with_ids: []meta.TypeId,
+    without_ids: []meta.TypeId,
+    table_indices: []usize,
+
+    fn deinit(self: *QueryCacheEntry, allocator: std.mem.Allocator) void {
+        if (self.with_ids.len > 0) allocator.free(self.with_ids);
+        if (self.without_ids.len > 0) allocator.free(self.without_ids);
+        if (self.table_indices.len > 0) allocator.free(self.table_indices);
+        self.* = undefined;
+    }
+
+    fn matches(self: *const QueryCacheEntry, generation: u64, with_ids: []const meta.TypeId, without_ids: []const meta.TypeId) bool {
+        return self.generation == generation and
+            std.mem.eql(meta.TypeId, self.with_ids, with_ids) and
+            std.mem.eql(meta.TypeId, self.without_ids, without_ids);
+    }
+};
+
 /// Initialize an empty database.
 pub fn init(allocator: std.mem.Allocator) Self {
     return Self{
@@ -28,6 +50,8 @@ pub fn init(allocator: std.mem.Allocator) Self {
         .tables = .empty,
         .table_index_by_hash = .empty,
         .entities = .empty,
+        .query_cache = .empty,
+        .query_generation = 0,
         .next_entity_id = 0,
         .hooks = null,
         .table_hooks = hooks_mod.TableHooks.none(),
@@ -40,6 +64,8 @@ pub fn deinit(self: *Self) void {
     self.tables.deinit(self.allocator);
     self.table_index_by_hash.deinit(self.allocator);
     self.entities.deinit(self.allocator);
+    self.clearQueryCache();
+    self.query_cache.deinit(self.allocator);
     self.* = undefined;
 }
 
@@ -59,6 +85,55 @@ pub fn totalRowCount(self: *const Self) usize {
     return total;
 }
 
+pub fn queryTableIndices(self: *Self, comptime Spec: type) ![]const usize {
+    comptime {
+        if (!@hasDecl(Spec, "with") or !@hasDecl(Spec, "without")) {
+            @compileError("queryTableIndices expects a QuerySpec generated type");
+        }
+    }
+
+    const with_ids = Spec.with.items;
+    const without_ids = Spec.without.items;
+    for (self.query_cache.items) |*entry| {
+        if (entry.matches(self.query_generation, with_ids, without_ids)) return entry.table_indices;
+    }
+
+    const table_indices = try self.queryTableIndicesUncached(Spec);
+    errdefer if (table_indices.len > 0) self.allocator.free(table_indices);
+
+    const with_copy = try self.allocator.dupe(meta.TypeId, with_ids);
+    errdefer if (with_copy.len > 0) self.allocator.free(with_copy);
+
+    const without_copy = try self.allocator.dupe(meta.TypeId, without_ids);
+    errdefer if (without_copy.len > 0) self.allocator.free(without_copy);
+
+    try self.query_cache.append(self.allocator, .{
+        .generation = self.query_generation,
+        .with_ids = with_copy,
+        .without_ids = without_copy,
+        .table_indices = table_indices,
+    });
+    return self.query_cache.items[self.query_cache.items.len - 1].table_indices;
+}
+
+pub fn queryTableIndicesUncached(self: *Self, comptime Spec: type) ![]usize {
+    comptime {
+        if (!@hasDecl(Spec, "with") or !@hasDecl(Spec, "without")) {
+            @compileError("queryTableIndicesUncached expects a QuerySpec generated type");
+        }
+    }
+
+    var matches: std.ArrayListUnmanaged(usize) = .empty;
+    errdefer matches.deinit(self.allocator);
+
+    for (self.tables.items, 0..) |*table, idx| {
+        if (table.schema.hasAll(&Spec.with) and !table.schema.hasAny(&Spec.without)) {
+            try matches.append(self.allocator, idx);
+        }
+    }
+    return try matches.toOwnedSlice(self.allocator);
+}
+
 /// Get or create a table for the given component types.
 pub fn getOrCreateTable(self: *Self, comptime Types: anytype) !usize {
     const schema = meta.typeIdSet(Types);
@@ -73,6 +148,7 @@ pub fn getOrCreateTable(self: *Self, comptime Types: anytype) !usize {
     table.hooks = self.table_hooks;
     try self.tables.append(self.allocator, table);
     try self.table_index_by_hash.put(self.allocator, hash, idx);
+    self.invalidateQueryCache();
     return idx;
 }
 
@@ -220,6 +296,7 @@ fn insertTable(self: *Self, schema_ids: []const meta.TypeId, table: Table) !usiz
     table_with_hooks.hooks = self.table_hooks;
     try self.tables.append(self.allocator, table_with_hooks);
     try self.table_index_by_hash.put(self.allocator, hash, idx);
+    self.invalidateQueryCache();
     return idx;
 }
 
@@ -492,8 +569,18 @@ fn applyTableHooks(self: *Self) void {
     }
 }
 
-test "Database moveEntity updates locations" {
+fn clearQueryCache(self: *Self) void {
+    for (self.query_cache.items) |*entry| {
+        entry.deinit(self.allocator);
+    }
+    self.query_cache.clearRetainingCapacity();
+}
 
+fn invalidateQueryCache(self: *Self) void {
+    self.query_generation +%= 1;
+}
+
+test "Database moveEntity updates locations" {
     var db = init(std.testing.allocator);
     defer db.deinit();
 
@@ -509,7 +596,6 @@ test "Database moveEntity updates locations" {
 }
 
 test "Database moveEntity updates moved row when swapRemove occurs" {
-
     var db = init(std.testing.allocator);
     defer db.deinit();
 
@@ -531,7 +617,6 @@ test "Database moveEntity updates moved row when swapRemove occurs" {
 }
 
 test "Database addComponents moves entity and preserves existing data" {
-
     var db = init(std.testing.allocator);
     defer db.deinit();
 
@@ -549,7 +634,6 @@ test "Database addComponents moves entity and preserves existing data" {
 }
 
 test "Database addComponents accepts non-default components" {
-
     var db = init(std.testing.allocator);
     defer db.deinit();
 
@@ -563,8 +647,33 @@ test "Database addComponents accepts non-default components" {
     try std.testing.expectEqual(@as(f32, 4), pos.y);
 }
 
-test "Database removeComponents moves entity and removes components" {
+test "Database query cache reuses and invalidates entries" {
+    var db = init(std.testing.allocator);
+    defer db.deinit();
 
+    _ = try db.createEntityWithId(1, .{
+        fixtures.Position{ .x = 1, .y = 2 },
+        fixtures.Velocity{ .dx = 3, .dy = 4 },
+    });
+
+    const Spec = QuerySpec.Spec(.{ fixtures.Position, QuerySpec.Without(fixtures.Health) });
+    const first = try db.queryTableIndices(Spec);
+    const second = try db.queryTableIndices(Spec);
+    try std.testing.expectEqual(@as(usize, 1), db.query_cache.items.len);
+    try std.testing.expect(first.ptr == second.ptr);
+
+    _ = try db.createEntityWithId(2, .{
+        fixtures.Position{ .x = 5, .y = 6 },
+        fixtures.Health{ .hp = 10 },
+    });
+    try std.testing.expectEqual(@as(usize, 1), db.query_cache.items.len);
+
+    const third = try db.queryTableIndices(Spec);
+    try std.testing.expectEqual(@as(usize, 2), db.query_cache.items.len);
+    try std.testing.expect(first.ptr != third.ptr);
+}
+
+test "Database removeComponents moves entity and removes components" {
     var db = init(std.testing.allocator);
     defer db.deinit();
 
@@ -592,6 +701,7 @@ const Table = @import("table.zig").Table;
 const Column = @import("column/Column.zig");
 const Entity = @import("Entity.zig");
 const meta = @import("meta.zig");
+const QuerySpec = @import("QuerySpec.zig");
 const GroupByResult = @import("GroupByResult.zig");
 const fixtures = @import("common").fixtures;
 const hooks_mod = @import("hooks.zig");

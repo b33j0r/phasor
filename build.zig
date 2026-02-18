@@ -91,6 +91,7 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "bouncing-ball", "examples/bouncing-ball/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "cube", "examples/cube/main.zig", &.{});
+    addEcsQueryCacheBenchmark(&ctx, phasor.module);
 
     addWebExamples(&ctx);
 
@@ -474,53 +475,53 @@ const MetricsModule = struct {
     }
 };
 
-    const ModulesModule = struct {
-        module: *std.Build.Module,
-        tests: *std.Build.Step.Compile,
+const ModulesModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
 
-        const Deps = struct {
-            common: *std.Build.Module,
-            db: *std.Build.Module,
-            ecs: *std.Build.Module,
-            assets: *std.Build.Module,
-            audio: *std.Build.Module,
-            metrics: *std.Build.Module,
-            render: *std.Build.Module,
-            fastnoise: *std.Build.Module,
-            miniaudio: ?*std.Build.Module,
-            glfw: ?*std.Build.Module,
-            window: ?*std.Build.Module,
-            wasm: ?*std.Build.Module,
-        };
-
-        fn build(ctx: *const BuildContext, deps: Deps) ModulesModule {
-            var imports: std.ArrayList(std.Build.Module.Import) = .empty;
-            defer imports.deinit(ctx.b.allocator);
-            imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
-            imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
-            imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
-            imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
-            imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
-            imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
-            imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.render }) catch unreachable;
-            imports.append(ctx.b.allocator, .{ .name = "fastnoise", .module = deps.fastnoise }) catch unreachable;
-            if (deps.miniaudio) |miniaudio_mod| {
-                imports.append(ctx.b.allocator, .{ .name = "miniaudio", .module = miniaudio_mod }) catch unreachable;
-            }
-            if (deps.glfw) |glfw_mod| {
-                imports.append(ctx.b.allocator, .{ .name = "glfw", .module = glfw_mod }) catch unreachable;
-            }
-            if (deps.window) |window_mod| {
-                imports.append(ctx.b.allocator, .{ .name = "window", .module = window_mod }) catch unreachable;
-            }
-            if (deps.wasm) |wasm_mod| {
-                imports.append(ctx.b.allocator, .{ .name = "wasm", .module = wasm_mod }) catch unreachable;
-            }
-
-            const bundle = ctx.moduleBundle("lib/modules/root.zig", imports.items);
-            return .{ .module = bundle.module, .tests = bundle.tests };
-        }
+    const Deps = struct {
+        common: *std.Build.Module,
+        db: *std.Build.Module,
+        ecs: *std.Build.Module,
+        assets: *std.Build.Module,
+        audio: *std.Build.Module,
+        metrics: *std.Build.Module,
+        render: *std.Build.Module,
+        fastnoise: *std.Build.Module,
+        miniaudio: ?*std.Build.Module,
+        glfw: ?*std.Build.Module,
+        window: ?*std.Build.Module,
+        wasm: ?*std.Build.Module,
     };
+
+    fn build(ctx: *const BuildContext, deps: Deps) ModulesModule {
+        var imports: std.ArrayList(std.Build.Module.Import) = .empty;
+        defer imports.deinit(ctx.b.allocator);
+        imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.render }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "fastnoise", .module = deps.fastnoise }) catch unreachable;
+        if (deps.miniaudio) |miniaudio_mod| {
+            imports.append(ctx.b.allocator, .{ .name = "miniaudio", .module = miniaudio_mod }) catch unreachable;
+        }
+        if (deps.glfw) |glfw_mod| {
+            imports.append(ctx.b.allocator, .{ .name = "glfw", .module = glfw_mod }) catch unreachable;
+        }
+        if (deps.window) |window_mod| {
+            imports.append(ctx.b.allocator, .{ .name = "window", .module = window_mod }) catch unreachable;
+        }
+        if (deps.wasm) |wasm_mod| {
+            imports.append(ctx.b.allocator, .{ .name = "wasm", .module = wasm_mod }) catch unreachable;
+        }
+
+        const bundle = ctx.moduleBundle("lib/modules/root.zig", imports.items);
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
 
 const PhasorModule = struct {
     module: *std.Build.Module,
@@ -720,6 +721,26 @@ fn addExample(
     run_step.dependOn(&run_cmd.step);
 
     return exe;
+}
+
+fn addEcsQueryCacheBenchmark(
+    ctx: *const BuildContext,
+    phasor_module: *std.Build.Module,
+) void {
+    const bench_mod = ctx.module("examples/ecs/query_cache_bench.zig", &.{.{
+        .name = "phasor",
+        .module = phasor_module,
+    }});
+    const bench_exe = ctx.b.addExecutable(.{
+        .name = "ecs-query-cache-bench",
+        .root_module = bench_mod,
+    });
+    const bench_run = ctx.b.addRunArtifact(bench_exe);
+    const bench_step = ctx.b.step(
+        "bench-ecs-query-cache",
+        "Benchmark ECS query-plan caching (fails when speedup is too small)",
+    );
+    bench_step.dependOn(&bench_run.step);
 }
 
 const WasmExample = struct {

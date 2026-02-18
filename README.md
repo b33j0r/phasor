@@ -22,9 +22,9 @@ zig build run-bouncing-ball-wasm
 zig build run-cube-wasm
 ```
 
-## ECS Tutorial (Example Style)
+## ECS Tutorial
 
-### 1) Build an app with modules and systems
+### 1. Build an app with modules and systems
 
 From `examples/cube/main.zig`:
 
@@ -43,7 +43,7 @@ const App = struct {
 pub const main = platform.main(App);
 ```
 
-### 2) Spawn entities as component tuples
+### 2. Spawn entities as component tuples
 
 From `examples/bouncing-ball/main.zig`:
 
@@ -56,7 +56,7 @@ const ball_entity = try commands.createEntity(.{
 });
 ```
 
-### 3) Update via typed queries + resources
+### 3. Update state with typed queries and resources
 
 From `examples/bouncing-ball/main.zig`:
 
@@ -73,7 +73,7 @@ fn integrateMotion(dt: Res(DeltaTime), query: Query(.{ Transform, Velocity })) v
 }
 ```
 
-### 4) Use hierarchy components for local space
+### 4. Use hierarchy components for local-space transforms
 
 From `examples/cube/main.zig` and `examples/bouncing-ball/main.zig`:
 
@@ -87,7 +87,7 @@ _ = try commands.createEntity(.{
 });
 ```
 
-### 5) Use tags to scope behavior
+### 5. Use tags to scope system behavior
 
 From `examples/cube/main.zig`:
 
@@ -99,7 +99,7 @@ fn spinCube(elapsed: Res(ElapsedTime), query: Query(.{ Transform, CubeRoot })) v
 }
 ```
 
-## Example Intent
+## Examples at a Glance
 
 - `triangle`: smallest render setup
 - `bouncing-ball`: motion, collision, parent/child local transforms
@@ -107,7 +107,7 @@ fn spinCube(elapsed: Res(ElapsedTime), query: Query(.{ Transform, CubeRoot })) v
 - `ecs`: pure ECS systems/events/phases (no rendering)
 - `window`: window module only
 
-## WebGPU over HTTPS (LAN / iPhone)
+## Serve WebGPU over HTTPS (LAN / Phone)
 
 WebGPU requires a secure context for non-localhost devices.
 

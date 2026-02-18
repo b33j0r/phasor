@@ -10,7 +10,7 @@ A compact ECS storage layer focused on readable, predictable data movement.
 
 ## Core types
 
-- `meta.TypeId` and `meta.typeIdSet`: compile-time identifiers and schema sets.
+- `TypeId` and `TypeIdSet`: compile-time identifiers and schema sets.
 - `Column`: owning, type-erased column storage.
 - `Table`: owns columns + entity rows; supports copy/move semantics.
 - `Database`: owns tables and entity locations; orchestrates moves.
@@ -35,7 +35,7 @@ A compact ECS storage layer focused on readable, predictable data movement.
 - Moves copy shared components and do not create missing ones.
 - Swap-remove updates the moved entity’s row.
 
-## Notes
+## Usage Guidance
 
 This module is designed to be a foundation for higher-level ECS features
 (queries, schedules, and systems) without embedding policy in storage.
