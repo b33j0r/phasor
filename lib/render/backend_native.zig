@@ -31,6 +31,48 @@ pub const Sampler = struct {
     sampler: *wgpu.Sampler,
 };
 
+pub const SamplerFilter = enum(u8) {
+    nearest,
+    linear,
+};
+
+pub const SamplerAddressMode = enum(u8) {
+    clamp_to_edge,
+    repeat,
+    mirror_repeat,
+};
+
+pub const SamplerDescriptor = struct {
+    mag_filter: SamplerFilter = .linear,
+    min_filter: SamplerFilter = .linear,
+    mipmap_filter: SamplerFilter = .linear,
+    address_mode_u: SamplerAddressMode = .clamp_to_edge,
+    address_mode_v: SamplerAddressMode = .clamp_to_edge,
+    address_mode_w: SamplerAddressMode = .clamp_to_edge,
+
+    pub fn tiledLinear() SamplerDescriptor {
+        return .{
+            .mag_filter = .linear,
+            .min_filter = .linear,
+            .mipmap_filter = .linear,
+            .address_mode_u = .repeat,
+            .address_mode_v = .repeat,
+            .address_mode_w = .repeat,
+        };
+    }
+
+    pub fn pixelArtTiled() SamplerDescriptor {
+        return .{
+            .mag_filter = .nearest,
+            .min_filter = .nearest,
+            .mipmap_filter = .nearest,
+            .address_mode_u = .repeat,
+            .address_mode_v = .repeat,
+            .address_mode_w = .repeat,
+        };
+    }
+};
+
 pub const Pipeline = struct {
     pipeline: *wgpu.RenderPipeline,
 };
@@ -378,13 +420,17 @@ pub const Renderer = struct {
     }
 
     pub fn createSampler(self: *Renderer) !Sampler {
+        return self.createSamplerWithDescriptor(.{});
+    }
+
+    pub fn createSamplerWithDescriptor(self: *Renderer, descriptor: SamplerDescriptor) !Sampler {
         const sampler = self.device.createSampler(&wgpu.SamplerDescriptor{
-            .mag_filter = .linear,
-            .min_filter = .linear,
-            .mipmap_filter = .linear,
-            .address_mode_u = .clamp_to_edge,
-            .address_mode_v = .clamp_to_edge,
-            .address_mode_w = .clamp_to_edge,
+            .mag_filter = toWgpuFilter(descriptor.mag_filter),
+            .min_filter = toWgpuFilter(descriptor.min_filter),
+            .mipmap_filter = toWgpuMipmapFilter(descriptor.mipmap_filter),
+            .address_mode_u = toWgpuAddressMode(descriptor.address_mode_u),
+            .address_mode_v = toWgpuAddressMode(descriptor.address_mode_v),
+            .address_mode_w = toWgpuAddressMode(descriptor.address_mode_w),
         }) orelse return error.SamplerCreationFailed;
         return Sampler{ .sampler = sampler };
     }
@@ -1179,6 +1225,28 @@ fn createDepthTarget(device: *wgpu.Device, width: u32, height: u32) !DepthTarget
     return .{
         .texture = texture,
         .view = view,
+    };
+}
+
+fn toWgpuFilter(filter: SamplerFilter) wgpu.FilterMode {
+    return switch (filter) {
+        .nearest => .nearest,
+        .linear => .linear,
+    };
+}
+
+fn toWgpuMipmapFilter(filter: SamplerFilter) wgpu.MipmapFilterMode {
+    return switch (filter) {
+        .nearest => .nearest,
+        .linear => .linear,
+    };
+}
+
+fn toWgpuAddressMode(mode: SamplerAddressMode) wgpu.AddressMode {
+    return switch (mode) {
+        .clamp_to_edge => .clamp_to_edge,
+        .repeat => .repeat,
+        .mirror_repeat => .mirror_repeat,
     };
 }
 

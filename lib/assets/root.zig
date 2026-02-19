@@ -12,11 +12,61 @@ pub const AssetsContext = struct {
 pub const Texture = struct {
     path: ?[:0]const u8 = null,
     data: ?[]const u8 = null,
+    alpha_mode: ?render.Material.AlphaMode = null,
+    sampler_descriptor: ?render.SamplerDescriptor = null,
     width: u32 = 0,
     height: u32 = 0,
     texture_handle: render.TextureHandle = render.TextureHandle.invalid(),
     material_handle: render.MaterialHandle = render.MaterialHandle.invalid(),
     material: render.Material = render.Material.default,
+    owned_sampler: ?render.Sampler = null,
+
+    pub fn embedded(bytes: []const u8) Texture {
+        return .{ .data = bytes };
+    }
+
+    pub fn file(path: [:0]const u8) Texture {
+        return .{ .path = path };
+    }
+
+    pub fn withAlphaMode(self: Texture, mode: render.Material.AlphaMode) Texture {
+        var out = self;
+        out.alpha_mode = mode;
+        return out;
+    }
+
+    pub fn asOpaque(self: Texture) Texture {
+        return self.withAlphaMode(.Opaque);
+    }
+
+    pub fn asBlended(self: Texture) Texture {
+        return self.withAlphaMode(.Blend);
+    }
+
+    pub fn withSampler(self: Texture, descriptor: render.SamplerDescriptor) Texture {
+        var out = self;
+        out.sampler_descriptor = descriptor;
+        return out;
+    }
+
+    pub fn tiledLinear(self: Texture) Texture {
+        return self.withSampler(render.SamplerDescriptor.tiledLinear());
+    }
+
+    pub fn equirectangularLinear(self: Texture) Texture {
+        return self.withSampler(.{
+            .mag_filter = .linear,
+            .min_filter = .linear,
+            .mipmap_filter = .linear,
+            .address_mode_u = .repeat,
+            .address_mode_v = .clamp_to_edge,
+            .address_mode_w = .clamp_to_edge,
+        });
+    }
+
+    pub fn pixelArtTiled(self: Texture) Texture {
+        return self.withSampler(render.SamplerDescriptor.pixelArtTiled());
+    }
 
     pub fn load(self: *Texture, ctx: AssetsContext) !void {
         if (self.material_handle.isValid()) return;
@@ -44,8 +94,17 @@ pub const Texture = struct {
             const texture_handle = try texture_library.addTexture(texture);
             errdefer _ = texture_library.destroyTexture(renderer, texture_handle);
 
+            var active_sampler = sampler.*;
+            var owned_sampler: ?render.Sampler = null;
+            if (self.sampler_descriptor) |descriptor| {
+                var custom_sampler = try renderer.createSamplerWithDescriptor(descriptor);
+                errdefer renderer.destroySampler(&custom_sampler);
+                owned_sampler = custom_sampler;
+                active_sampler = custom_sampler;
+            }
+
             const texture_ptr = texture_library.get(texture_handle) orelse return error.MissingTexture;
-            const material = try renderer.createMaterial(texture_ptr.*, sampler.*);
+            const material = try renderer.createMaterial(texture_ptr.*, active_sampler);
             errdefer {
                 var m = material;
                 renderer.destroyMaterial(&m);
@@ -55,7 +114,12 @@ pub const Texture = struct {
 
             self.texture_handle = texture_handle;
             self.material_handle = material_handle;
-            self.material = render.Material.withTextured(material_handle);
+            self.owned_sampler = owned_sampler;
+            var material_instance = render.Material.withTextured(material_handle);
+            if (self.alpha_mode) |mode| {
+                material_instance.alpha_mode = mode;
+            }
+            self.material = material_instance;
             return;
         }
 
@@ -78,8 +142,17 @@ pub const Texture = struct {
         const texture_handle = try texture_library.addTexture(texture);
         errdefer _ = texture_library.destroyTexture(renderer, texture_handle);
 
+        var active_sampler = sampler.*;
+        var owned_sampler: ?render.Sampler = null;
+        if (self.sampler_descriptor) |descriptor| {
+            var custom_sampler = try renderer.createSamplerWithDescriptor(descriptor);
+            errdefer renderer.destroySampler(&custom_sampler);
+            owned_sampler = custom_sampler;
+            active_sampler = custom_sampler;
+        }
+
         const texture_ptr = texture_library.get(texture_handle) orelse return error.MissingTexture;
-        const material = try renderer.createMaterial(texture_ptr.*, sampler.*);
+        const material = try renderer.createMaterial(texture_ptr.*, active_sampler);
         errdefer {
             var m = material;
             renderer.destroyMaterial(&m);
@@ -89,7 +162,12 @@ pub const Texture = struct {
 
         self.texture_handle = texture_handle;
         self.material_handle = material_handle;
-        self.material = render.Material.withTextured(material_handle);
+        self.owned_sampler = owned_sampler;
+        var material_instance = render.Material.withTextured(material_handle);
+        if (self.alpha_mode) |mode| {
+            material_instance.alpha_mode = mode;
+        }
+        self.material = material_instance;
     }
 
     pub fn unload(self: *Texture, ctx: AssetsContext) !void {
@@ -104,6 +182,11 @@ pub const Texture = struct {
         if (self.texture_handle.isValid()) {
             _ = texture_library.destroyTexture(renderer, self.texture_handle);
             self.texture_handle = render.TextureHandle.invalid();
+        }
+        if (self.owned_sampler) |owned| {
+            var sampler = owned;
+            renderer.destroySampler(&sampler);
+            self.owned_sampler = null;
         }
         self.material = render.Material.default;
     }

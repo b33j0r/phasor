@@ -249,13 +249,16 @@ pub fn handleViewportResize(
     }
 
     if (!commands.hasResource(types.ViewportSize)) {
-        if (window_bounds_opt.ptr) |bounds| {
+        if (render_bounds_opt.ptr) |bounds| {
+            try commands.insertResource(types.ViewportSize{
+                .width = bounds.width,
+                .height = bounds.height,
+            });
+        } else if (window_bounds_opt.ptr) |bounds| {
             try commands.insertResource(types.ViewportSize{
                 .width = @floatFromInt(bounds.width),
                 .height = @floatFromInt(bounds.height),
             });
-        } else if (render_bounds_opt.ptr) |bounds| {
-            try commands.insertResource(types.ViewportSize{ .width = bounds.width, .height = bounds.height });
         }
     }
 }

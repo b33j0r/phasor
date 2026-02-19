@@ -24,6 +24,7 @@ let deviceLost = false;
 let simulationPaused = false;
 let pauseOnGpuError = false;
 let useVsync = true;
+let wantsMouseCapture = false;
 let resumeFrameLoop = null;
 let recoveringDevice = false;
 const webgpuErrors = {
@@ -886,6 +887,18 @@ const imports = {
       view.setUint32(outUsedPtr, mem.usedJSHeapSize >>> 0, true);
       view.setUint32(outTotalPtr, mem.totalJSHeapSize >>> 0, true);
     },
+    wasmSetMouseCapture(enabled) {
+      wantsMouseCapture = Boolean(enabled);
+      const canvas = document.querySelector("#canvas");
+      if (!canvas) return;
+      if (wantsMouseCapture) {
+        if (document.pointerLockElement !== canvas && canvas.requestPointerLock) {
+          canvas.requestPointerLock().catch(() => {});
+        }
+      } else if (document.pointerLockElement && document.exitPointerLock) {
+        document.exitPointerLock();
+      }
+    },
     wasm_audio_counts(outBuffersPtr, outActivePtr) {
       const view = getMemoryView();
       view.setUint32(outBuffersPtr, soundBuffers.size, true);
@@ -1158,6 +1171,24 @@ const imports = {
         addressModeU: "clamp-to-edge",
         addressModeV: "clamp-to-edge",
         addressModeW: "clamp-to-edge",
+      });
+      webgpuCreates.samplers += 1;
+      const handle = ctx.samplers.length;
+      ctx.samplers.push(sampler);
+      return handle;
+    },
+    webgpu_create_sampler_desc(ctxId, magFilter, minFilter, mipmapFilter, addressModeU, addressModeV, addressModeW) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const filters = ["nearest", "linear"];
+      const addressModes = ["clamp-to-edge", "repeat", "mirror-repeat"];
+      const sampler = ctx.device.createSampler({
+        magFilter: filters[magFilter] || "linear",
+        minFilter: filters[minFilter] || "linear",
+        mipmapFilter: filters[mipmapFilter] || "linear",
+        addressModeU: addressModes[addressModeU] || "clamp-to-edge",
+        addressModeV: addressModes[addressModeV] || "clamp-to-edge",
+        addressModeW: addressModes[addressModeW] || "clamp-to-edge",
       });
       webgpuCreates.samplers += 1;
       const handle = ctx.samplers.length;
@@ -1504,7 +1535,22 @@ function handleKeyEvent(isDown, event) {
 
   window.addEventListener("keydown", (event) => handleKeyEvent(true, event));
   window.addEventListener("keyup", (event) => handleKeyEvent(false, event));
-  window.addEventListener("pointerdown", () => ensureAudioContext());
+  window.addEventListener("pointerdown", () => {
+    ensureAudioContext();
+    const canvas = document.querySelector("#canvas");
+    if (!canvas) return;
+    if (wantsMouseCapture && document.pointerLockElement !== canvas && canvas.requestPointerLock) {
+      canvas.requestPointerLock().catch(() => {});
+    }
+  });
+  window.addEventListener("mousemove", (event) => {
+    const canvas = document.querySelector("#canvas");
+    if (!canvas) return;
+    if (!wasm || !wasm.exports || !wasm.exports.wasmInputMouseDelta) return;
+    if (!wantsMouseCapture) return;
+    if (document.pointerLockElement !== canvas) return;
+    wasm.exports.wasmInputMouseDelta(event.movementX, event.movementY);
+  });
 
   function resizeAndNotify() {
     const canvas = document.querySelector("#canvas");

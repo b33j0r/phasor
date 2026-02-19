@@ -22,6 +22,48 @@ pub const Sampler = struct {
     handle: u32,
 };
 
+pub const SamplerFilter = enum(u8) {
+    nearest = 0,
+    linear = 1,
+};
+
+pub const SamplerAddressMode = enum(u8) {
+    clamp_to_edge = 0,
+    repeat = 1,
+    mirror_repeat = 2,
+};
+
+pub const SamplerDescriptor = struct {
+    mag_filter: SamplerFilter = .linear,
+    min_filter: SamplerFilter = .linear,
+    mipmap_filter: SamplerFilter = .linear,
+    address_mode_u: SamplerAddressMode = .clamp_to_edge,
+    address_mode_v: SamplerAddressMode = .clamp_to_edge,
+    address_mode_w: SamplerAddressMode = .clamp_to_edge,
+
+    pub fn tiledLinear() SamplerDescriptor {
+        return .{
+            .mag_filter = .linear,
+            .min_filter = .linear,
+            .mipmap_filter = .linear,
+            .address_mode_u = .repeat,
+            .address_mode_v = .repeat,
+            .address_mode_w = .repeat,
+        };
+    }
+
+    pub fn pixelArtTiled() SamplerDescriptor {
+        return .{
+            .mag_filter = .nearest,
+            .min_filter = .nearest,
+            .mipmap_filter = .nearest,
+            .address_mode_u = .repeat,
+            .address_mode_v = .repeat,
+            .address_mode_w = .repeat,
+        };
+    }
+};
+
 pub const Pipeline = struct {
     handle: u32,
 };
@@ -119,6 +161,7 @@ extern "env" fn webgpu_draw_colored_meshes(ctx: u32, mesh_handle: u32, shader_ha
 extern "env" fn webgpu_end_frame(ctx: u32) void;
 extern "env" fn webgpu_set_viewport_scissor(ctx: u32, x: f32, y: f32, width: f32, height: f32) void;
 extern "env" fn webgpu_create_sampler(ctx: u32) u32;
+extern "env" fn webgpu_create_sampler_desc(ctx: u32, mag_filter: u32, min_filter: u32, mipmap_filter: u32, address_mode_u: u32, address_mode_v: u32, address_mode_w: u32) u32;
 extern "env" fn webgpu_destroy_sampler(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_texture_rgba8(ctx: u32, sampler_handle: u32, data_ptr: [*]const u8, data_len: usize, width: u32, height: u32) u32;
 extern "env" fn webgpu_destroy_texture(ctx: u32, handle: u32) void;
@@ -164,7 +207,19 @@ pub const Renderer = struct {
     }
 
     pub fn createSampler(self: *Renderer) !Sampler {
-        return Sampler{ .handle = webgpu_create_sampler(self.ctx) };
+        return self.createSamplerWithDescriptor(.{});
+    }
+
+    pub fn createSamplerWithDescriptor(self: *Renderer, descriptor: SamplerDescriptor) !Sampler {
+        return Sampler{ .handle = webgpu_create_sampler_desc(
+            self.ctx,
+            @intFromEnum(descriptor.mag_filter),
+            @intFromEnum(descriptor.min_filter),
+            @intFromEnum(descriptor.mipmap_filter),
+            @intFromEnum(descriptor.address_mode_u),
+            @intFromEnum(descriptor.address_mode_v),
+            @intFromEnum(descriptor.address_mode_w),
+        ) };
     }
 
     pub fn destroySampler(self: *Renderer, sampler: *Sampler) void {

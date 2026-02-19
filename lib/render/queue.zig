@@ -51,16 +51,14 @@ pub const RenderQueue = struct {
         var material: ?backend.Material = null;
         var material_handle: ?mesh.MaterialHandle = null;
         var shader_handle: ?mesh.ShaderHandle = null;
-        var blend = instance.color.a < 255 or instance.material.alpha_mode == .Blend;
+        const blend = instance.color.a < 255 or instance.material.alpha_mode == .Blend;
         switch (instance.material.binding) {
             .default => {},
             .textured => |mat| {
                 material_handle = mat;
-                blend = true;
             },
             .backend => |mat| {
                 material = mat;
-                blend = true;
             },
             .shader => |shader| {
                 shader_handle = shader;

@@ -12,6 +12,7 @@ test "import tests" {
     _ = CrashDumpModule;
     _ = SoakMonitorModule;
     _ = NoiseModule;
+    _ = SkyModule;
 }
 
 // Imports
@@ -46,3 +47,4 @@ pub const SoakMonitorModule = @import("SoakMonitorModule.zig");
 pub const NoiseModule = @import("NoiseModule.zig").NoiseModule;
 pub const NoiseResource = @import("NoiseModule.zig").NoiseResource;
 pub const FastNoise = @import("NoiseModule.zig").FastNoise;
+pub const SkyModule = @import("SkyModule.zig");

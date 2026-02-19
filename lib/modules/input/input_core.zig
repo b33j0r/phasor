@@ -5,6 +5,8 @@ const std = @import("std");
 pub const KeyPressed = struct { key: Key };
 pub const KeyReleased = struct { key: Key };
 pub const KeyDown = struct { key: Key };
+pub const MouseDelta = struct { dx: f32, dy: f32 };
+pub const MouseCapture = struct { enabled: bool = false };
 
 pub const Keyboard = struct {
     current: u128 = 0,
@@ -33,6 +35,15 @@ pub const Keyboard = struct {
         if (idx >= 128) return;
         self.current &= ~(@as(u128, 1) << @intCast(idx));
     }
+};
+
+pub const Mouse = struct {
+    delta_x: f32 = 0.0,
+    delta_y: f32 = 0.0,
+    last_x: f64 = 0.0,
+    last_y: f64 = 0.0,
+    has_last: bool = false,
+    captured: bool = false,
 };
 
 pub fn keyFromInt(value: u32) ?Key {

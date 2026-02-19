@@ -91,6 +91,7 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "bouncing-ball", "examples/bouncing-ball/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "cube", "examples/cube/main.zig", &.{});
+    _ = addExample(&ctx, phasor.module, "warehouse", "examples/warehouse/main.zig", &.{});
     addEcsQueryCacheBenchmark(&ctx, phasor.module);
 
     addWebExamples(&ctx);
@@ -720,6 +721,12 @@ fn addExample(
     run_cmd.step.dependOn(ctx.b.getInstallStep());
     run_step.dependOn(&run_cmd.step);
 
+    const run_native_step = ctx.b.step(
+        ctx.b.fmt("run-{s}-native", .{name}),
+        ctx.b.fmt("Run the {s} native example", .{name}),
+    );
+    run_native_step.dependOn(&run_cmd.step);
+
     return exe;
 }
 
@@ -829,6 +836,29 @@ fn addWasmExample(
 
     const run_step = ctx.b.step(ctx.b.fmt("run-{s}-wasm", .{ex.name}), ctx.b.fmt("Run the {s} wasm example", .{ex.name}));
     run_step.dependOn(&run_server.step);
+
+    const run_server_https = ctx.b.addRunArtifact(server_exe);
+    run_server_https.setCwd(ctx.b.path("."));
+    run_server_https.addArg("--root");
+    run_server_https.addArg(ctx.b.fmt("zig-out/{s}", .{web_dir}));
+    run_server_https.addArg("--index");
+    run_server_https.addArg("index.html");
+    run_server_https.addArg("--https");
+    if (ctx.b.args) |args| {
+        run_server_https.addArgs(args);
+    }
+    run_server_https.step.dependOn(&install_wasm.step);
+    run_server_https.step.dependOn(&install_html.step);
+    run_server_https.step.dependOn(&install_js.step);
+    run_server_https.step.dependOn(&install_favicon.step);
+    run_server_https.step.dependOn(&install_triangle_shader.step);
+    run_server_https.step.dependOn(&install_quad_shader.step);
+
+    const run_https_step = ctx.b.step(
+        ctx.b.fmt("run-{s}-wasm-https", .{ex.name}),
+        ctx.b.fmt("Run the {s} wasm example with HTTPS", .{ex.name}),
+    );
+    run_https_step.dependOn(&run_server_https.step);
 }
 
 fn addWebExamples(ctx: *const BuildContext) void {
@@ -911,6 +941,14 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "stb_image", .module = wasm_stb_image },
         },
     });
+    const wasm_audio = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/audio/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "assets", .module = wasm_assets },
+        },
+    });
     const wasm_fastnoise = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("deps/fastnoiselite/fastnoise.zig"),
         .target = wasm_target,
@@ -930,6 +968,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "db", .module = wasm_db },
             .{ .name = "ecs", .module = wasm_ecs },
             .{ .name = "assets", .module = wasm_assets },
+            .{ .name = "audio", .module = wasm_audio },
             .{ .name = "metrics", .module = wasm_metrics },
             .{ .name = "render", .module = wasm_render },
             .{ .name = "fastnoise", .module = wasm_fastnoise },
@@ -962,6 +1001,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "platform", .module = wasm_platform },
             .{ .name = "render", .module = wasm_render },
             .{ .name = "assets", .module = wasm_assets },
+            .{ .name = "audio", .module = wasm_audio },
         },
     });
 
@@ -969,6 +1009,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .{ .name = "bouncing-ball", .root = "examples/bouncing-ball/main.zig" },
         .{ .name = "cube", .root = "examples/cube/main.zig" },
         .{ .name = "triangle", .root = "examples/triangle/main.zig" },
+        .{ .name = "warehouse", .root = "examples/warehouse/main.zig" },
     };
 
     const server_mod = ctx.module("lib/web/wasm_server.zig", &.{});
