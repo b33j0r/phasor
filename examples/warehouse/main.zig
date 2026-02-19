@@ -13,6 +13,10 @@ const FpsController = struct {
     radius: f32 = 0.35,
     height: f32 = 1.8,
     grounded: bool = false,
+    coyote_time: f32 = 0.1,
+    coyote_timer: f32 = 0.0,
+    jump_buffer_time: f32 = 0.12,
+    jump_buffer_timer: f32 = 0.0,
 };
 
 const StaticAabb = struct {
@@ -418,11 +422,7 @@ fn updateFpsControllerIntent(
             if (keys.isKeyDown(.s)) desired = desired.sub(forward_world);
             if (keys.isKeyDown(.d)) desired = desired.add(right_world);
             if (keys.isKeyDown(.a)) desired = desired.sub(right_world);
-
-            if (controller.grounded and keys.isKeyPressed(.space)) {
-                controller.velocity_y = controller.jump_speed;
-                controller.grounded = false;
-            }
+            if (keys.isKeyPressed(.space)) controller.jump_buffer_timer = controller.jump_buffer_time;
         }
 
         desired.y = 0.0;
@@ -436,6 +436,8 @@ fn updateFpsControllerIntent(
         }
 
         controller.velocity_y += controller.gravity * step;
+        controller.jump_buffer_timer = @max(controller.jump_buffer_timer - step, 0.0);
+        controller.coyote_timer = @max(controller.coyote_timer - step, 0.0);
     }
 }
 
@@ -467,6 +469,16 @@ fn movePlayerAndCollide(
             .y = controller.velocity_y,
             .z = controller.move_z,
         };
+
+        if (controller.grounded) controller.coyote_timer = controller.coyote_time;
+
+        if (controller.jump_buffer_timer > 0.0 and controller.coyote_timer > 0.0) {
+            vel.y = controller.jump_speed;
+            controller.velocity_y = controller.jump_speed;
+            controller.grounded = false;
+            controller.coyote_timer = 0.0;
+            controller.jump_buffer_timer = 0.0;
+        }
 
         controller.grounded = false;
 
