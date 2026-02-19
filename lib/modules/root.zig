@@ -13,6 +13,7 @@ test "import tests" {
     _ = SoakMonitorModule;
     _ = NoiseModule;
     _ = SkyModule;
+    _ = FpsPhysicsModule;
 }
 
 // Imports
@@ -48,3 +49,4 @@ pub const NoiseModule = @import("NoiseModule.zig").NoiseModule;
 pub const NoiseResource = @import("NoiseModule.zig").NoiseResource;
 pub const FastNoise = @import("NoiseModule.zig").FastNoise;
 pub const SkyModule = @import("SkyModule.zig");
+pub const FpsPhysicsModule = @import("FpsPhysicsModule.zig").FpsPhysicsModule;
