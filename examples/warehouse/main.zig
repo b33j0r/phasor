@@ -67,10 +67,11 @@ const App = struct {
 
 pub const main = platform.main(App);
 
-fn setupScene(commands: *ecs.Commands) !void {
-    const state = commands.getResourceMut(RenderState) orelse return;
-    const mesh_library = commands.getResourceMut(MeshLibrary) orelse return;
-    const scene_assets = commands.getResourceMut(Assets) orelse return;
+fn setupScene(commands: *ecs.Commands, res_state: ResMut(RenderState), res_mesh_library: ResMut(MeshLibrary), res_scene_assets: ResMut(Assets)) !void {
+    const state = res_state.deref();
+    const scene_assets = res_scene_assets.deref();
+    const mesh_library = res_mesh_library.deref();
+
     if (!scene_assets.floor_tex.material_handle.isValid()) return error.FloorTextureMissing;
     if (!scene_assets.wall_tex.material_handle.isValid()) return error.WallTextureMissing;
     if (!scene_assets.catwalk_tex.material_handle.isValid()) return error.CatwalkTextureMissing;
@@ -957,6 +958,7 @@ const RenderState = modules.RenderModule.RenderState;
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 const ResOpt = ecs.system_params.ResOpt;
+const ResMut = ecs.system_params.ResMut;
 
 const Keyboard = modules.InputModule.Keyboard;
 const Mouse = modules.InputModule.Mouse;
