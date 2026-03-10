@@ -234,14 +234,18 @@ pub fn handleViewportResize(
     }
 
     if (latest) |evt| {
+        try commands.insertResource(types.ViewportSize{
+            .width = @floatFromInt(evt.width),
+            .height = @floatFromInt(evt.height),
+        });
         if (render_bounds_opt.ptr) |bounds| {
-            try commands.insertResource(types.ViewportSize{
+            try commands.insertResource(types.FramebufferSize{
                 .width = bounds.width,
                 .height = bounds.height,
             });
             return;
         }
-        try commands.insertResource(types.ViewportSize{
+        try commands.insertResource(types.FramebufferSize{
             .width = @floatFromInt(evt.width),
             .height = @floatFromInt(evt.height),
         });
@@ -249,13 +253,27 @@ pub fn handleViewportResize(
     }
 
     if (!commands.hasResource(types.ViewportSize)) {
-        if (render_bounds_opt.ptr) |bounds| {
+        if (window_bounds_opt.ptr) |bounds| {
+            try commands.insertResource(types.ViewportSize{
+                .width = @floatFromInt(bounds.width),
+                .height = @floatFromInt(bounds.height),
+            });
+        } else if (render_bounds_opt.ptr) |bounds| {
             try commands.insertResource(types.ViewportSize{
                 .width = bounds.width,
                 .height = bounds.height,
             });
+        }
+    }
+
+    if (!commands.hasResource(types.FramebufferSize)) {
+        if (render_bounds_opt.ptr) |bounds| {
+            try commands.insertResource(types.FramebufferSize{
+                .width = bounds.width,
+                .height = bounds.height,
+            });
         } else if (window_bounds_opt.ptr) |bounds| {
-            try commands.insertResource(types.ViewportSize{
+            try commands.insertResource(types.FramebufferSize{
                 .width = @floatFromInt(bounds.width),
                 .height = @floatFromInt(bounds.height),
             });

@@ -132,13 +132,20 @@ function readString(ptr, len) {
 function resizeCanvas(canvas) {
   const scale = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  const width = Math.max(1, Math.floor(rect.width * scale));
-  const height = Math.max(1, Math.floor(rect.height * scale));
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
+  const logicalWidth = Math.max(1, Math.floor(rect.width));
+  const logicalHeight = Math.max(1, Math.floor(rect.height));
+  const framebufferWidth = Math.max(1, Math.floor(rect.width * scale));
+  const framebufferHeight = Math.max(1, Math.floor(rect.height * scale));
+  if (canvas.width !== framebufferWidth || canvas.height !== framebufferHeight) {
+    canvas.width = framebufferWidth;
+    canvas.height = framebufferHeight;
   }
-  return { width, height };
+  return {
+    logicalWidth,
+    logicalHeight,
+    framebufferWidth,
+    framebufferHeight,
+  };
 }
 
 function createBufferWithData(device, data, usage) {
@@ -551,7 +558,13 @@ async function recoverWebGpu() {
     const canvas = document.querySelector("#canvas");
     if (canvas && wasm && wasm.exports && wasm.exports.wasmResize) {
       const size = resizeCanvas(canvas);
-      wasm.exports.wasmResize(wasmApp, size.width, size.height);
+      wasm.exports.wasmResize(
+        wasmApp,
+        size.logicalWidth,
+        size.logicalHeight,
+        size.framebufferWidth,
+        size.framebufferHeight,
+      );
     }
 
     simulationPaused = false;
@@ -1556,7 +1569,13 @@ function handleKeyEvent(isDown, event) {
     const canvas = document.querySelector("#canvas");
     const size = resizeCanvas(canvas);
     if (wasm.exports.wasmResize) {
-      wasm.exports.wasmResize(wasmApp, size.width, size.height);
+      wasm.exports.wasmResize(
+        wasmApp,
+        size.logicalWidth,
+        size.logicalHeight,
+        size.framebufferWidth,
+        size.framebufferHeight,
+      );
     }
   }
 

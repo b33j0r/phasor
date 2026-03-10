@@ -6,6 +6,7 @@ pub fn renderSystem(
     layer_cameras_opt: ResOpt(types.LayerCameras),
     layer_viewports_opt: ResOpt(types.LayerViewports),
     viewport_opt: ResOpt(types.ViewportSize),
+    framebuffer_opt: ResOpt(types.FramebufferSize),
     render_bounds_opt: ResOpt(common.RenderBounds),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
@@ -13,7 +14,12 @@ pub fn renderSystem(
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
     const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
 
-    const surface_size = if (render_bounds_opt.ptr) |bounds|
+    const surface_size = if (framebuffer_opt.ptr) |bounds|
+        render.Size{
+            .width = @intFromFloat(@max(1.0, bounds.width)),
+            .height = @intFromFloat(@max(1.0, bounds.height)),
+        }
+    else if (render_bounds_opt.ptr) |bounds|
         render.Size{
             .width = @intFromFloat(@max(1.0, bounds.width)),
             .height = @intFromFloat(@max(1.0, bounds.height)),
@@ -43,7 +49,8 @@ pub fn renderSystem(
     for (layers) |layer| {
         const layer_rect = layerViewportRect(layer, layer_viewports_opt.ptr, viewport_size);
         if (layer_rect.width <= 0.0 or layer_rect.height <= 0.0) continue;
-        frame.setViewportScissor(layer_rect.x, layer_rect.y, layer_rect.width, layer_rect.height);
+        const scissor_rect = scaleViewportRect(layer_rect, viewport_size, surface_size);
+        frame.setViewportScissor(scissor_rect.x, scissor_rect.y, scissor_rect.width, scissor_rect.height);
 
         const layer_size = render.Size{
             .width = @intFromFloat(layer_rect.width),
@@ -331,6 +338,22 @@ fn layerViewportRect(
         .y = 0.0,
         .width = @floatFromInt(fallback_size.width),
         .height = @floatFromInt(fallback_size.height),
+    };
+}
+
+fn scaleViewportRect(rect: types.ViewportRect, logical_size: render.Size, physical_size: render.Size) types.ViewportRect {
+    // Viewport cameras and layout operate in logical units; GPU scissors need physical pixels.
+    const logical_w = @as(f32, @floatFromInt(logical_size.width));
+    const logical_h = @as(f32, @floatFromInt(logical_size.height));
+    const physical_w = @as(f32, @floatFromInt(physical_size.width));
+    const physical_h = @as(f32, @floatFromInt(physical_size.height));
+    const scale_x = if (logical_w > 0.0) physical_w / logical_w else 1.0;
+    const scale_y = if (logical_h > 0.0) physical_h / logical_h else 1.0;
+    return .{
+        .x = rect.x * scale_x,
+        .y = rect.y * scale_y,
+        .width = rect.width * scale_x,
+        .height = rect.height * scale_y,
     };
 }
 

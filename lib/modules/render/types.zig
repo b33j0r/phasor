@@ -19,6 +19,13 @@ pub const RenderState = struct {
 };
 
 pub const ViewportSize = struct {
+    /// Logical viewport size used by viewport cameras, UI, and layout math.
+    width: f32,
+    height: f32,
+};
+
+pub const FramebufferSize = struct {
+    /// Physical framebuffer size used for render-surface sizing and scissor rectangles.
     width: f32,
     height: f32,
 };
@@ -67,6 +74,7 @@ pub const LayerCameras = struct {
 };
 
 pub const ViewportRect = struct {
+    /// Logical viewport rectangle. The renderer converts this into physical pixels per frame.
     x: f32 = 0.0,
     y: f32 = 0.0,
     width: f32 = 0.0,

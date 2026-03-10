@@ -12,11 +12,10 @@ pub fn uninstall(app: *AppCommands) void {
 fn computeLayerViewports(
     viewports: ResMut(types.LayerViewports),
     viewport_opt: ResOpt(types.ViewportSize),
-    render_bounds_opt: ResOpt(common.RenderBounds),
     cameras_with_layout: Query(.{ common.Camera3d, common.ViewportLayout }),
     cameras_without_layout: Query(.{ common.Camera3d, Without(common.ViewportLayout) }),
 ) !void {
-    const bounds = viewportBounds(viewport_opt.ptr, render_bounds_opt.ptr);
+    const bounds = viewportBounds(viewport_opt.ptr);
     viewports.ptr.clear();
 
     var it_layout = cameras_with_layout.iterator();
@@ -48,8 +47,7 @@ const Bounds = struct {
     height: f32,
 };
 
-fn viewportBounds(viewport_opt: ?*const types.ViewportSize, render_bounds_opt: ?*const common.RenderBounds) Bounds {
-    if (render_bounds_opt) |rb| return .{ .width = rb.width, .height = rb.height };
+fn viewportBounds(viewport_opt: ?*const types.ViewportSize) Bounds {
     if (viewport_opt) |vp| return .{ .width = vp.width, .height = vp.height };
     return .{ .width = 1280.0, .height = 720.0 };
 }

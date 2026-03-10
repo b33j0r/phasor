@@ -179,6 +179,7 @@ fn resolveBounds(
     render_bounds_opt: ResOpt(RenderBounds),
     render_state_opt: ResOpt(RenderState),
 ) ?Bounds {
+    // Gameplay uses logical viewport size so larger windows reveal more world without changing sprite scale.
     if (viewport_opt.ptr) |vp| {
         return .{ .width = vp.width, .height = vp.height };
     }

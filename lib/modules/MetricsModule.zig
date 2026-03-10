@@ -550,23 +550,23 @@ fn resolveBounds(
         },
         .Screen => {},
     }
-    if (render_bounds_opt.ptr) |bounds| {
-        return .{ .width = bounds.width, .height = bounds.height };
-    }
     if (viewport_opt.ptr) |vp| {
         return .{ .width = vp.width, .height = vp.height };
+    }
+    if (window_bounds_opt.ptr) |bounds| {
+        return .{
+            .width = @floatFromInt(bounds.width),
+            .height = @floatFromInt(bounds.height),
+        };
+    }
+    if (render_bounds_opt.ptr) |bounds| {
+        return .{ .width = bounds.width, .height = bounds.height };
     }
     if (render_state_opt.ptr) |state| {
         const size = state.surface.size();
         return .{
             .width = @floatFromInt(size.width),
             .height = @floatFromInt(size.height),
-        };
-    }
-    if (window_bounds_opt.ptr) |bounds| {
-        return .{
-            .width = @floatFromInt(bounds.width),
-            .height = @floatFromInt(bounds.height),
         };
     }
     return null;

@@ -7,6 +7,7 @@ const render_submit = @import("render/submit.zig");
 pub const RenderSurface = render_types.RenderSurface;
 pub const RenderState = render_types.RenderState;
 pub const ViewportSize = render_types.ViewportSize;
+pub const FramebufferSize = render_types.FramebufferSize;
 pub const RenderRecovery = render_types.RenderRecovery;
 pub const SpriteMeshCache = render_types.SpriteMeshCache;
 pub const LayerCameras = render_types.LayerCameras;
@@ -201,8 +202,14 @@ pub fn signalDeviceRestored(commands: *Commands) void {
     _ = commands.insertResource(RenderRecovery{ .lost = false, .restored = true }) catch {};
 }
 
-pub fn setSurfaceSize(commands: *Commands, width: u32, height: u32) void {
-    const size = render.Size{ .width = width, .height = height };
+pub fn setSurfaceSize(
+    commands: *Commands,
+    logical_width: u32,
+    logical_height: u32,
+    framebuffer_width: u32,
+    framebuffer_height: u32,
+) void {
+    const size = render.Size{ .width = framebuffer_width, .height = framebuffer_height };
     if (commands.getResourceMut(RenderSurface)) |surface| {
         switch (surface.target) {
             .web => |*web| {
@@ -220,8 +227,12 @@ pub fn setSurfaceSize(commands: *Commands, width: u32, height: u32) void {
         }
     }
     _ = commands.insertResource(ViewportSize{
-        .width = @floatFromInt(width),
-        .height = @floatFromInt(height),
+        .width = @floatFromInt(logical_width),
+        .height = @floatFromInt(logical_height),
+    }) catch {};
+    _ = commands.insertResource(FramebufferSize{
+        .width = @floatFromInt(framebuffer_width),
+        .height = @floatFromInt(framebuffer_height),
     }) catch {};
 }
 

@@ -19,9 +19,10 @@ pub const Camera3d = union(enum) {
         far: f32 = 100.0,
         zoom: f32 = 1.0,
     },
-    /// Pixel-perfect camera using window coordinates.
-    /// Window coordinates are DPI-independent.
-    /// The system automatically scales to fill the physical framebuffer.
+    /// Pixel-perfect camera using logical window coordinates.
+    /// Coordinates are DPI-independent: a point at (640, 360) stays centered in a 1280x720 window
+    /// even when the physical framebuffer is larger on a HiDPI display.
+    /// The renderer scales these logical coordinates into the physical framebuffer automatically.
     Viewport: struct {
         mode: enum {
             /// Top-left is (0,0), y increases downwards.

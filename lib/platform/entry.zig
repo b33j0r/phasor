@@ -108,13 +108,25 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             _ = runner.app.step() catch {};
         }
 
-        pub fn wasmResize(handle: u32, width: u32, height: u32) callconv(.c) void {
+        pub fn wasmResize(
+            handle: u32,
+            logical_width: u32,
+            logical_height: u32,
+            framebuffer_width: u32,
+            framebuffer_height: u32,
+        ) callconv(.c) void {
             if (!is_wasm) return;
             if (handle == 0) return;
             const runner: *Runner = @ptrFromInt(handle);
             var commands = ecs.Commands.init(runner.app.allocator, runner.app.io, &runner.app.world);
             defer commands.deinit();
-            modules.RenderModule.setSurfaceSize(&commands, width, height);
+            modules.RenderModule.setSurfaceSize(
+                &commands,
+                logical_width,
+                logical_height,
+                framebuffer_width,
+                framebuffer_height,
+            );
             _ = commands.apply() catch {};
         }
 
