@@ -17,7 +17,7 @@ const StartInstant = struct {
 
 const InstantValue = if (builtin.target.cpu.arch.isWasm()) struct {
     ms: f64,
-} else std.time.Instant;
+} else std.Io.Clock.Timestamp;
 
 pub fn install(app: *AppCommands, cmds: *Commands) !void {
     const now = try currentInstant();
@@ -67,7 +67,7 @@ fn currentInstant() !InstantValue {
     if (builtin.target.cpu.arch.isWasm()) {
         return .{ .ms = WasmImports.timeMs() };
     }
-    return std.time.Instant.now();
+    return std.Io.Clock.Timestamp.now(std.Options.debug_io, .awake);
 }
 
 fn deltaSeconds(prev: InstantValue, now: InstantValue) f64 {
@@ -75,8 +75,8 @@ fn deltaSeconds(prev: InstantValue, now: InstantValue) f64 {
         const dt_ms = now.ms - prev.ms;
         return dt_ms / 1000.0;
     }
-    const dt_nanos = now.since(prev);
-    return @as(f64, @floatFromInt(dt_nanos)) / std.time.ns_per_s;
+    const dt = prev.durationTo(now);
+    return @as(f64, @floatFromInt(dt.raw.nanoseconds)) / std.time.ns_per_s;
 }
 
 fn sanitizeDelta(dt: f64) f64 {
