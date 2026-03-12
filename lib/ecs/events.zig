@@ -4,7 +4,7 @@ pub fn Events(comptime T: type) type {
         io: *const std.Io,
         queue_capacity: usize,
         subs: std.AutoHashMap(u64, *Subscription),
-        mutex: std.Thread.Mutex = .{},
+        mutex: std.Io.Mutex = .init,
 
         const Self = @This();
         const Subscription = struct {
@@ -30,7 +30,7 @@ pub fn Events(comptime T: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.mutex.lock();
+            self.mutex.lockUncancelable(self.io.*);
             var it = self.subs.valueIterator();
             while (it.next()) |sub_ptr| {
                 const sub = sub_ptr.*;
@@ -39,7 +39,7 @@ pub fn Events(comptime T: type) type {
                 self.allocator.destroy(sub);
             }
             self.subs.deinit();
-            self.mutex.unlock();
+            self.mutex.unlock(self.io.*);
         }
 
         pub fn send(self: *Self, value: T) Error!void {
@@ -89,8 +89,8 @@ pub fn Events(comptime T: type) type {
         }
 
         pub fn subscribe(self: *Self, key: u64) !*Subscription {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lockUncancelable(self.io.*);
+            defer self.mutex.unlock(self.io.*);
 
             if (self.subs.get(key)) |existing| return existing;
 
@@ -108,14 +108,14 @@ pub fn Events(comptime T: type) type {
         }
 
         pub fn get(self: *Self, key: u64) ?*Subscription {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lockUncancelable(self.io.*);
+            defer self.mutex.unlock(self.io.*);
             return self.subs.get(key);
         }
 
         pub fn remove(self: *Self, key: u64) bool {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lockUncancelable(self.io.*);
+            defer self.mutex.unlock(self.io.*);
             if (self.subs.fetchRemove(key)) |kv| {
                 const sub = kv.value;
                 sub.queue.close(self.io.*);
@@ -127,16 +127,16 @@ pub fn Events(comptime T: type) type {
         }
 
         pub fn getSubscriptionCount(self: *Self) usize {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lockUncancelable(self.io.*);
+            defer self.mutex.unlock(self.io.*);
             return self.subs.count();
         }
 
         fn snapshotSubscriptions(self: *Self) ![]*Subscription {
-            self.mutex.lock();
+            self.mutex.lockUncancelable(self.io.*);
             const count = self.subs.count();
             const subs = self.allocator.alloc(*Subscription, count) catch |err| {
-                self.mutex.unlock();
+                self.mutex.unlock(self.io.*);
                 return err;
             };
             var i: usize = 0;
@@ -144,7 +144,7 @@ pub fn Events(comptime T: type) type {
             while (it.next()) |sub_ptr| : (i += 1) {
                 subs[i] = sub_ptr.*;
             }
-            self.mutex.unlock();
+            self.mutex.unlock(self.io.*);
             return subs;
         }
 
