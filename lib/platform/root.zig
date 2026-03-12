@@ -10,8 +10,7 @@ test "import tests" {
 pub const App = @import("entry.zig").EntryPoint;
 pub const main = @import("entry.zig").main;
 pub const exportWasm = @import("entry.zig").exportWasm;
-pub const defaultBaseline = @import("entry.zig").defaultBaseline;
-pub const defaultWasm = @import("entry.zig").defaultWasm;
+pub const installDefaultModules = @import("entry.zig").installDefaultModules;
 pub const Options = @import("entry.zig").Options;
 pub const WindowSettings = @import("entry.zig").WindowSettings;
 pub const WindowFlags = @import("entry.zig").WindowFlags;

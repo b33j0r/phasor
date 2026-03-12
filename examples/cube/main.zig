@@ -10,9 +10,8 @@ const App = struct {
     };
 
     pub fn configure(app: *ecs.App) !void {
-        try app.installModule(modules.TimeModule);
+        try platform.installDefaultModules(app);
         try app.installModule(modules.ParentModule);
-        try app.installModule(modules.RenderModule);
         try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
             .font_size = 36.0,

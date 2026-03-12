@@ -1,6 +1,6 @@
 const App = struct {
     pub fn configure(app: *ecs.App) !void {
-        try app.installModule(modules.RenderModule);
+        try platform.installDefaultModules(app);
         try app.addSystemTo("Startup", setupScene);
     }
 };

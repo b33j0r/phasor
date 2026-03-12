@@ -29,10 +29,7 @@ const App = struct {
     };
 
     pub fn configure(app: *ecs.App) !void {
-        try app.installModule(modules.TimeModule);
-        try app.installModule(modules.InputModule);
-        try app.installModule(modules.RenderModule);
-        try app.installModule(modules.AudioModule);
+        try platform.installDefaultModules(app);
         try app.installModule(modules.SkyModule);
         try app.installModule(FpsPhysics{});
         try app.installModule(modules.AssetsModule(Assets));
