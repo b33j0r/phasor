@@ -9,7 +9,7 @@
         },
         .stb = .{
             .url = "https://github.com/nothings/stb/archive/refs/heads/master.tar.gz",
-            .hash = "N-V-__8AABQ7TgCnPlp8MP4YA8znrjd6E-ZjpF1rvrS8J_2I",
+            .hash = "N-V-__8AAKI8TgB0xGAQ6uIj_iqOLl4-0aBJ7IdfRJd54B6d",
         },
         .wgpu_native_zig = .{
             .url = "git+https://github.com/b33j0r/wgpu_native_zig#4115c0834f2e239b3f44d7dc0754329285ba97a7",
