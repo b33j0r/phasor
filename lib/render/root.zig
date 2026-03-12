@@ -61,6 +61,8 @@ pub const Sprite = sprite.Sprite;
 pub const spriteSizeHash = sprite.sizeHash;
 pub const Layer = layer.Layer;
 pub const LayerN = layer.LayerN;
+pub const LayerOverride = layer.LayerOverride;
+pub const LayerSortKey = layer.LayerSortKey;
 pub const CameraLayer = layer.CameraLayer;
 pub const CameraLayerN = layer.CameraLayerN;
 

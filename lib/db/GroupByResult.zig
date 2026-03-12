@@ -168,7 +168,8 @@ pub const Group = struct {
             return QueryResult{
                 .allocator = self.allocator,
                 .database = self.database,
-                .table_indices = .empty,
+                .table_indices = &.{},
+                .owned_table_indices = null,
             };
         }
 

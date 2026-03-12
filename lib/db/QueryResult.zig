@@ -7,7 +7,7 @@ const QueryResult = @This();
 
 pub fn fromSpec(allocator: std.mem.Allocator, database: *Database, comptime Spec: type) !QueryResult {
     comptime {
-        if (!@hasDecl(Spec, "with") or !@hasDecl(Spec, "without")) {
+        if (!@hasDecl(Spec, "with") or !@hasDecl(Spec, "without") or !@hasDecl(Spec, "without_group_traits")) {
             @compileError("QueryResult.fromSpec expects a QuerySpec generated type");
         }
     }
@@ -35,7 +35,10 @@ pub fn fromComponentTypesAndTableIndices(
     for (table_indices) |table_index| {
         if (table_index >= database.tables.items.len) continue;
         const table = &database.tables.items[table_index];
-        if (table.schema.hasAll(&Spec.with) and !table.schema.hasAny(&Spec.without)) {
+        if (table.schema.hasAll(&Spec.with) and
+            !table.schema.hasAny(&Spec.without) and
+            !tableHasAnyGroupTraits(table, Spec.without_group_traits.items))
+        {
             try matches.append(allocator, table_index);
         }
     }
@@ -145,6 +148,32 @@ pub const Iterator = struct {
     }
 };
 
+fn tableHasAnyGroupTraits(table: *const @import("table.zig").Table, trait_ids: []const meta.TypeId) bool {
+    if (trait_ids.len == 0) return false;
+    for (table.columns) |column| {
+        for (column.group_traits) |group_trait| {
+            if (containsTypeId(trait_ids, group_trait.trait_id)) return true;
+        }
+    }
+    return false;
+}
+
+fn containsTypeId(ids: []const meta.TypeId, target: meta.TypeId) bool {
+    var left: usize = 0;
+    var right: usize = ids.len;
+    while (left < right) {
+        const mid = left + (right - left) / 2;
+        const value = ids[mid];
+        if (value == target) return true;
+        if (value < target) {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    return false;
+}
+
 test "QueryResult matches tables and iterates rows" {
     const allocator = std.testing.allocator;
     var database = Database.init(allocator);
@@ -177,10 +206,48 @@ test "QueryResult matches tables and iterates rows" {
     try std.testing.expect(ids[0] == 2);
 }
 
+test "QueryResult excludes rows from tables carrying filtered group trait marker" {
+    const LayerMarker = struct {
+        pub const __query_group_trait__ = true;
+    };
+    const Layered = struct {
+        pub const __traits__ = .{
+            struct {
+                pub const __trait__ = Group(LayerMarker);
+                pub const key: i32 = 0;
+            },
+        };
+    };
+
+    const allocator = std.testing.allocator;
+    var database = Database.init(allocator);
+    defer database.deinit();
+
+    _ = try database.createEntityWithId(1, .{
+        fixtures.Position{ .x = 1, .y = 2 },
+    });
+    _ = try database.createEntityWithId(2, .{
+        fixtures.Position{ .x = 3, .y = 4 },
+        Layered{},
+    });
+
+    const Spec = QuerySpec.Spec(.{
+        fixtures.Position,
+        QuerySpec.Without(LayerMarker),
+    });
+    var result = try QueryResult.fromSpec(allocator, &database, Spec);
+    defer result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), result.count());
+    try std.testing.expectEqual(@as(u64, 1), result.first().?.entity_id);
+}
+
 // Imports
 const std = @import("std");
 const Database = @import("Database.zig");
 const Entity = @import("Entity.zig");
 const QuerySpec = @import("QuerySpec.zig");
 const GroupByResult = @import("GroupByResult.zig");
+const Group = @import("Trait.zig").Group;
+const meta = @import("meta.zig");
 const fixtures = @import("common").fixtures;

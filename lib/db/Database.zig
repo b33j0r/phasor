@@ -27,19 +27,28 @@ const QueryCacheEntry = struct {
     generation: u64,
     with_ids: []meta.TypeId,
     without_ids: []meta.TypeId,
+    without_group_trait_ids: []meta.TypeId,
     table_indices: []usize,
 
     fn deinit(self: *QueryCacheEntry, allocator: std.mem.Allocator) void {
         if (self.with_ids.len > 0) allocator.free(self.with_ids);
         if (self.without_ids.len > 0) allocator.free(self.without_ids);
+        if (self.without_group_trait_ids.len > 0) allocator.free(self.without_group_trait_ids);
         if (self.table_indices.len > 0) allocator.free(self.table_indices);
         self.* = undefined;
     }
 
-    fn matches(self: *const QueryCacheEntry, generation: u64, with_ids: []const meta.TypeId, without_ids: []const meta.TypeId) bool {
+    fn matches(
+        self: *const QueryCacheEntry,
+        generation: u64,
+        with_ids: []const meta.TypeId,
+        without_ids: []const meta.TypeId,
+        without_group_trait_ids: []const meta.TypeId,
+    ) bool {
         return self.generation == generation and
             std.mem.eql(meta.TypeId, self.with_ids, with_ids) and
-            std.mem.eql(meta.TypeId, self.without_ids, without_ids);
+            std.mem.eql(meta.TypeId, self.without_ids, without_ids) and
+            std.mem.eql(meta.TypeId, self.without_group_trait_ids, without_group_trait_ids);
     }
 };
 
@@ -87,15 +96,16 @@ pub fn totalRowCount(self: *const Self) usize {
 
 pub fn queryTableIndices(self: *Self, comptime Spec: type) ![]const usize {
     comptime {
-        if (!@hasDecl(Spec, "with") or !@hasDecl(Spec, "without")) {
+        if (!@hasDecl(Spec, "with") or !@hasDecl(Spec, "without") or !@hasDecl(Spec, "without_group_traits")) {
             @compileError("queryTableIndices expects a QuerySpec generated type");
         }
     }
 
     const with_ids = Spec.with.items;
     const without_ids = Spec.without.items;
+    const without_group_trait_ids = Spec.without_group_traits.items;
     for (self.query_cache.items) |*entry| {
-        if (entry.matches(self.query_generation, with_ids, without_ids)) return entry.table_indices;
+        if (entry.matches(self.query_generation, with_ids, without_ids, without_group_trait_ids)) return entry.table_indices;
     }
 
     const table_indices = try self.queryTableIndicesUncached(Spec);
@@ -107,10 +117,14 @@ pub fn queryTableIndices(self: *Self, comptime Spec: type) ![]const usize {
     const without_copy = try self.allocator.dupe(meta.TypeId, without_ids);
     errdefer if (without_copy.len > 0) self.allocator.free(without_copy);
 
+    const without_group_trait_copy = try self.allocator.dupe(meta.TypeId, without_group_trait_ids);
+    errdefer if (without_group_trait_copy.len > 0) self.allocator.free(without_group_trait_copy);
+
     try self.query_cache.append(self.allocator, .{
         .generation = self.query_generation,
         .with_ids = with_copy,
         .without_ids = without_copy,
+        .without_group_trait_ids = without_group_trait_copy,
         .table_indices = table_indices,
     });
     return self.query_cache.items[self.query_cache.items.len - 1].table_indices;
@@ -118,7 +132,7 @@ pub fn queryTableIndices(self: *Self, comptime Spec: type) ![]const usize {
 
 pub fn queryTableIndicesUncached(self: *Self, comptime Spec: type) ![]usize {
     comptime {
-        if (!@hasDecl(Spec, "with") or !@hasDecl(Spec, "without")) {
+        if (!@hasDecl(Spec, "with") or !@hasDecl(Spec, "without") or !@hasDecl(Spec, "without_group_traits")) {
             @compileError("queryTableIndicesUncached expects a QuerySpec generated type");
         }
     }
@@ -127,11 +141,40 @@ pub fn queryTableIndicesUncached(self: *Self, comptime Spec: type) ![]usize {
     errdefer matches.deinit(self.allocator);
 
     for (self.tables.items, 0..) |*table, idx| {
-        if (table.schema.hasAll(&Spec.with) and !table.schema.hasAny(&Spec.without)) {
+        if (table.schema.hasAll(&Spec.with) and
+            !table.schema.hasAny(&Spec.without) and
+            !tableHasAnyGroupTraits(table, Spec.without_group_traits.items))
+        {
             try matches.append(self.allocator, idx);
         }
     }
     return try matches.toOwnedSlice(self.allocator);
+}
+
+fn tableHasAnyGroupTraits(table: *const Table, trait_ids: []const meta.TypeId) bool {
+    if (trait_ids.len == 0) return false;
+    for (table.columns) |column| {
+        for (column.group_traits) |group_trait| {
+            if (containsTypeId(trait_ids, group_trait.trait_id)) return true;
+        }
+    }
+    return false;
+}
+
+fn containsTypeId(ids: []const meta.TypeId, target: meta.TypeId) bool {
+    var left: usize = 0;
+    var right: usize = ids.len;
+    while (left < right) {
+        const mid = left + (right - left) / 2;
+        const value = ids[mid];
+        if (value == target) return true;
+        if (value < target) {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    return false;
 }
 
 /// Get or create a table for the given component types.
@@ -673,6 +716,38 @@ test "Database query cache reuses and invalidates entries" {
     try std.testing.expect(first.ptr != third.ptr);
 }
 
+test "Database query excludes group trait marker via Without" {
+    const LayerMarker = struct {
+        pub const __query_group_trait__ = true;
+    };
+    const Layered = struct {
+        pub const __traits__ = .{
+            struct {
+                pub const __trait__ = Group(LayerMarker);
+                pub const key: i32 = 0;
+            },
+        };
+    };
+
+    var db = init(std.testing.allocator);
+    defer db.deinit();
+
+    _ = try db.createEntityWithId(1, .{
+        fixtures.Position{ .x = 1, .y = 2 },
+    });
+    _ = try db.createEntityWithId(2, .{
+        fixtures.Position{ .x = 3, .y = 4 },
+        Layered{},
+    });
+
+    const Spec = QuerySpec.Spec(.{
+        fixtures.Position,
+        QuerySpec.Without(LayerMarker),
+    });
+    const matches = try db.queryTableIndices(Spec);
+    try std.testing.expectEqual(@as(usize, 1), matches.len);
+}
+
 test "Database removeComponents moves entity and removes components" {
     var db = init(std.testing.allocator);
     defer db.deinit();
@@ -703,5 +778,6 @@ const Entity = @import("Entity.zig");
 const meta = @import("meta.zig");
 const QuerySpec = @import("QuerySpec.zig");
 const GroupByResult = @import("GroupByResult.zig");
+const Group = @import("Trait.zig").Group;
 const fixtures = @import("common").fixtures;
 const hooks_mod = @import("hooks.zig");

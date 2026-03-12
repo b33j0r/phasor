@@ -6,6 +6,7 @@ pub const RenderItem = union(enum) {
 pub const TriangleDraw = struct {
     triangle: backend.Triangle,
     layer: i32,
+    sort_key: i32 = 0,
 };
 
 pub const MeshDraw = struct {
@@ -17,6 +18,7 @@ pub const MeshDraw = struct {
     material: ?backend.Material = null,
     blend: bool = false,
     layer: i32 = 0,
+    sort_key: i32 = 0,
     entity_id: u64 = 0,
 };
 
@@ -37,8 +39,8 @@ pub const RenderQueue = struct {
         self.items.clearRetainingCapacity();
     }
 
-    pub fn pushTriangle(self: *RenderQueue, tri: backend.Triangle, layer: i32) !void {
-        try self.items.append(self.allocator, .{ .triangle = .{ .triangle = tri, .layer = layer } });
+    pub fn pushTriangle(self: *RenderQueue, tri: backend.Triangle, layer: i32, sort_key: i32) !void {
+        try self.items.append(self.allocator, .{ .triangle = .{ .triangle = tri, .layer = layer, .sort_key = sort_key } });
     }
 
     pub fn pushMeshInstance(
@@ -46,6 +48,7 @@ pub const RenderQueue = struct {
         instance: mesh.MeshInstance,
         transform: common.Mat4,
         layer: i32,
+        sort_key: i32,
         entity_id: u64,
     ) !void {
         var material: ?backend.Material = null;
@@ -74,6 +77,7 @@ pub const RenderQueue = struct {
                 .material = material,
                 .blend = blend,
                 .layer = layer,
+                .sort_key = sort_key,
                 .entity_id = entity_id,
             },
         });
@@ -85,6 +89,7 @@ pub const RenderQueue = struct {
         transform: common.Mat4,
         material: backend.Material,
         layer: i32,
+        sort_key: i32,
         entity_id: u64,
     ) !void {
         try self.items.append(self.allocator, .{
@@ -97,6 +102,7 @@ pub const RenderQueue = struct {
                 .material = material,
                 .blend = true,
                 .layer = layer,
+                .sort_key = sort_key,
                 .entity_id = entity_id,
             },
         });
@@ -108,6 +114,7 @@ pub const RenderQueue = struct {
         shader_handle: mesh.ShaderHandle,
         transform: common.Mat4,
         layer: i32,
+        sort_key: i32,
         entity_id: u64,
     ) !void {
         try self.items.append(self.allocator, .{
@@ -120,6 +127,7 @@ pub const RenderQueue = struct {
                 .material = null,
                 .blend = instance.color.a < 255,
                 .layer = layer,
+                .sort_key = sort_key,
                 .entity_id = entity_id,
             },
         });

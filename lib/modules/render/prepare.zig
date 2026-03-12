@@ -145,17 +145,31 @@ pub fn updateTextMeshes(
 }
 
 pub fn updateLayerCameras(
-    cameras: Query(.{ common.Camera3d, common.Transform }),
+    cameras_zero: Query(.{ common.Camera3d, common.Transform, render.CameraLayer(0) }),
+    cameras_unlayered: Query(.{ common.Camera3d, common.Transform, Without(render.CameraLayerN) }),
+    camera_groups: GroupBy(render.CameraLayerN),
     layer_cameras: ResMut(types.LayerCameras),
 ) !void {
     layer_cameras.ptr.clear();
 
-    var it = cameras.iterator();
+    try collectLayerCameras(layer_cameras.ptr, cameras_zero, 0);
+    try collectLayerCameras(layer_cameras.ptr, cameras_unlayered, 0);
+
+    var it = camera_groups.iterator();
+    while (it.next()) |group| {
+        if (group.key == 0) continue;
+        var rows = try group.query(.{ common.Camera3d, common.Transform });
+        defer rows.deinit();
+        try collectLayerCameras(layer_cameras.ptr, rows, group.key);
+    }
+}
+
+fn collectLayerCameras(layer_cameras: *types.LayerCameras, query: anytype, forced_layer: i32) !void {
+    var it = query.iterator();
     while (it.next()) |row| {
         const cam = row.get(common.Camera3d) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
-        const layer = types.cameraLayerKeyForRow(row);
-        try layer_cameras.ptr.map.put(layer, .{
+        try layer_cameras.map.put(forced_layer, .{
             .camera = cam.*,
             .view = viewMatrix(transform.*),
         });
@@ -234,9 +248,11 @@ pub fn handleViewportResize(
     }
 
     if (latest) |evt| {
+        const viewport_width = resolvedLogicalExtent(@floatFromInt(evt.width), render_bounds_opt.ptr, .width);
+        const viewport_height = resolvedLogicalExtent(@floatFromInt(evt.height), render_bounds_opt.ptr, .height);
         try commands.insertResource(types.ViewportSize{
-            .width = @floatFromInt(evt.width),
-            .height = @floatFromInt(evt.height),
+            .width = viewport_width,
+            .height = viewport_height,
         });
         if (render_bounds_opt.ptr) |bounds| {
             try commands.insertResource(types.FramebufferSize{
@@ -255,8 +271,8 @@ pub fn handleViewportResize(
     if (!commands.hasResource(types.ViewportSize)) {
         if (window_bounds_opt.ptr) |bounds| {
             try commands.insertResource(types.ViewportSize{
-                .width = @floatFromInt(bounds.width),
-                .height = @floatFromInt(bounds.height),
+                .width = resolvedLogicalExtent(@floatFromInt(bounds.width), render_bounds_opt.ptr, .width),
+                .height = resolvedLogicalExtent(@floatFromInt(bounds.height), render_bounds_opt.ptr, .height),
             });
         } else if (render_bounds_opt.ptr) |bounds| {
             try commands.insertResource(types.ViewportSize{
@@ -281,6 +297,20 @@ pub fn handleViewportResize(
     }
 }
 
+const LogicalAxis = enum { width, height };
+
+fn resolvedLogicalExtent(candidate: f32, framebuffer: ?*const common.RenderBounds, axis: LogicalAxis) f32 {
+    if (candidate > 1.0) return candidate;
+    if (framebuffer) |bounds| {
+        const extent = switch (axis) {
+            .width => bounds.width,
+            .height => bounds.height,
+        };
+        if (extent > 1.0) return extent;
+    }
+    return @max(1.0, candidate);
+}
+
 fn viewMatrix(transform: common.Transform) common.Mat4 {
     const inv_scale = common.Vec3{
         .x = if (transform.scale.x != 0.0) 1.0 / transform.scale.x else 0.0,
@@ -301,8 +331,10 @@ const types = @import("types.zig");
 
 const Commands = ecs.Commands;
 const system_params = ecs.system_params;
+const GroupBy = system_params.GroupBy;
 const Query = system_params.Query;
 const ResMut = system_params.ResMut;
 const ResOpt = system_params.ResOpt;
+const Without = system_params.Without;
 const events = ecs.events;
 const EventReader = events.EventReader;

@@ -81,6 +81,7 @@ fn setupScene(commands: *ecs.Commands, res_state: ResMut(RenderState), res_mesh_
             .follow_camera = true,
             .face_segments = 48,
         },
+        render.Layer(-1){},
     });
 
     _ = try commands.createEntity(.{
@@ -103,6 +104,7 @@ fn setupScene(commands: *ecs.Commands, res_state: ResMut(RenderState), res_mesh_
             .near = 0.2,
             .far = 120.0,
         } },
+        CameraLayer(-1){},
         CameraLayer(0){},
     });
 

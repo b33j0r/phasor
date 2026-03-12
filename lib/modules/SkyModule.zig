@@ -11,6 +11,7 @@ const PanoramaAnchor = struct {
 };
 
 const PanoramaBuilt = struct {};
+const panorama_layer_sort_background: i32 = -1000;
 
 const Face = enum {
     front,
@@ -46,13 +47,14 @@ fn buildPanoramaSkies(
         const size = clampSkySizeToCameraFar(sky.size, cameras);
         const segments = clampFaceSegments(sky.face_segments);
         const center = transform.translation;
+        const layer = layerKeyForRow(row);
 
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .front, sky.follow_camera, segments);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .right, sky.follow_camera, segments);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .back, sky.follow_camera, segments);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .left, sky.follow_camera, segments);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .top, sky.follow_camera, segments);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .bottom, sky.follow_camera, segments);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .front, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .right, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .back, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .left, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .top, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .bottom, sky.follow_camera, segments, layer);
         try commands.addComponent(row.entity_id, PanoramaBuilt{});
     }
 }
@@ -121,6 +123,7 @@ fn spawnPanoramaFace(
     face: Face,
     follow_camera: bool,
     segments: u16,
+    layer: i32,
 ) !void {
     const spec = faceSpec(face, size);
     const mesh = try createPanoramaFaceMesh(commands.allocator, mesh_library, renderer_state, size, spec, segments);
@@ -135,11 +138,25 @@ fn spawnPanoramaFace(
             .material = material,
             .color = common.Color.WHITE,
         },
+        render.LayerOverride{ .value = layer },
+        render.LayerSortKey{ .value = panorama_layer_sort_background },
         PanoramaAnchor{
             .offset = spec.offset,
             .follow_camera = follow_camera,
         },
     });
+}
+
+fn layerKeyForRow(row: db.QueryResult.Row) i32 {
+    const table = &row.database.tables.items[row.table_index];
+    const trait_id = db.meta.typeId(render.LayerN);
+    for (table.columns) |column| {
+        for (column.group_traits) |group_trait| {
+            if (group_trait.trait_id != trait_id) continue;
+            return group_trait.key;
+        }
+    }
+    return 0;
 }
 
 const FaceSpec = struct {
@@ -284,6 +301,7 @@ fn quatFromEuler(pitch: f32, yaw: f32, roll: f32) common.Quat {
 const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
+const db = @import("db");
 const render = @import("render");
 
 const RenderState = @import("RenderModule.zig").RenderState;

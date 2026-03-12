@@ -214,6 +214,7 @@ pub fn renderSystem(
                     else
                         instance.material orelse state.default_material;
                     try blended.append(commands.allocator, .{
+                        .sort_key = instance.sort_key,
                         .depth = clipDepth(model),
                         .entity_id = instance.entity_id,
                         .mesh = mesh.*,
@@ -439,6 +440,7 @@ fn positionToNdcTopLeft(pos: [2]f32, size: render.Size) [2]f32 {
 }
 
 const BlendItem = struct {
+    sort_key: i32,
     depth: f32,
     entity_id: u64,
     mesh: render.Mesh,
@@ -462,6 +464,9 @@ fn clipDepth(model: common.Mat4) f32 {
 }
 
 fn blendItemLessThan(_: void, a: BlendItem, b: BlendItem) bool {
+    if (a.sort_key != b.sort_key) {
+        return a.sort_key < b.sort_key;
+    }
     if (a.depth == b.depth) {
         return a.entity_id < b.entity_id;
     }

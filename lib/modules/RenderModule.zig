@@ -37,6 +37,8 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
 
     try app.addSystem(schedule.DefaultSchedule.WindowCreate, initSystem);
     try app.addSystem(schedule.DefaultSchedule.AssetsLoad, ensureAssetsContextSystem);
+    try app.addSystem("BeforeFrame", initSystem);
+    try app.addSystem("BeforeFrame", ensureAssetsContextSystem);
     try app.addSystem("BeforeFrame", render_prepare.handleViewportResize);
     try app.addSystem("BeforeFrame", render_prepare.updateSpriteMeshes);
     try app.addSystem("BeforeFrame", render_prepare.updateTextMeshes);
@@ -178,7 +180,6 @@ fn shutdownSystem(commands: *Commands) void {
 
     _ = commands.removeResource(LayerCameras);
     _ = commands.removeResource(LayerViewports);
-
     _ = commands.removeResource(assets.AssetsContext);
     _ = commands.removeResource(render.RenderQueue);
     _ = commands.removeResource(RenderState);

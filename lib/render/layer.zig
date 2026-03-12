@@ -9,7 +9,17 @@ pub fn Layer(comptime N: i32) type {
     };
 }
 
-pub const LayerN = struct {};
+pub const LayerN = struct {
+    pub const __query_group_trait__ = true;
+};
+
+pub const LayerOverride = struct {
+    value: i32 = 0,
+};
+
+pub const LayerSortKey = struct {
+    value: i32 = 0,
+};
 
 pub fn CameraLayer(comptime N: i32) type {
     return struct {
@@ -22,6 +32,8 @@ pub fn CameraLayer(comptime N: i32) type {
     };
 }
 
-pub const CameraLayerN = struct {};
+pub const CameraLayerN = struct {
+    pub const __query_group_trait__ = true;
+};
 
 const common = @import("common");

@@ -12,33 +12,85 @@ pub fn uninstall(app: *AppCommands) void {
 fn computeLayerViewports(
     viewports: ResMut(types.LayerViewports),
     viewport_opt: ResOpt(types.ViewportSize),
-    cameras_with_layout: Query(.{ common.Camera3d, common.ViewportLayout }),
-    cameras_without_layout: Query(.{ common.Camera3d, Without(common.ViewportLayout) }),
+    cameras_zero_with_layout: Query(.{ common.Camera3d, common.ViewportLayout, render.CameraLayer(0) }),
+    cameras_unlayered_with_layout: Query(.{ common.Camera3d, common.ViewportLayout, Without(render.CameraLayerN) }),
+    camera_groups_with_layout: GroupBy(render.CameraLayerN),
+    cameras_zero_without_layout: Query(.{ common.Camera3d, render.CameraLayer(0), Without(common.ViewportLayout) }),
+    cameras_unlayered_without_layout: Query(.{ common.Camera3d, Without(common.ViewportLayout), Without(render.CameraLayerN) }),
+    camera_groups_without_layout: GroupBy(render.CameraLayerN),
 ) !void {
     const bounds = viewportBounds(viewport_opt.ptr);
     viewports.ptr.clear();
 
-    var it_layout = cameras_with_layout.iterator();
-    while (it_layout.next()) |row| {
+    try collectLayerViewportLayouts(viewports.ptr, cameras_zero_with_layout, bounds, 0);
+    try collectLayerViewportLayouts(viewports.ptr, cameras_unlayered_with_layout, bounds, 0);
+    try collectLayerViewportGroupsWithLayout(viewports.ptr, camera_groups_with_layout, bounds);
+
+    try collectDefaultLayerViewport(viewports.ptr, cameras_zero_without_layout, bounds, 0);
+    try collectDefaultLayerViewport(viewports.ptr, cameras_unlayered_without_layout, bounds, 0);
+    try collectLayerViewportGroupsWithoutLayout(viewports.ptr, camera_groups_without_layout, bounds);
+}
+
+fn collectLayerViewportLayouts(
+    viewports: *types.LayerViewports,
+    query: anytype,
+    bounds: Bounds,
+    forced_layer: i32,
+) !void {
+    var it = query.iterator();
+    while (it.next()) |row| {
         _ = row.get(common.Camera3d) orelse continue;
         const layout = row.get(common.ViewportLayout) orelse continue;
-        const layer = types.cameraLayerKeyForRow(row);
         const rect = resolveRect(layout.*, bounds);
         if (rect.width <= 0.0 or rect.height <= 0.0) continue;
-        try viewports.ptr.map.put(layer, rect);
+        try viewports.map.put(forced_layer, rect);
     }
+}
 
-    var it_default = cameras_without_layout.iterator();
-    while (it_default.next()) |row| {
+fn collectLayerViewportGroupsWithLayout(
+    viewports: *types.LayerViewports,
+    groups: GroupBy(render.CameraLayerN),
+    bounds: Bounds,
+) !void {
+    var it = groups.iterator();
+    while (it.next()) |group| {
+        if (group.key == 0) continue;
+        var rows = try group.query(.{ common.Camera3d, common.ViewportLayout });
+        defer rows.deinit();
+        try collectLayerViewportLayouts(viewports, rows, bounds, group.key);
+    }
+}
+
+fn collectDefaultLayerViewport(
+    viewports: *types.LayerViewports,
+    query: anytype,
+    bounds: Bounds,
+    forced_layer: i32,
+) !void {
+    var it = query.iterator();
+    while (it.next()) |row| {
         _ = row.get(common.Camera3d) orelse continue;
-        const layer = types.cameraLayerKeyForRow(row);
-        if (viewports.ptr.map.contains(layer)) continue;
-        try viewports.ptr.map.put(layer, .{
+        if (viewports.map.contains(forced_layer)) continue;
+        try viewports.map.put(forced_layer, .{
             .x = 0.0,
             .y = 0.0,
             .width = bounds.width,
             .height = bounds.height,
         });
+    }
+}
+
+fn collectLayerViewportGroupsWithoutLayout(
+    viewports: *types.LayerViewports,
+    groups: GroupBy(render.CameraLayerN),
+    bounds: Bounds,
+) !void {
+    var it = groups.iterator();
+    while (it.next()) |group| {
+        if (group.key == 0) continue;
+        var rows = try group.query(.{ common.Camera3d, Without(common.ViewportLayout) });
+        defer rows.deinit();
+        try collectDefaultLayerViewport(viewports, rows, bounds, group.key);
     }
 }
 
@@ -105,12 +157,14 @@ fn resolveRect(layout: common.ViewportLayout, bounds: Bounds) types.ViewportRect
 const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
+const render = @import("render");
 const types = @import("render/types.zig");
 
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const schedule = ecs.schedule;
 const system_params = ecs.system_params;
+const GroupBy = system_params.GroupBy;
 const Query = system_params.Query;
 const ResMut = system_params.ResMut;
 const ResOpt = system_params.ResOpt;
