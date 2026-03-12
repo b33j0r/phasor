@@ -69,6 +69,7 @@ let lastFrameFinishedAtMs = 0;
 let lastWatchdogKickAtMs = 0;
 let frameTimeoutId = null;
 let frameWatchdogIntervalId = null;
+let lastReportedWasmError = "ok";
 const lastFrameCounts = {
   buffers: 0,
   textures: 0,
@@ -129,13 +130,51 @@ function readString(ptr, len) {
   return textDecoder.decode(new Uint8Array(memory.buffer, ptr, len));
 }
 
+function captureLastWasmError() {
+  if (!wasm || !wasm.exports || !wasm.exports.wasmLastErrorPtr || !wasm.exports.wasmLastErrorLen) {
+    return "unavailable";
+  }
+  const ptr = wasm.exports.wasmLastErrorPtr();
+  const len = wasm.exports.wasmLastErrorLen();
+  if (!ptr || !len) return "ok";
+  return readString(ptr, len);
+}
+
+function reportWasmError(reason) {
+  if (!reason || reason === "ok" || reason === lastReportedWasmError) return;
+  lastReportedWasmError = reason;
+  console.error("[phasor] wasm error:", reason);
+  const hint = document.querySelector(".hint");
+  if (hint) hint.textContent = `WebGPU: wasm error (${reason})`;
+}
+
 function resizeCanvas(canvas) {
   const scale = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  const logicalWidth = Math.max(1, Math.floor(rect.width));
-  const logicalHeight = Math.max(1, Math.floor(rect.height));
-  const framebufferWidth = Math.max(1, Math.floor(rect.width * scale));
-  const framebufferHeight = Math.max(1, Math.floor(rect.height * scale));
+  const measuredLogicalWidth = Math.floor(rect.width);
+  const measuredLogicalHeight = Math.floor(rect.height);
+  const fallbackLogicalWidth = Math.max(
+    1,
+    Math.floor(
+      canvas.clientWidth ||
+      (canvas.width > 1 ? canvas.width / scale : window.innerWidth || 1),
+    ),
+  );
+  const fallbackLogicalHeight = Math.max(
+    1,
+    Math.floor(
+      canvas.clientHeight ||
+      (canvas.height > 1 ? canvas.height / scale : window.innerHeight || 1),
+    ),
+  );
+  const logicalWidth = measuredLogicalWidth > 1 ? measuredLogicalWidth : fallbackLogicalWidth;
+  const logicalHeight = measuredLogicalHeight > 1 ? measuredLogicalHeight : fallbackLogicalHeight;
+  const measuredFramebufferWidth = Math.floor(rect.width * scale);
+  const measuredFramebufferHeight = Math.floor(rect.height * scale);
+  const fallbackFramebufferWidth = Math.max(1, Math.floor(fallbackLogicalWidth * scale));
+  const fallbackFramebufferHeight = Math.max(1, Math.floor(fallbackLogicalHeight * scale));
+  const framebufferWidth = measuredFramebufferWidth > 1 ? measuredFramebufferWidth : fallbackFramebufferWidth;
+  const framebufferHeight = measuredFramebufferHeight > 1 ? measuredFramebufferHeight : fallbackFramebufferHeight;
   if (canvas.width !== framebufferWidth || canvas.height !== framebufferHeight) {
     canvas.width = framebufferWidth;
     canvas.height = framebufferHeight;
@@ -425,7 +464,7 @@ function createContext(canvas, enableValidation) {
   };
 
   createPipelines(ctx);
-  createDepthTexture(ctx, size.width, size.height);
+  createDepthTexture(ctx, size.framebufferWidth, size.framebufferHeight);
 
   ctx.instanceBuffer = device.createBuffer({
     size: ctx.instanceBufferSize,
@@ -672,9 +711,14 @@ function reconfigureContextSurface(ctx, reason) {
       format: ctx.format,
       alphaMode: "premultiplied",
     });
-    createDepthTexture(ctx, size.width, size.height);
+    createDepthTexture(ctx, size.framebufferWidth, size.framebufferHeight);
     if (phasorDebug.lifecycleLogs) {
-      console.log("[phasor] webgpu surface reconfigured", reason, size.width, size.height);
+      console.log(
+        "[phasor] webgpu surface reconfigured",
+        reason,
+        size.framebufferWidth,
+        size.framebufferHeight,
+      );
     }
     return true;
   } catch (err) {
@@ -922,8 +966,8 @@ const imports = {
       const canvas = document.querySelector(id);
       const size = resizeCanvas(canvas);
       const view = getMemoryView();
-      view.setUint32(outW, size.width, true);
-      view.setUint32(outH, size.height, true);
+      view.setUint32(outW, size.framebufferWidth, true);
+      view.setUint32(outH, size.framebufferHeight, true);
     },
     webgpu_init(canvasPtr, canvasLen, enableValidation) {
       const id = readString(canvasPtr, canvasLen);
@@ -1637,6 +1681,7 @@ function handleKeyEvent(isDown, event) {
           }, 1000);
         }
         wasm.exports.wasmFrame(wasmApp);
+        reportWasmError(captureLastWasmError());
         if (frameTimeoutId != null) {
           clearTimeout(frameTimeoutId);
           frameTimeoutId = null;

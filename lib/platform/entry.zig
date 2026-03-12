@@ -40,6 +40,14 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             io: std.Io,
         };
 
+        fn encodeRunnerHandle(runner: *Runner) u32 {
+            return @intCast(@intFromPtr(runner) + 1);
+        }
+
+        fn decodeRunnerHandle(handle: u32) *Runner {
+            return @ptrFromInt(@as(usize, handle) - 1);
+        }
+
         fn nativeMain(init: std.process.Init) !u8 {
             const allocator = std.heap.c_allocator;
 
@@ -59,7 +67,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
         pub fn wasmCreate() callconv(.c) u32 {
             if (!is_wasm) return 0;
 
-            const allocator = std.heap.c_allocator;
+            const allocator = std.heap.wasm_allocator;
             const runner = allocator.create(Runner) catch {
                 wasm_last_error = "alloc_runner_failed";
                 return 0;
@@ -82,7 +90,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
                 return 0;
             };
 
-            return @intCast(@intFromPtr(runner));
+            return encodeRunnerHandle(runner);
         }
 
         pub fn wasmVsyncEnabled() callconv(.c) bool {
@@ -104,8 +112,12 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             if (!is_wasm) return;
             if (handle == 0) return;
 
-            const runner: *Runner = @ptrFromInt(handle);
-            _ = runner.app.step() catch {};
+            const runner = decodeRunnerHandle(handle);
+            _ = runner.app.step() catch |err| {
+                wasm_last_error = @errorName(err);
+                return;
+            };
+            wasm_last_error = "ok";
         }
 
         pub fn wasmResize(
@@ -117,7 +129,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
         ) callconv(.c) void {
             if (!is_wasm) return;
             if (handle == 0) return;
-            const runner: *Runner = @ptrFromInt(handle);
+            const runner = decodeRunnerHandle(handle);
             var commands = ecs.Commands.init(runner.app.allocator, runner.app.io, &runner.app.world);
             defer commands.deinit();
             modules.RenderModule.setSurfaceSize(
@@ -135,7 +147,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             if (handle == 0) return;
             if (!@hasDecl(AppSpec, "onDeviceLost")) return;
 
-            const runner: *Runner = @ptrFromInt(handle);
+            const runner = decodeRunnerHandle(handle);
             callDeviceHook(AppSpec.onDeviceLost, runner);
         }
 
@@ -144,7 +156,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             if (handle == 0) return;
             if (!@hasDecl(AppSpec, "onDeviceRestored")) return;
 
-            const runner: *Runner = @ptrFromInt(handle);
+            const runner = decodeRunnerHandle(handle);
             callDeviceHook(AppSpec.onDeviceRestored, runner);
         }
 
@@ -176,8 +188,8 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             if (!is_wasm) return;
             if (handle == 0) return;
 
-            const allocator = std.heap.c_allocator;
-            const runner: *Runner = @ptrFromInt(handle);
+            const allocator = std.heap.wasm_allocator;
+            const runner = decodeRunnerHandle(handle);
             runner.app.deinit();
             allocator.destroy(runner);
         }
