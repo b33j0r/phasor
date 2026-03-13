@@ -6,6 +6,22 @@ pub const KeyPressed = struct { key: Key };
 pub const KeyReleased = struct { key: Key };
 pub const KeyDown = struct { key: Key };
 pub const MouseDelta = struct { dx: f32, dy: f32 };
+pub const MouseMoved = struct {
+    x: f32,
+    y: f32,
+    dx: f32,
+    dy: f32,
+};
+pub const MouseButtonPressed = struct {
+    button: MouseButton,
+    x: f32,
+    y: f32,
+};
+pub const MouseButtonReleased = struct {
+    button: MouseButton,
+    x: f32,
+    y: f32,
+};
 pub const MouseCapture = struct { enabled: bool = false };
 pub const MouseButton = enum(u8) {
     left = 0,

@@ -15,6 +15,9 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try commands.registerEvent(core.KeyReleased, 32);
     try commands.registerEvent(core.KeyDown, 32);
     try commands.registerEvent(core.MouseDelta, 128);
+    try commands.registerEvent(core.MouseMoved, 128);
+    try commands.registerEvent(core.MouseButtonPressed, 32);
+    try commands.registerEvent(core.MouseButtonReleased, 32);
 
     if (!commands.hasResource(core.Keyboard)) {
         try commands.insertResource(core.Keyboard{});
@@ -42,6 +45,9 @@ fn pollKeyboard(
     released_writer: EventWriter(core.KeyReleased),
     down_writer: EventWriter(core.KeyDown),
     mouse_delta_writer: EventWriter(core.MouseDelta),
+    mouse_moved_writer: EventWriter(core.MouseMoved),
+    mouse_pressed_writer: EventWriter(core.MouseButtonPressed),
+    mouse_released_writer: EventWriter(core.MouseButtonReleased),
     commands: *Commands,
 ) !void {
     const prev_state = if (keyboard_opt.ptr) |kb| kb.* else core.Keyboard{};
@@ -95,9 +101,37 @@ fn pollKeyboard(
     next_mouse.x = position.x;
     next_mouse.y = position.y;
     next_mouse.has_position = true;
-    next_mouse.current_buttons = wasm.mouseButtons();
+    const buttons = wasm.mouseButtons();
+    next_mouse.current_buttons = buttons;
     next_mouse.delta_x = delta.dx;
     next_mouse.delta_y = delta.dy;
+    const pointer_dx = next_mouse.x - next_mouse.previous_x;
+    const pointer_dy = next_mouse.y - next_mouse.previous_y;
+    if (pointer_dx != 0.0 or pointer_dy != 0.0) {
+        try mouse_moved_writer.send(.{
+            .x = next_mouse.x,
+            .y = next_mouse.y,
+            .dx = pointer_dx,
+            .dy = pointer_dy,
+        });
+    }
+    inline for ([_]core.MouseButton{ .left, .right, .middle }) |button| {
+        const is_down = next_mouse.isButtonDown(button);
+        const was_down = prev_mouse.isButtonDown(button);
+        if (is_down and !was_down) {
+            try mouse_pressed_writer.send(.{
+                .button = button,
+                .x = next_mouse.x,
+                .y = next_mouse.y,
+            });
+        } else if (!is_down and was_down) {
+            try mouse_released_writer.send(.{
+                .button = button,
+                .x = next_mouse.x,
+                .y = next_mouse.y,
+            });
+        }
+    }
     if (delta.dx != 0.0 or delta.dy != 0.0) {
         try mouse_delta_writer.send(.{
             .dx = delta.dx,

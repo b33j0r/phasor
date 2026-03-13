@@ -17,6 +17,9 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try commands.registerEvent(core.KeyReleased, 32);
     try commands.registerEvent(core.KeyDown, 32);
     try commands.registerEvent(core.MouseDelta, 128);
+    try commands.registerEvent(core.MouseMoved, 128);
+    try commands.registerEvent(core.MouseButtonPressed, 32);
+    try commands.registerEvent(core.MouseButtonReleased, 32);
 
     if (!commands.hasResource(core.Keyboard)) {
         try commands.insertResource(core.Keyboard{});
@@ -45,6 +48,9 @@ fn pollKeyboard(
     released_writer: EventWriter(core.KeyReleased),
     down_writer: EventWriter(core.KeyDown),
     mouse_delta_writer: EventWriter(core.MouseDelta),
+    mouse_moved_writer: EventWriter(core.MouseMoved),
+    mouse_pressed_writer: EventWriter(core.MouseButtonPressed),
+    mouse_released_writer: EventWriter(core.MouseButtonReleased),
     commands: *Commands,
 ) !void {
     const window_res = r_window.ptr orelse return;
@@ -94,12 +100,39 @@ fn pollKeyboard(
     next_mouse.x = @floatCast(x);
     next_mouse.y = @floatCast(y);
     next_mouse.has_position = true;
+    const pointer_dx = next_mouse.x - next_mouse.previous_x;
+    const pointer_dy = next_mouse.y - next_mouse.previous_y;
+    if (next_mouse.has_position and (pointer_dx != 0.0 or pointer_dy != 0.0)) {
+        try mouse_moved_writer.send(.{
+            .x = next_mouse.x,
+            .y = next_mouse.y,
+            .dx = pointer_dx,
+            .dy = pointer_dy,
+        });
+    }
 
     var buttons: u8 = 0;
     if (glfw.glfwGetMouseButton(handle, glfw.GLFW_MOUSE_BUTTON_LEFT) == glfw.GLFW_PRESS) buttons |= @as(u8, 1) << @as(u3, @intCast(@intFromEnum(core.MouseButton.left)));
     if (glfw.glfwGetMouseButton(handle, glfw.GLFW_MOUSE_BUTTON_RIGHT) == glfw.GLFW_PRESS) buttons |= @as(u8, 1) << @as(u3, @intCast(@intFromEnum(core.MouseButton.right)));
     if (glfw.glfwGetMouseButton(handle, glfw.GLFW_MOUSE_BUTTON_MIDDLE) == glfw.GLFW_PRESS) buttons |= @as(u8, 1) << @as(u3, @intCast(@intFromEnum(core.MouseButton.middle)));
     next_mouse.current_buttons = buttons;
+    inline for ([_]core.MouseButton{ .left, .right, .middle }) |button| {
+        const is_down = next_mouse.isButtonDown(button);
+        const was_down = prev_mouse.isButtonDown(button);
+        if (is_down and !was_down) {
+            try mouse_pressed_writer.send(.{
+                .button = button,
+                .x = next_mouse.x,
+                .y = next_mouse.y,
+            });
+        } else if (!is_down and was_down) {
+            try mouse_released_writer.send(.{
+                .button = button,
+                .x = next_mouse.x,
+                .y = next_mouse.y,
+            });
+        }
+    }
 
     if (wants_capture) {
         if (next_mouse.has_last) {
