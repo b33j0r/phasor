@@ -47,10 +47,16 @@ pub const PostProcessMaterial = struct {
     blend: bool = false,
 };
 
+pub const PostProcessSceneScope = struct {
+    // Scene layers up to and including this value are captured into the chain input.
+    max_layer: i32 = std.math.maxInt(i32),
+};
+
 pub const PostProcessPass = struct {
     material: PostProcessMaterial,
     input_slot: u32 = 0,
     output_slot: u32 = 1,
+    scene: PostProcessSceneScope = .{},
     enabled: bool = true,
 };
 

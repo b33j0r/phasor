@@ -55,6 +55,7 @@ pub const BuildContext = @import("build.zig").BuildContext;
 pub const PostProcessShaderHandle = @import("post_process.zig").PostProcessShaderHandle;
 pub const PostProcessParams = @import("post_process.zig").PostProcessParams;
 pub const PostProcessMaterial = @import("post_process.zig").PostProcessMaterial;
+pub const PostProcessSceneScope = @import("post_process.zig").PostProcessSceneScope;
 pub const PostProcessPass = @import("post_process.zig").PostProcessPass;
 pub const PostProcessOrder = @import("post_process.zig").PostProcessOrder;
 pub const PostProcessPresentSlot = @import("post_process.zig").PostProcessPresentSlot;

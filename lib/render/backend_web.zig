@@ -164,6 +164,7 @@ extern "env" fn webgpu_deinit(ctx: u32) void;
 extern "env" fn webgpu_resize(ctx: u32, width: u32, height: u32) void;
 extern "env" fn webgpu_begin_frame(ctx: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
 extern "env" fn webgpu_begin_scene_pass(ctx: u32, target_slot: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
+extern "env" fn webgpu_begin_scene_pass_load(ctx: u32, target_slot: u32) void;
 extern "env" fn webgpu_begin_post_process_pass(ctx: u32, target_slot: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
 extern "env" fn webgpu_draw_triangle(ctx: u32) void;
 extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: *const InstanceData, blend: u32) void;
@@ -353,6 +354,10 @@ pub const Frame = struct {
     pub fn beginScenePass(self: *Frame, target: FrameTarget, clear: Color) !void {
         const clear_f = Color.F32.fromColor(clear);
         webgpu_begin_scene_pass(self.renderer.ctx, targetSlotValue(target), clear_f.r, clear_f.g, clear_f.b, clear_f.a);
+    }
+
+    pub fn beginScenePassLoad(self: *Frame, target: FrameTarget) !void {
+        webgpu_begin_scene_pass_load(self.renderer.ctx, targetSlotValue(target));
     }
 
     pub fn beginPostProcessPass(self: *Frame, target: FrameTarget, clear: Color) !void {

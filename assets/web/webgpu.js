@@ -558,12 +558,12 @@ function endCurrentPass(ctx) {
   ctx.pass = null;
 }
 
-function beginRenderPass(ctx, view, clearValue, depthView) {
+function beginRenderPass(ctx, view, clearValue, depthView, loadColor = false) {
   endCurrentPass(ctx);
   const descriptor = {
     colorAttachments: [{
       view,
-      loadOp: "clear",
+      loadOp: loadColor ? "load" : "clear",
       storeOp: "store",
       clearValue,
     }],
@@ -1220,6 +1220,13 @@ const imports = {
       const target = targetSlot === 0xffffffff ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
       if (!target || !target.view) return;
       beginRenderPass(ctx, target.view, { r, g, b, a }, ctx.depthView);
+    },
+    webgpu_begin_scene_pass_load(ctxId, targetSlot) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || !ctx.encoder) return;
+      const target = targetSlot === 0xffffffff ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
+      if (!target || !target.view) return;
+      beginRenderPass(ctx, target.view, { r: 0, g: 0, b: 0, a: 0 }, ctx.depthView, true);
     },
     webgpu_begin_post_process_pass(ctxId, targetSlot, r, g, b, a) {
       const ctx = ctxs.get(ctxId);

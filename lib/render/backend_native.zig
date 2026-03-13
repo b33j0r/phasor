@@ -768,11 +768,15 @@ pub const Frame = struct {
     }
 
     pub fn beginScenePass(self: *Frame, target: FrameTarget, clear: Color) !void {
-        try self.beginPass(target, clear, true);
+        try self.beginPass(target, clear, true, false);
+    }
+
+    pub fn beginScenePassLoad(self: *Frame, target: FrameTarget) !void {
+        try self.beginPass(target, Color.rgba(0, 0, 0, 0), true, true);
     }
 
     pub fn beginPostProcessPass(self: *Frame, target: FrameTarget, clear: Color) !void {
-        try self.beginPass(target, clear, false);
+        try self.beginPass(target, clear, false, false);
     }
 
     pub fn setViewportScissor(self: *Frame, x: f32, y: f32, width: f32, height: f32) void {
@@ -904,7 +908,7 @@ pub const Frame = struct {
         self.encoder.release();
     }
 
-    fn beginPass(self: *Frame, target: FrameTarget, clear: Color, use_depth: bool) !void {
+    fn beginPass(self: *Frame, target: FrameTarget, clear: Color, use_depth: bool, load_color: bool) !void {
         self.endPass();
 
         const clear_f = Color.F32.fromColor(clear);
@@ -914,7 +918,7 @@ pub const Frame = struct {
         };
         const color_attachment = wgpu.ColorAttachment{
             .view = target_view,
-            .load_op = .clear,
+            .load_op = if (load_color) .load else .clear,
             .store_op = .store,
             .clear_value = wgpu.Color{
                 .r = clear_f.r,
