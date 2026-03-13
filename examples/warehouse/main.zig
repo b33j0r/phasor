@@ -45,10 +45,9 @@ const App = struct {
 
 pub const main = platform.main(App);
 
-fn setupScene(commands: *ecs.Commands, res_state: ResMut(RenderState), res_mesh_library: ResMut(MeshLibrary), res_scene_assets: ResMut(Assets)) !void {
-    const state = res_state.deref();
+fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), res_scene_assets: ResMut(Assets)) !void {
+    const render_build = build_ctx.deref();
     const scene_assets = res_scene_assets.deref();
-    const mesh_library = res_mesh_library.deref();
 
     if (!scene_assets.floor_tex.material_handle.isValid()) return error.FloorTextureMissing;
     if (!scene_assets.wall_tex.material_handle.isValid()) return error.WallTextureMissing;
@@ -61,11 +60,11 @@ fn setupScene(commands: *ecs.Commands, res_state: ResMut(RenderState), res_mesh_
     try commands.insertResource(ClearColor{ .color = Color.rgb(13, 15, 20) });
     try commands.insertResource(MouseCapture{ .enabled = true });
 
-    const cyl_mesh = try createCylinderMesh(commands.allocator, mesh_library, &state.renderer, 0.45, 1.2, 18);
-    const sphere_mesh = try createSphereMesh(commands.allocator, mesh_library, &state.renderer, 0.55, 10, 18);
+    const cyl_mesh = try createCylinderMesh(commands.allocator, render_build, 0.45, 1.2, 18);
+    const sphere_mesh = try createSphereMesh(commands.allocator, render_build, 0.55, 10, 18);
 
-    try spawnWarehouseShell(commands, mesh_library, &state.renderer, scene_assets);
-    try spawnWarehouseProps(commands, mesh_library, &state.renderer, scene_assets);
+    try spawnWarehouseShell(commands, render_build, scene_assets);
+    try spawnWarehouseProps(commands, render_build, scene_assets);
     try spawnWarehousePrimitives(commands, cyl_mesh, sphere_mesh, scene_assets);
 
     _ = try commands.createEntity(.{
@@ -114,8 +113,7 @@ fn setupScene(commands: *ecs.Commands, res_state: ResMut(RenderState), res_mesh_
 
 fn spawnWarehouseShell(
     commands: *ecs.Commands,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     scene_assets: *const Assets,
 ) !void {
     const shell_half = Vec3{ .x = 20.0, .y = 6.0, .z = 16.0 };
@@ -127,34 +125,34 @@ fn spawnWarehouseShell(
     const side_h = shell_half.y * 2.0;
     const tiling = UvSamplingMode{ .TileByScale = .{ .u_per_unit = 0.28, .v_per_unit = 0.28 } };
 
-    try spawnTexturedQuad(commands, mesh_library, renderer_state, scene_assets.floor_tex.material, .{
+    try spawnTexturedQuad(commands, build_ctx, scene_assets.floor_tex.material, .{
         .position = .{ .x = 0.0, .y = 0.0, .z = 0.0 },
         .rotation = quatFromEuler(-std.math.pi * 0.5, 0.0, 0.0),
         .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
     }, floor_w, floor_d, tiling);
     try addStaticCollider(commands, .{ .x = 0.0, .y = -0.5, .z = 0.0 }, .{ .x = shell_half.x, .y = 0.5, .z = shell_half.z });
 
-    try spawnTexturedQuad(commands, mesh_library, renderer_state, scene_assets.wall_tex.material, .{
+    try spawnTexturedQuad(commands, build_ctx, scene_assets.wall_tex.material, .{
         .position = .{ .x = 0.0, .y = shell_half.y * 2.0, .z = 0.0 },
         .rotation = quatFromEuler(std.math.pi * 0.5, 0.0, 0.0),
         .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
     }, floor_w, floor_d, tiling);
 
-    try spawnTexturedQuad(commands, mesh_library, renderer_state, scene_assets.wall_tex.material, .{
+    try spawnTexturedQuad(commands, build_ctx, scene_assets.wall_tex.material, .{
         .position = .{ .x = 0.0, .y = shell_half.y, .z = -shell_half.z },
         .rotation = quatFromEuler(0.0, 0.0, 0.0),
         .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
     }, wall_w, wall_h, tiling);
     try addStaticCollider(commands, .{ .x = 0.0, .y = shell_half.y, .z = -shell_half.z - 0.5 }, .{ .x = shell_half.x, .y = shell_half.y, .z = 0.5 });
 
-    try spawnTexturedQuad(commands, mesh_library, renderer_state, scene_assets.wall_tex.material, .{
+    try spawnTexturedQuad(commands, build_ctx, scene_assets.wall_tex.material, .{
         .position = .{ .x = -shell_half.x, .y = shell_half.y, .z = 0.0 },
         .rotation = quatFromEuler(0.0, std.math.pi * 0.5, 0.0),
         .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
     }, side_w, side_h, tiling);
     try addStaticCollider(commands, .{ .x = -shell_half.x - 0.5, .y = shell_half.y, .z = 0.0 }, .{ .x = 0.5, .y = shell_half.y, .z = shell_half.z });
 
-    try spawnTexturedQuad(commands, mesh_library, renderer_state, scene_assets.wall_tex.material, .{
+    try spawnTexturedQuad(commands, build_ctx, scene_assets.wall_tex.material, .{
         .position = .{ .x = shell_half.x, .y = shell_half.y, .z = 0.0 },
         .rotation = quatFromEuler(0.0, -std.math.pi * 0.5, 0.0),
         .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
@@ -165,17 +163,17 @@ fn spawnWarehouseShell(
     const doorway_h = 3.4;
     const front_wall_y = shell_half.y;
     const front_z = shell_half.z;
-    try spawnTexturedQuad(commands, mesh_library, renderer_state, scene_assets.wall_tex.material, .{
+    try spawnTexturedQuad(commands, build_ctx, scene_assets.wall_tex.material, .{
         .position = .{ .x = -(shell_half.x + doorway_half_w) * 0.5, .y = front_wall_y, .z = front_z },
         .rotation = quatFromEuler(0.0, std.math.pi, 0.0),
         .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
     }, shell_half.x - doorway_half_w, wall_h, tiling);
-    try spawnTexturedQuad(commands, mesh_library, renderer_state, scene_assets.wall_tex.material, .{
+    try spawnTexturedQuad(commands, build_ctx, scene_assets.wall_tex.material, .{
         .position = .{ .x = (shell_half.x + doorway_half_w) * 0.5, .y = front_wall_y, .z = front_z },
         .rotation = quatFromEuler(0.0, std.math.pi, 0.0),
         .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
     }, shell_half.x - doorway_half_w, wall_h, tiling);
-    try spawnTexturedQuad(commands, mesh_library, renderer_state, scene_assets.wall_tex.material, .{
+    try spawnTexturedQuad(commands, build_ctx, scene_assets.wall_tex.material, .{
         .position = .{ .x = 0.0, .y = shell_half.y + (shell_half.y - doorway_h) * 0.5 + doorway_h, .z = front_z },
         .rotation = quatFromEuler(0.0, std.math.pi, 0.0),
         .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
@@ -188,8 +186,7 @@ fn spawnWarehouseShell(
 
 fn spawnWarehouseProps(
     commands: *ecs.Commands,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     scene_assets: *const Assets,
 ) !void {
     const crate_material = scene_assets.crate_tex.material;
@@ -198,8 +195,7 @@ fn spawnWarehouseProps(
 
     try spawnTexturedBox(
         commands,
-        mesh_library,
-        renderer_state,
+        build_ctx,
         crate_material,
         .{ .x = -8.0, .y = 1.5 + crate_y_bias, .z = -6.0 },
         .{ .x = 0.75, .y = 1.5, .z = 0.75 },
@@ -208,8 +204,7 @@ fn spawnWarehouseProps(
     );
     try spawnTexturedBox(
         commands,
-        mesh_library,
-        renderer_state,
+        build_ctx,
         crate_material,
         .{ .x = 5.5, .y = 0.75 + crate_y_bias, .z = -4.0 },
         .{ .x = 0.75, .y = 0.75, .z = 0.75 },
@@ -218,8 +213,7 @@ fn spawnWarehouseProps(
     );
     try spawnTexturedBox(
         commands,
-        mesh_library,
-        renderer_state,
+        build_ctx,
         crate_material,
         .{ .x = 7.2, .y = 0.75 + crate_y_bias, .z = -3.2 },
         .{ .x = 0.75, .y = 0.75, .z = 0.75 },
@@ -228,8 +222,7 @@ fn spawnWarehouseProps(
     );
     try spawnTexturedBox(
         commands,
-        mesh_library,
-        renderer_state,
+        build_ctx,
         crate_material,
         .{ .x = 9.0, .y = 0.75 + crate_y_bias, .z = -2.3 },
         .{ .x = 0.75, .y = 0.75, .z = 0.75 },
@@ -251,8 +244,7 @@ fn spawnWarehouseProps(
         const half = Vec3{ .x = step_d * 0.5, .y = step_h * 0.5, .z = 2.2 };
         try spawnTexturedBox(
             commands,
-            mesh_library,
-            renderer_state,
+            build_ctx,
             catwalk_material,
             center,
             half,
@@ -263,8 +255,7 @@ fn spawnWarehouseProps(
 
     try spawnTexturedBox(
         commands,
-        mesh_library,
-        renderer_state,
+        build_ctx,
         catwalk_material,
         .{ .x = -1.6 + 3.0, .y = 3.6, .z = 3.5 },
         .{ .x = 4.2, .y = 0.35, .z = 3.0 },
@@ -352,8 +343,7 @@ fn updateMouseCaptureToggle(
 
 fn spawnTexturedBox(
     commands: *ecs.Commands,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     material: Material,
     center: Vec3,
     half: Vec3,
@@ -365,42 +355,42 @@ fn spawnTexturedBox(
     const face_z = half.z * 2.0;
 
     if (faces.front) {
-        try spawnTexturedQuad(commands, mesh_library, renderer_state, material, .{
+        try spawnTexturedQuad(commands, build_ctx, material, .{
             .position = center.add(.{ .x = 0.0, .y = 0.0, .z = half.z }),
             .rotation = quatFromEuler(0.0, 0.0, 0.0),
             .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
         }, face_x, face_y, uv_mode);
     }
     if (faces.back) {
-        try spawnTexturedQuad(commands, mesh_library, renderer_state, material, .{
+        try spawnTexturedQuad(commands, build_ctx, material, .{
             .position = center.add(.{ .x = 0.0, .y = 0.0, .z = -half.z }),
             .rotation = quatFromEuler(0.0, std.math.pi, 0.0),
             .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
         }, face_x, face_y, uv_mode);
     }
     if (faces.right) {
-        try spawnTexturedQuad(commands, mesh_library, renderer_state, material, .{
+        try spawnTexturedQuad(commands, build_ctx, material, .{
             .position = center.add(.{ .x = half.x, .y = 0.0, .z = 0.0 }),
             .rotation = quatFromEuler(0.0, -std.math.pi * 0.5, 0.0),
             .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
         }, face_z, face_y, uv_mode);
     }
     if (faces.left) {
-        try spawnTexturedQuad(commands, mesh_library, renderer_state, material, .{
+        try spawnTexturedQuad(commands, build_ctx, material, .{
             .position = center.add(.{ .x = -half.x, .y = 0.0, .z = 0.0 }),
             .rotation = quatFromEuler(0.0, std.math.pi * 0.5, 0.0),
             .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
         }, face_z, face_y, uv_mode);
     }
     if (faces.top) {
-        try spawnTexturedQuad(commands, mesh_library, renderer_state, material, .{
+        try spawnTexturedQuad(commands, build_ctx, material, .{
             .position = center.add(.{ .x = 0.0, .y = half.y, .z = 0.0 }),
             .rotation = quatFromEuler(-std.math.pi * 0.5, 0.0, 0.0),
             .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
         }, face_x, face_z, uv_mode);
     }
     if (faces.bottom) {
-        try spawnTexturedQuad(commands, mesh_library, renderer_state, material, .{
+        try spawnTexturedQuad(commands, build_ctx, material, .{
             .position = center.add(.{ .x = 0.0, .y = -half.y, .z = 0.0 }),
             .rotation = quatFromEuler(std.math.pi * 0.5, 0.0, 0.0),
             .scale = .{ .x = 1.0, .y = 1.0, .z = 1.0 },
@@ -425,15 +415,14 @@ const UvRect = struct {
 
 fn spawnTexturedQuad(
     commands: *ecs.Commands,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     material: Material,
     pose: QuadPose,
     width: f32,
     height: f32,
     uv_mode: UvSamplingMode,
 ) !void {
-    const mesh = try createQuadMesh(commands.allocator, mesh_library, renderer_state, width, height, uv_mode);
+    const mesh = try createQuadMesh(commands.allocator, build_ctx, width, height, uv_mode);
     _ = try commands.createEntity(.{
         Transform{
             .translation = pose.position,
@@ -451,29 +440,27 @@ fn spawnTexturedQuad(
 
 fn spawnTexturedQuadUvRect(
     commands: *ecs.Commands,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     material: Material,
     pose: QuadPose,
     width: f32,
     height: f32,
     uv_rect: UvRect,
 ) !void {
-    try spawnTexturedQuadUvRectInLayer(0, commands, mesh_library, renderer_state, material, pose, width, height, uv_rect);
+    try spawnTexturedQuadUvRectInLayer(0, commands, build_ctx, material, pose, width, height, uv_rect);
 }
 
 fn spawnTexturedQuadUvRectInLayer(
     comptime layer: i32,
     commands: *ecs.Commands,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     material: Material,
     pose: QuadPose,
     width: f32,
     height: f32,
     uv_rect: UvRect,
 ) !void {
-    const mesh = try createQuadMeshUvRect(commands.allocator, mesh_library, renderer_state, width, height, uv_rect);
+    const mesh = try createQuadMeshUvRect(commands.allocator, build_ctx, width, height, uv_rect);
     _ = try commands.createEntity(.{
         Transform{
             .translation = pose.position,
@@ -502,8 +489,7 @@ fn quatFromEuler(pitch: f32, yaw: f32, roll: f32) Quat {
 
 fn createQuadMesh(
     allocator: std.mem.Allocator,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     width: f32,
     height: f32,
     uv_mode: UvSamplingMode,
@@ -520,7 +506,7 @@ fn createQuadMesh(
                 .{ .position = .{ -half_w, half_h }, .uv = .{ 0.0, 0.0 } },
             };
             const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
-            return mesh_library.addMesh(renderer_state, vertices[0..], indices[0..]);
+            return build_ctx.addMesh(vertices[0..], indices[0..]);
         },
         .TileByScale => |cfg| {
             const u_per_unit = @max(0.001, cfg.u_per_unit);
@@ -573,15 +559,14 @@ fn createQuadMesh(
                 }
             }
 
-            return mesh_library.addMesh(renderer_state, vertices, indices);
+            return build_ctx.addMesh(vertices, indices);
         },
     }
 }
 
 fn createQuadMeshUvRect(
     allocator: std.mem.Allocator,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     width: f32,
     height: f32,
     uv: UvRect,
@@ -596,13 +581,12 @@ fn createQuadMeshUvRect(
         .{ .position = .{ -half_w, half_h }, .uv = .{ uv.u0, uv.v0 } },
     };
     const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
-    return mesh_library.addMesh(renderer_state, vertices[0..], indices[0..]);
+    return build_ctx.addMesh(vertices[0..], indices[0..]);
 }
 
 fn createCylinderMesh(
     allocator: std.mem.Allocator,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     radius: f32,
     height: f32,
     segments: u32,
@@ -657,13 +641,12 @@ fn createCylinderMesh(
         try indices.append(allocator, b1);
     }
 
-    return mesh_library.addMeshPos3Color(renderer_state, vertices.items, indices.items);
+    return build_ctx.addMeshPos3Color(vertices.items, indices.items);
 }
 
 fn createSphereMesh(
     allocator: std.mem.Allocator,
-    mesh_library: *MeshLibrary,
-    renderer_state: *render.Renderer,
+    build_ctx: *render.BuildContext,
     radius: f32,
     lat_segments: u32,
     lon_segments: u32,
@@ -715,7 +698,7 @@ fn createSphereMesh(
         }
     }
 
-    return mesh_library.addMeshPos3Color(renderer_state, vertices.items, indices.items);
+    return build_ctx.addMeshPos3Color(vertices.items, indices.items);
 }
 
 const Assets = struct {
@@ -744,7 +727,6 @@ const platform = phasor.platform;
 const assets = phasor.assets;
 const audio = phasor.audio;
 
-const RenderState = modules.RenderModule.RenderState;
 const ResOpt = ecs.system_params.ResOpt;
 const ResMut = ecs.system_params.ResMut;
 
@@ -760,6 +742,5 @@ const ClearColor = common.ClearColor;
 
 const MeshHandle = render.MeshHandle;
 const Material = render.Material;
-const MeshLibrary = render.MeshLibrary;
 const MeshInstance = render.MeshInstance;
 const CameraLayer = render.CameraLayer;

@@ -8,10 +8,14 @@ pub fn renderSystem(
     viewport_opt: ResOpt(types.ViewportSize),
     framebuffer_opt: ResOpt(types.FramebufferSize),
     render_bounds_opt: ResOpt(common.RenderBounds),
+    ordered_post_process: Query(.{ render.PostProcessPass, render.PostProcessOrder }),
+    unordered_post_process: Query(.{ render.PostProcessPass, Without(render.PostProcessOrder) }),
+    present_query: Query(.{render.PostProcessPresentSlot}),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
+    const post_process_shader_library = commands.getResourceMut(render.PostProcessShaderLibrary) orelse return;
     const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
 
     const surface_size = if (framebuffer_opt.ptr) |bounds|
@@ -36,13 +40,20 @@ pub fn renderSystem(
     }
 
     const clear = if (clear_opt.ptr) |c| c.color else common.Color.BSOD;
-    var frame = try state.renderer.beginFrame(clear);
+    var frame = try state.renderer.beginFrame();
     defer frame.endFrame() catch {};
 
     const viewport_size = if (viewport_opt.ptr) |vp|
         render.Size{ .width = @intFromFloat(vp.width), .height = @intFromFloat(vp.height) }
     else
         surface_size;
+    var post_process_passes = try collectPostProcessPasses(commands.allocator, ordered_post_process, unordered_post_process);
+    defer post_process_passes.deinit(commands.allocator);
+    const scene_target = if (post_process_passes.items.len > 0) blk: {
+        break :blk try frameTargetForSlot(&state.renderer, 0, surface_size);
+    } else render.FrameTarget.surface;
+    try frame.beginScenePass(scene_target, clear);
+
     const layers = try collectLayers(commands.allocator, queue.ptr.items.items);
     defer commands.allocator.free(layers);
 
@@ -239,6 +250,35 @@ pub fn renderSystem(
             } });
         }
     }
+
+    if (post_process_passes.items.len == 0) return;
+
+    const present_slot = resolvePresentSlot(post_process_passes.items, present_query);
+    for (post_process_passes.items) |pass_item| {
+        const pass = pass_item.pass;
+        if (pass.input_slot == pass.output_slot) continue;
+        const shader = post_process_shader_library.get(pass.material.shader) orelse continue;
+        _ = try state.renderer.ensurePostProcessSlot(pass.input_slot, surface_size.width, surface_size.height);
+        const target = if (pass.output_slot == present_slot)
+            render.FrameTarget.surface
+        else blk: {
+            break :blk try frameTargetForSlot(&state.renderer, pass.output_slot, surface_size);
+        };
+        try frame.beginPostProcessPass(target, common.Color.rgba(0, 0, 0, 0));
+        frame.setViewportScissor(
+            0.0,
+            0.0,
+            @floatFromInt(surface_size.width),
+            @floatFromInt(surface_size.height),
+        );
+        frame.drawPostProcess(
+            shader.*,
+            pass.input_slot,
+            pass.material.params.values,
+            surface_size,
+            pass.material.blend,
+        );
+    }
 }
 
 const BatchKey = struct {
@@ -263,6 +303,11 @@ const ShaderBatchItem = struct {
     mesh: render.Mesh,
     shader: render.Shader,
     instance: render.BackendMeshInstance,
+};
+
+const PostProcessPassItem = struct {
+    order: i32,
+    pass: render.PostProcessPass,
 };
 
 fn batchKeyEqual(a: BatchKey, b: BatchKey) bool {
@@ -324,6 +369,60 @@ fn collectLayers(allocator: std.mem.Allocator, items: []const render.RenderItem)
     }
 
     return allocator.dupe(i32, list.items[0..unique_count]);
+}
+
+fn collectPostProcessPasses(
+    allocator: std.mem.Allocator,
+    ordered_query: Query(.{ render.PostProcessPass, render.PostProcessOrder }),
+    unordered_query: Query(.{ render.PostProcessPass, Without(render.PostProcessOrder) }),
+) !std.ArrayListUnmanaged(PostProcessPassItem) {
+    var list: std.ArrayListUnmanaged(PostProcessPassItem) = .empty;
+
+    var ordered_it = ordered_query.iterator();
+    while (ordered_it.next()) |row| {
+        const pass = row.get(render.PostProcessPass) orelse continue;
+        const order = row.get(render.PostProcessOrder) orelse continue;
+        if (!pass.enabled or !pass.material.shader.isValid()) continue;
+        try list.append(allocator, .{ .order = order.value, .pass = pass.* });
+    }
+
+    var unordered_it = unordered_query.iterator();
+    while (unordered_it.next()) |row| {
+        const pass = row.get(render.PostProcessPass) orelse continue;
+        if (!pass.enabled or !pass.material.shader.isValid()) continue;
+        try list.append(allocator, .{ .order = 0, .pass = pass.* });
+    }
+
+    if (list.items.len > 1) {
+        std.sort.pdq(PostProcessPassItem, list.items, {}, postProcessPassLessThan);
+    }
+    return list;
+}
+
+fn resolvePresentSlot(
+    passes: []const PostProcessPassItem,
+    present_query: Query(.{render.PostProcessPresentSlot}),
+) u32 {
+    var it = present_query.iterator();
+    if (it.next()) |row| {
+        if (row.get(render.PostProcessPresentSlot)) |slot| {
+            return slot.slot;
+        }
+    }
+    if (passes.len == 0) return 0;
+    return passes[passes.len - 1].pass.output_slot;
+}
+
+fn postProcessPassLessThan(_: void, a: PostProcessPassItem, b: PostProcessPassItem) bool {
+    return a.order < b.order;
+}
+
+fn frameTargetForSlot(renderer: *render.Renderer, slot: u32, size: render.Size) !render.FrameTarget {
+    const slot_value = try renderer.ensurePostProcessSlot(slot, size.width, size.height);
+    if (@TypeOf(slot_value) == u32) {
+        return .{ .slot = slot_value };
+    }
+    return .{ .texture = slot_value };
 }
 
 fn layerViewportRect(
@@ -490,5 +589,7 @@ const types = @import("types.zig");
 
 const Commands = ecs.Commands;
 const system_params = ecs.system_params;
+const Query = system_params.Query;
 const ResMut = system_params.ResMut;
 const ResOpt = system_params.ResOpt;
+const Without = system_params.Without;

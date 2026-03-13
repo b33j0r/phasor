@@ -3,8 +3,10 @@ pub const AssetsContext = struct {
     io: *const std.Io,
     renderer: ?*render.Renderer = null,
     sampler: ?*render.Sampler = null,
+    font_library: ?*render.FontLibrary = null,
     mesh_library: ?*render.MeshLibrary = null,
     shader_library: ?*render.ShaderLibrary = null,
+    post_process_shader_library: ?*render.PostProcessShaderLibrary = null,
     texture_library: ?*render.TextureLibrary = null,
     material_library: ?*render.MaterialLibrary = null,
 };
@@ -261,6 +263,42 @@ pub const Shader = struct {
     }
 };
 
+pub const PostProcessShader = struct {
+    wgsl_fragment: ?[]const u8 = null,
+    handle: render.PostProcessShaderHandle = render.PostProcessShaderHandle.invalid(),
+    generated_wgsl: ?[]u8 = null,
+
+    pub fn load(self: *PostProcessShader, ctx: AssetsContext) !void {
+        if (self.handle.isValid()) return;
+        const renderer = ctx.renderer orelse return error.MissingRenderer;
+        const library = ctx.post_process_shader_library orelse return error.MissingPostProcessShaderLibrary;
+        const fragment = self.wgsl_fragment orelse return error.MissingShaderSource;
+
+        const wgsl = try render.buildPostProcessWgsl(ctx.allocator, fragment);
+        errdefer ctx.allocator.free(wgsl);
+        const shader = try renderer.createPostProcessShader(.{ .wgsl = wgsl });
+        errdefer {
+            var cleanup = shader;
+            renderer.destroyPostProcessShader(&cleanup);
+        }
+        self.generated_wgsl = wgsl;
+        self.handle = try library.addShader(shader);
+    }
+
+    pub fn unload(self: *PostProcessShader, ctx: AssetsContext) !void {
+        const renderer = ctx.renderer orelse return;
+        const library = ctx.post_process_shader_library orelse return;
+        if (self.handle.isValid()) {
+            _ = library.destroyShader(renderer, self.handle);
+            self.handle = render.PostProcessShaderHandle.invalid();
+        }
+        if (self.generated_wgsl) |wgsl| {
+            ctx.allocator.free(wgsl);
+            self.generated_wgsl = null;
+        }
+    }
+};
+
 pub const Sound = struct {
     path: ?[:0]const u8 = null,
     data: ?[]const u8 = null,
@@ -296,6 +334,86 @@ pub const Sound = struct {
         if (self.data) |data| return data;
         if (self.bytes) |bytes| return bytes;
         return null;
+    }
+};
+
+pub const Font = struct {
+    name: []const u8 = "Font",
+    path: ?[:0]const u8 = null,
+    data: ?[]const u8 = null,
+    bytes: ?[]u8 = null,
+    pixel_height: f32 = 64.0,
+    atlas_width: u32 = 512,
+    atlas_height: u32 = 512,
+    handle: render.FontHandle = render.FontHandle.invalid(),
+
+    pub fn embedded(name: []const u8, bytes: []const u8) Font {
+        return .{
+            .name = name,
+            .data = bytes,
+        };
+    }
+
+    pub fn file(name: []const u8, path: [:0]const u8) Font {
+        return .{
+            .name = name,
+            .path = path,
+        };
+    }
+
+    pub fn withPixelHeight(self: Font, pixel_height: f32) Font {
+        var out = self;
+        out.pixel_height = pixel_height;
+        return out;
+    }
+
+    pub fn withAtlasSize(self: Font, width: u32, height: u32) Font {
+        var out = self;
+        out.atlas_width = width;
+        out.atlas_height = height;
+        return out;
+    }
+
+    pub fn load(self: *Font, ctx: AssetsContext) !void {
+        if (self.handle.isValid()) return;
+
+        const renderer = ctx.renderer orelse return error.MissingRenderer;
+        const sampler = ctx.sampler orelse return error.MissingSampler;
+        const font_library = ctx.font_library orelse return error.MissingFontLibrary;
+
+        if (self.data == null and self.bytes == null) {
+            if (self.path) |path| {
+                self.bytes = try readFileSearch(ctx.allocator, ctx.io, path);
+            } else {
+                return error.MissingFontSource;
+            }
+        }
+
+        var font = render.Font{
+            .name = self.name,
+            .data = if (self.data) |data| data else self.bytes.?,
+            .pixel_height = self.pixel_height,
+            .atlas_width = self.atlas_width,
+            .atlas_height = self.atlas_height,
+        };
+        try font.load(ctx.allocator, renderer, sampler.*);
+        errdefer font.unload(ctx.allocator, renderer);
+
+        self.handle = try font_library.addFont(font);
+    }
+
+    pub fn unload(self: *Font, ctx: AssetsContext) !void {
+        const renderer = ctx.renderer orelse return;
+        const font_library = ctx.font_library orelse return;
+
+        if (self.handle.isValid()) {
+            _ = font_library.destroyFont(ctx.allocator, renderer, self.handle);
+            self.handle = render.FontHandle.invalid();
+        }
+        if (self.bytes) |bytes| {
+            ctx.allocator.free(bytes);
+            self.bytes = null;
+        }
     }
 };
 

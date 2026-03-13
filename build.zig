@@ -26,6 +26,11 @@ pub fn build(b: *std.Build) void {
         .glfw = if (!is_wasm) glfw.?.module else null,
         .stb = stb.module,
     });
+    const gui = GuiModuleLib.build(&ctx, .{
+        .common = common.module,
+        .ecs = ecs.module,
+        .render = renderer.module,
+    });
     const assets = AssetsModule.build(&ctx, .{
         .render = renderer.module,
         .stb_image = stb_image.module,
@@ -42,6 +47,7 @@ pub fn build(b: *std.Build) void {
         .common = common.module,
         .db = db.module,
         .ecs = ecs.module,
+        .gui = gui.module,
         .assets = assets.module,
         .audio = audio.module,
         .metrics = metrics.module,
@@ -69,6 +75,7 @@ pub fn build(b: *std.Build) void {
         .modules = modules.module,
         .platform = platform.module,
         .renderer = renderer.module,
+        .gui = gui.module,
         .assets = assets.module,
         .audio = audio.module,
         .window = if (!is_wasm) window.?.module else null,
@@ -476,6 +483,26 @@ const MetricsModule = struct {
     }
 };
 
+const GuiModuleLib = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    const Deps = struct {
+        common: *std.Build.Module,
+        ecs: *std.Build.Module,
+        render: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) GuiModuleLib {
+        const bundle = ctx.moduleBundlePublic("gui", "lib/gui/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
+            .{ .name = "ecs", .module = deps.ecs },
+            .{ .name = "render", .module = deps.render },
+        });
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
 const ModulesModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
@@ -484,6 +511,7 @@ const ModulesModule = struct {
         common: *std.Build.Module,
         db: *std.Build.Module,
         ecs: *std.Build.Module,
+        gui: *std.Build.Module,
         assets: *std.Build.Module,
         audio: *std.Build.Module,
         metrics: *std.Build.Module,
@@ -501,6 +529,7 @@ const ModulesModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "gui", .module = deps.gui }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
@@ -537,6 +566,7 @@ const PhasorModule = struct {
         modules: *std.Build.Module,
         platform: *std.Build.Module,
         renderer: *std.Build.Module,
+        gui: *std.Build.Module,
         assets: *std.Build.Module,
         audio: *std.Build.Module,
         window: ?*std.Build.Module,
@@ -556,6 +586,7 @@ const PhasorModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "platform", .module = deps.platform }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "gui", .module = deps.gui }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
         if (!is_wasm) {
@@ -932,6 +963,16 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "stb", .module = wasm_stb },
         },
     });
+    const wasm_gui = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/gui/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "common", .module = wasm_common },
+            .{ .name = "ecs", .module = wasm_ecs },
+            .{ .name = "render", .module = wasm_render },
+        },
+    });
     const wasm_assets = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/assets/root.zig"),
         .target = wasm_target,
@@ -967,6 +1008,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "common", .module = wasm_common },
             .{ .name = "db", .module = wasm_db },
             .{ .name = "ecs", .module = wasm_ecs },
+            .{ .name = "gui", .module = wasm_gui },
             .{ .name = "assets", .module = wasm_assets },
             .{ .name = "audio", .module = wasm_audio },
             .{ .name = "metrics", .module = wasm_metrics },
@@ -1000,6 +1042,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "modules", .module = wasm_modules },
             .{ .name = "platform", .module = wasm_platform },
             .{ .name = "render", .module = wasm_render },
+            .{ .name = "gui", .module = wasm_gui },
             .{ .name = "assets", .module = wasm_assets },
             .{ .name = "audio", .module = wasm_audio },
         },

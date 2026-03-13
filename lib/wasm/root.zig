@@ -14,6 +14,9 @@ var input_events: [max_input_events]InputEvent = undefined;
 var input_event_count: u32 = 0;
 var mouse_delta_x: f32 = 0.0;
 var mouse_delta_y: f32 = 0.0;
+var mouse_x: f32 = 0.0;
+var mouse_y: f32 = 0.0;
+var mouse_buttons: u8 = 0;
 
 pub export fn wasmInputKey(key: u32, is_down: bool) void {
     if (input_event_count >= max_input_events) return;
@@ -24,6 +27,21 @@ pub export fn wasmInputKey(key: u32, is_down: bool) void {
 pub export fn wasmInputMouseDelta(dx: f32, dy: f32) void {
     mouse_delta_x += dx;
     mouse_delta_y += dy;
+}
+
+pub export fn wasmInputMousePosition(x: f32, y: f32) void {
+    mouse_x = x;
+    mouse_y = y;
+}
+
+pub export fn wasmInputMouseButton(button: u32, is_down: bool) void {
+    if (button >= 8) return;
+    const mask: u8 = @as(u8, 1) << @as(u3, @intCast(button));
+    if (is_down) {
+        mouse_buttons |= mask;
+    } else {
+        mouse_buttons &= ~mask;
+    }
 }
 
 pub fn drainInputEvents(out: []InputEvent) usize {
@@ -47,6 +65,19 @@ pub fn drainMouseDelta() MouseDelta {
     mouse_delta_x = 0.0;
     mouse_delta_y = 0.0;
     return delta;
+}
+
+pub const MousePosition = struct {
+    x: f32,
+    y: f32,
+};
+
+pub fn mousePosition() MousePosition {
+    return .{ .x = mouse_x, .y = mouse_y };
+}
+
+pub fn mouseButtons() u8 {
+    return mouse_buttons;
 }
 
 pub fn setMouseCapture(enabled: bool) void {

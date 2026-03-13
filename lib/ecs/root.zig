@@ -19,6 +19,7 @@ pub const App = @import("App.zig");
 pub const AppCommands = @import("AppCommands.zig").AppCommands;
 pub const Command = @import("Command.zig");
 pub const Commands = @import("Commands.zig");
+pub const Entity = @import("db").Entity;
 pub const World = @import("World.zig");
 pub const schedule = @import("schedule.zig");
 pub const system = @import("system.zig");

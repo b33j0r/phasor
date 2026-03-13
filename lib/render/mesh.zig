@@ -479,22 +479,27 @@ const MaterialSlot = struct {
 pub const MeshFactory = struct {
     allocator: std.mem.Allocator,
     library: *MeshLibrary,
+    renderer: *backend.Renderer,
 
-    pub fn init(allocator: std.mem.Allocator, library: *MeshLibrary) MeshFactory {
-        return .{ .allocator = allocator, .library = library };
+    pub fn init(allocator: std.mem.Allocator, library: *MeshLibrary, renderer: *backend.Renderer) MeshFactory {
+        return .{
+            .allocator = allocator,
+            .library = library,
+            .renderer = renderer,
+        };
     }
 
-    pub fn triangle(self: *MeshFactory, renderer: *backend.Renderer) !MeshHandle {
+    pub fn triangle(self: *MeshFactory) !MeshHandle {
         const vertices = [_]backend.VertexUv{
             .{ .position = .{ 0.0, 0.6 }, .uv = .{ 0.5, 0.0 } },
             .{ .position = .{ -0.6, -0.6 }, .uv = .{ 0.0, 1.0 } },
             .{ .position = .{ 0.6, -0.6 }, .uv = .{ 1.0, 1.0 } },
         };
         const indices = [_]u16{ 0, 1, 2 };
-        return self.library.addMesh(renderer, vertices[0..], indices[0..]);
+        return self.library.addMesh(self.renderer, vertices[0..], indices[0..]);
     }
 
-    pub fn quad(self: *MeshFactory, renderer: *backend.Renderer) !MeshHandle {
+    pub fn quad(self: *MeshFactory) !MeshHandle {
         const vertices = [_]backend.VertexUv{
             .{ .position = .{ -0.5, -0.5 }, .uv = .{ 0.0, 1.0 } },
             .{ .position = .{ 0.5, -0.5 }, .uv = .{ 1.0, 1.0 } },
@@ -502,10 +507,10 @@ pub const MeshFactory = struct {
             .{ .position = .{ -0.5, 0.5 }, .uv = .{ 0.0, 0.0 } },
         };
         const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
-        return self.library.addMesh(renderer, vertices[0..], indices[0..]);
+        return self.library.addMesh(self.renderer, vertices[0..], indices[0..]);
     }
 
-    pub fn circle(self: *MeshFactory, renderer: *backend.Renderer, radius: f32, segments: u32) !MeshHandle {
+    pub fn circle(self: *MeshFactory, radius: f32, segments: u32) !MeshHandle {
         if (segments < 3) return error.InvalidSegments;
         if (radius <= 0.0) return error.InvalidRadius;
         if (segments + 1 > std.math.maxInt(u16)) return error.TooManyVertices;
@@ -541,18 +546,18 @@ pub const MeshFactory = struct {
             idx += 3;
         }
 
-        return self.library.addMesh(renderer, vertices, indices);
+        return self.library.addMesh(self.renderer, vertices, indices);
     }
 
-    pub fn cube(_: *MeshFactory, _: *backend.Renderer) !MeshHandle {
+    pub fn cube(_: *MeshFactory) !MeshHandle {
         return error.UnsupportedShape;
     }
 
-    pub fn sphere(_: *MeshFactory, _: *backend.Renderer) !MeshHandle {
+    pub fn sphere(_: *MeshFactory) !MeshHandle {
         return error.UnsupportedShape;
     }
 
-    pub fn cylinder(_: *MeshFactory, _: *backend.Renderer) !MeshHandle {
+    pub fn cylinder(_: *MeshFactory) !MeshHandle {
         return error.UnsupportedShape;
     }
 };

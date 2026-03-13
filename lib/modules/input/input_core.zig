@@ -7,6 +7,11 @@ pub const KeyReleased = struct { key: Key };
 pub const KeyDown = struct { key: Key };
 pub const MouseDelta = struct { dx: f32, dy: f32 };
 pub const MouseCapture = struct { enabled: bool = false };
+pub const MouseButton = enum(u8) {
+    left = 0,
+    right = 1,
+    middle = 2,
+};
 
 pub const Keyboard = struct {
     current: u128 = 0,
@@ -40,11 +45,41 @@ pub const Keyboard = struct {
 pub const Mouse = struct {
     delta_x: f32 = 0.0,
     delta_y: f32 = 0.0,
+    x: f32 = 0.0,
+    y: f32 = 0.0,
+    previous_x: f32 = 0.0,
+    previous_y: f32 = 0.0,
     last_x: f64 = 0.0,
     last_y: f64 = 0.0,
+    current_buttons: u8 = 0,
+    previous_buttons: u8 = 0,
+    has_position: bool = false,
     has_last: bool = false,
     captured: bool = false,
+
+    pub fn isButtonDown(self: *const Mouse, button: MouseButton) bool {
+        return (self.current_buttons & buttonMask(button)) != 0;
+    }
+
+    pub fn isButtonPressed(self: *const Mouse, button: MouseButton) bool {
+        const mask = buttonMask(button);
+        return (self.current_buttons & mask) != 0 and (self.previous_buttons & mask) == 0;
+    }
+
+    pub fn isButtonReleased(self: *const Mouse, button: MouseButton) bool {
+        const mask = buttonMask(button);
+        return (self.current_buttons & mask) == 0 and (self.previous_buttons & mask) != 0;
+    }
+
+    pub fn moved(self: *const Mouse) bool {
+        if (!self.has_position) return false;
+        return self.x != self.previous_x or self.y != self.previous_y;
+    }
 };
+
+fn buttonMask(button: MouseButton) u8 {
+    return @as(u8, 1) << @as(u3, @intCast(@intFromEnum(button)));
+}
 
 pub fn keyFromInt(value: u32) ?Key {
     const signed = std.math.cast(c_int, value) orelse return null;

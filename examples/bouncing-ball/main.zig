@@ -56,8 +56,7 @@ fn setupScene(
     window_bounds_opt: ResOpt(WindowBounds),
     render_bounds_opt: ResOpt(RenderBounds),
     render_state_opt: ResOpt(RenderState),
-    render_state: ResMut(RenderState),
-    mesh_library: ResMut(MeshLibrary),
+    build_ctx: ResMut(render.BuildContext),
     assets_res: Res(Assets),
 ) !void {
     var decal_material: ?Material = null;
@@ -66,9 +65,9 @@ fn setupScene(
 
     const radius: f32 = 40.0;
     const inset_radius: f32 = 34.0;
-    var factory = render.MeshFactory.init(commands.allocator, mesh_library.ptr);
-    const outer_mesh = try factory.circle(&render_state.ptr.renderer, radius, 48);
-    const inner_mesh = try factory.circle(&render_state.ptr.renderer, inset_radius, 48);
+    var factory = build_ctx.ptr.meshFactory();
+    const outer_mesh = try factory.circle(radius, 48);
+    const inner_mesh = try factory.circle(inset_radius, 48);
 
     const start = Vec3{ .x = bounds.width * 0.5, .y = bounds.height * 0.5, .z = -10.0 };
     const ball_entity = try commands.createEntity(.{
@@ -233,7 +232,6 @@ const RenderBounds = common.RenderBounds;
 const ClearColor = common.ClearColor;
 
 const Material = render.Material;
-const MeshLibrary = render.MeshLibrary;
 const MeshInstance = render.MeshInstance;
 const Sprite = render.Sprite;
 const CameraLayer = render.CameraLayer;

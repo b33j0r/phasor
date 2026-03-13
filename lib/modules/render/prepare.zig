@@ -77,18 +77,32 @@ pub fn updateSpriteMeshes(commands: *Commands, sprites: Query(.{ render.Sprite, 
 pub fn updateTextMeshes(
     commands: *Commands,
     default_font: ResMut(render.DefaultFont),
+    font_library_opt: ResOpt(render.FontLibrary),
     texts: Query(.{ render.Text, common.Transform }),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
-    const font = &default_font.ptr.font;
-    const material = font.material orelse return;
-    if (font.atlas == null) return;
+    const fallback_font = &default_font.ptr.font;
+    const fallback_material = fallback_font.material orelse return;
+    if (fallback_font.atlas == null) return;
 
     var it = texts.iterator();
     while (it.next()) |row| {
         const text = row.get(render.Text) orelse continue;
         _ = row.get(common.Transform) orelse continue;
+        const font = blk: {
+            if (text.font_handle) |font_handle| {
+                if (font_library_opt.ptr) |font_library| {
+                    if (font_library.get(font_handle)) |loaded_font| {
+                        if (loaded_font.atlas != null and loaded_font.material != null) {
+                            break :blk loaded_font;
+                        }
+                    }
+                }
+            }
+            break :blk fallback_font;
+        };
+        const material = font.material orelse fallback_material;
 
         const layout_hash = render.textLayoutHash(text.*);
         if (text.content.len == 0) {

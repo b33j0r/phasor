@@ -17,12 +17,26 @@ pub const Text = struct {
     font_size: f32 = 72.0,
     horizontal_alignment: HorizontalAlignment = .Left,
     vertical_alignment: VerticalAlignment = .Top,
+    font_handle: ?FontHandle = null,
     mesh_handle: mesh.MeshHandle = mesh.MeshHandle.invalid(),
     layout_hash: u64 = 0,
 };
 
 pub const DefaultFont = struct {
     font: Font,
+};
+
+pub const FontHandle = struct {
+    index: u32,
+    generation: u32,
+
+    pub fn invalid() FontHandle {
+        return .{ .index = std.math.maxInt(u32), .generation = 0 };
+    }
+
+    pub fn isValid(self: FontHandle) bool {
+        return self.index != std.math.maxInt(u32);
+    }
 };
 
 pub const Font = struct {
@@ -88,6 +102,93 @@ pub const Font = struct {
             self.atlas = null;
         }
     }
+};
+
+pub const FontLibrary = struct {
+    allocator: std.mem.Allocator,
+    slots: std.ArrayListUnmanaged(FontSlot) = .empty,
+    free_list: std.ArrayListUnmanaged(u32) = .empty,
+
+    pub fn init(allocator: std.mem.Allocator) FontLibrary {
+        return .{
+            .allocator = allocator,
+            .slots = .empty,
+            .free_list = .empty,
+        };
+    }
+
+    pub fn deinit(self: *FontLibrary) void {
+        self.slots.deinit(self.allocator);
+        self.free_list.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    pub fn destroyFonts(self: *FontLibrary, allocator: std.mem.Allocator, renderer: *Renderer) void {
+        self.free_list.clearRetainingCapacity();
+        for (self.slots.items, 0..) |*slot, index| {
+            if (!slot.alive) continue;
+            slot.font.unload(allocator, renderer);
+            slot.alive = false;
+            slot.generation +%= 1;
+            _ = self.free_list.append(self.allocator, @intCast(index)) catch {};
+        }
+    }
+
+    pub fn addFont(self: *FontLibrary, font: Font) !FontHandle {
+        if (self.free_list.items.len > 0) {
+            const index = self.free_list.pop() orelse unreachable;
+            var slot = &self.slots.items[@intCast(index)];
+            slot.font = font;
+            slot.alive = true;
+            return .{ .index = index, .generation = slot.generation };
+        }
+
+        const index: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(self.allocator, .{
+            .font = font,
+            .generation = 1,
+            .alive = true,
+        });
+        return .{ .index = index, .generation = 1 };
+    }
+
+    pub fn get(self: *const FontLibrary, handle: FontHandle) ?*const Font {
+        const slot = self.slotPtrConst(handle) orelse return null;
+        return &slot.font;
+    }
+
+    pub fn destroyFont(self: *FontLibrary, allocator: std.mem.Allocator, renderer: *Renderer, handle: FontHandle) bool {
+        const slot = self.slotPtr(handle) orelse return false;
+        slot.font.unload(allocator, renderer);
+        slot.alive = false;
+        slot.generation +%= 1;
+        _ = self.free_list.append(self.allocator, handle.index) catch {};
+        return true;
+    }
+
+    fn slotPtr(self: *FontLibrary, handle: FontHandle) ?*FontSlot {
+        if (!handle.isValid()) return null;
+        const index: usize = @intCast(handle.index);
+        if (index >= self.slots.items.len) return null;
+        const slot = &self.slots.items[index];
+        if (!slot.alive or slot.generation != handle.generation) return null;
+        return slot;
+    }
+
+    fn slotPtrConst(self: *const FontLibrary, handle: FontHandle) ?*const FontSlot {
+        if (!handle.isValid()) return null;
+        const index: usize = @intCast(handle.index);
+        if (index >= self.slots.items.len) return null;
+        const slot = &self.slots.items[index];
+        if (!slot.alive or slot.generation != handle.generation) return null;
+        return slot;
+    }
+};
+
+const FontSlot = struct {
+    font: Font,
+    generation: u32,
+    alive: bool,
 };
 
 pub const FontAtlas = struct {
@@ -229,6 +330,13 @@ pub fn layoutHash(text: Text) u64 {
     var hash = std.hash.Wyhash.init(0);
     hash.update(text.content);
     hash.update(std.mem.asBytes(&text.font_size));
+    if (text.font_handle) |font_handle| {
+        hash.update(std.mem.asBytes(&font_handle.index));
+        hash.update(std.mem.asBytes(&font_handle.generation));
+    } else {
+        const zero: u64 = 0;
+        hash.update(std.mem.asBytes(&zero));
+    }
     const h_align: u8 = @intFromEnum(text.horizontal_alignment);
     const v_align: u8 = @intFromEnum(text.vertical_alignment);
     hash.update(std.mem.asBytes(&h_align));

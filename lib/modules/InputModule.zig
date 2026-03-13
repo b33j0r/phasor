@@ -13,6 +13,7 @@ pub const KeyDown = core.KeyDown;
 pub const Keyboard = core.Keyboard;
 pub const MouseDelta = core.MouseDelta;
 pub const MouseCapture = core.MouseCapture;
+pub const MouseButton = core.MouseButton;
 pub const Mouse = core.Mouse;
 pub const keyFromInt = core.keyFromInt;
 pub const keys_to_poll = core.keys_to_poll;

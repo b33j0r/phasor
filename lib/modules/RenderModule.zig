@@ -110,8 +110,14 @@ fn initRenderer(commands: *Commands) !void {
     if (!commands.hasResource(render.MeshLibrary)) {
         try commands.insertResource(render.MeshLibrary.init(commands.allocator));
     }
+    if (!commands.hasResource(render.FontLibrary)) {
+        try commands.insertResource(render.FontLibrary.init(commands.allocator));
+    }
     if (!commands.hasResource(render.ShaderLibrary)) {
         try commands.insertResource(render.ShaderLibrary.init(commands.allocator));
+    }
+    if (!commands.hasResource(render.PostProcessShaderLibrary)) {
+        try commands.insertResource(render.PostProcessShaderLibrary.init(commands.allocator));
     }
     if (!commands.hasResource(render.TextureLibrary)) {
         try commands.insertResource(render.TextureLibrary.init(commands.allocator));
@@ -119,13 +125,16 @@ fn initRenderer(commands: *Commands) !void {
     if (!commands.hasResource(render.MaterialLibrary)) {
         try commands.insertResource(render.MaterialLibrary.init(commands.allocator));
     }
+    try ensureBuildContextResource(commands);
 }
 
 fn ensureAssetsContextSystem(commands: *Commands) !void {
     if (commands.hasResource(assets.AssetsContext)) return;
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
+    const font_library = commands.getResourceMut(render.FontLibrary) orelse return;
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
+    const post_process_shader_library = commands.getResourceMut(render.PostProcessShaderLibrary) orelse return;
     const texture_library = commands.getResourceMut(render.TextureLibrary) orelse return;
     const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
     try commands.insertResource(assets.AssetsContext{
@@ -133,10 +142,35 @@ fn ensureAssetsContextSystem(commands: *Commands) !void {
         .io = commands.io,
         .renderer = &state.renderer,
         .sampler = &state.default_sampler,
+        .font_library = font_library,
         .mesh_library = mesh_library,
         .shader_library = shader_library,
+        .post_process_shader_library = post_process_shader_library,
         .texture_library = texture_library,
         .material_library = material_library,
+    });
+}
+
+fn ensureBuildContextResource(commands: *Commands) !void {
+    if (commands.hasResource(render.BuildContext)) return;
+    const state = commands.getResourceMut(RenderState) orelse return;
+    const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
+    const font_library = commands.getResourceMut(render.FontLibrary) orelse return;
+    const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
+    const post_process_shader_library = commands.getResourceMut(render.PostProcessShaderLibrary) orelse return;
+    const texture_library = commands.getResourceMut(render.TextureLibrary) orelse return;
+    const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
+
+    try commands.insertResource(render.BuildContext{
+        .allocator = commands.allocator,
+        .renderer = &state.renderer,
+        .default_sampler = &state.default_sampler,
+        .mesh_library = mesh_library,
+        .shader_library = shader_library,
+        .post_process_shader_library = post_process_shader_library,
+        .texture_library = texture_library,
+        .material_library = material_library,
+        .font_library = font_library,
     });
 }
 
@@ -146,10 +180,13 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(LayerCameras);
         _ = commands.removeResource(LayerViewports);
         _ = commands.removeResource(render.MeshLibrary);
+        _ = commands.removeResource(render.FontLibrary);
         _ = commands.removeResource(render.ShaderLibrary);
+        _ = commands.removeResource(render.PostProcessShaderLibrary);
         _ = commands.removeResource(render.TextureLibrary);
         _ = commands.removeResource(render.MaterialLibrary);
         _ = commands.removeResource(render.RenderQueue);
+        _ = commands.removeResource(render.BuildContext);
         _ = commands.removeResource(render.DefaultFont);
         return;
     };
@@ -158,9 +195,17 @@ fn shutdownSystem(commands: *Commands) void {
         library.destroyMeshes(&state.renderer);
         _ = commands.removeResource(render.MeshLibrary);
     }
+    if (commands.getResourceMut(render.FontLibrary)) |library| {
+        library.destroyFonts(commands.allocator, &state.renderer);
+        _ = commands.removeResource(render.FontLibrary);
+    }
     if (commands.getResourceMut(render.ShaderLibrary)) |library| {
         library.destroyShaders(&state.renderer);
         _ = commands.removeResource(render.ShaderLibrary);
+    }
+    if (commands.getResourceMut(render.PostProcessShaderLibrary)) |library| {
+        library.destroyShaders(&state.renderer);
+        _ = commands.removeResource(render.PostProcessShaderLibrary);
     }
     if (commands.getResourceMut(render.MaterialLibrary)) |library| {
         library.destroyMaterials(&state.renderer);
@@ -181,6 +226,7 @@ fn shutdownSystem(commands: *Commands) void {
     _ = commands.removeResource(LayerCameras);
     _ = commands.removeResource(LayerViewports);
     _ = commands.removeResource(assets.AssetsContext);
+    _ = commands.removeResource(render.BuildContext);
     _ = commands.removeResource(render.RenderQueue);
     _ = commands.removeResource(RenderState);
 }

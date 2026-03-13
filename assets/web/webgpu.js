@@ -355,6 +355,35 @@ function createPipelines(ctx) {
     depthStencil: depthStateBlend,
     primitive: { topology: "triangle-list" },
   });
+
+  ctx.postProcessBindGroupLayout = ctx.device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform", minBindingSize: 80 },
+      },
+    ],
+  });
+  ctx.postProcessPipelineLayout = ctx.device.createPipelineLayout({
+    bindGroupLayouts: [ctx.postProcessBindGroupLayout],
+  });
+  ctx.postProcessSampler = ctx.device.createSampler({
+    magFilter: "linear",
+    minFilter: "linear",
+    mipmapFilter: "linear",
+    addressModeU: "clamp-to-edge",
+    addressModeV: "clamp-to-edge",
+    addressModeW: "clamp-to-edge",
+  });
+  ctx.postProcessUniformBuffer = ctx.device.createBuffer({
+    size: 80,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  webgpuCreates.samplers += 1;
+  webgpuCreates.buffers += 1;
 }
 
 function createColorPipelinesFromWgsl(ctx, wgslSource) {
@@ -431,6 +460,126 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
   return { opaque, blend };
 }
 
+function createPostProcessPipelinesFromWgsl(ctx, wgslSource) {
+  const module = ctx.device.createShaderModule({ code: wgslSource });
+  const opaque = ctx.device.createRenderPipeline({
+    layout: ctx.postProcessPipelineLayout,
+    vertex: {
+      module,
+      entryPoint: "vs_main",
+    },
+    fragment: {
+      module,
+      entryPoint: "fs_main",
+      targets: [{ format: ctx.format }],
+    },
+    primitive: { topology: "triangle-list" },
+  });
+
+  const blend = ctx.device.createRenderPipeline({
+    layout: ctx.postProcessPipelineLayout,
+    vertex: {
+      module,
+      entryPoint: "vs_main",
+    },
+    fragment: {
+      module,
+      entryPoint: "fs_main",
+      targets: [{
+        format: ctx.format,
+        blend: {
+          color: { operation: "add", srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
+          alpha: { operation: "add", srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+        },
+      }],
+    },
+    primitive: { topology: "triangle-list" },
+  });
+  webgpuCreates.pipelines += 2;
+  return { opaque, blend };
+}
+
+function createPostProcessTexture(ctx, width, height) {
+  const texture = ctx.device.createTexture({
+    size: { width, height },
+    format: ctx.format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+  });
+  webgpuCreates.textures += 1;
+  const view = texture.createView();
+  webgpuCreates.textureViews += 1;
+  const bindGroup = ctx.device.createBindGroup({
+    layout: ctx.postProcessBindGroupLayout,
+    entries: [
+      { binding: 0, resource: ctx.postProcessSampler },
+      { binding: 1, resource: view },
+      {
+        binding: 2,
+        resource: {
+          buffer: ctx.postProcessUniformBuffer,
+          offset: 0,
+          size: 80,
+        },
+      },
+    ],
+  });
+  webgpuCreates.bindGroups += 1;
+  return { texture, view, bindGroup, width, height };
+}
+
+function destroyPostProcessSlot(slot) {
+  if (!slot) return;
+  if (slot.texture) {
+    slot.texture.destroy();
+    webgpuDestroys.textures += 1;
+  }
+  webgpuDestroys.bindGroups += 1;
+}
+
+function ensurePostProcessSlot(ctx, slotIndex) {
+  while (ctx.postProcessSlots.length <= slotIndex) {
+    ctx.postProcessSlots.push(null);
+  }
+  const width = ctx.canvas.width || 1;
+  const height = ctx.canvas.height || 1;
+  const slot = ctx.postProcessSlots[slotIndex];
+  if (!slot || slot.width !== width || slot.height !== height) {
+    if (slot) {
+      destroyPostProcessSlot(slot);
+    }
+    ctx.postProcessSlots[slotIndex] = createPostProcessTexture(ctx, width, height);
+  }
+  return ctx.postProcessSlots[slotIndex];
+}
+
+function endCurrentPass(ctx) {
+  if (!ctx.pass) return;
+  ctx.pass.end();
+  ctx.pass = null;
+}
+
+function beginRenderPass(ctx, view, clearValue, depthView) {
+  endCurrentPass(ctx);
+  const descriptor = {
+    colorAttachments: [{
+      view,
+      loadOp: "clear",
+      storeOp: "store",
+      clearValue,
+    }],
+  };
+  if (depthView) {
+    descriptor.depthStencilAttachment = {
+      view: depthView,
+      depthLoadOp: "clear",
+      depthStoreOp: "store",
+      depthClearValue: 1.0,
+    };
+  }
+  ctx.pass = ctx.encoder.beginRenderPass(descriptor);
+  webgpuCreates.renderPasses += 1;
+}
+
 function createContext(canvas, enableValidation) {
   const context = canvas.getContext("webgpu");
   const format = navigator.gpu.getPreferredCanvasFormat();
@@ -451,13 +600,17 @@ function createContext(canvas, enableValidation) {
     meshFree: [],
     shaders: [null],
     shaderFree: [],
+    postProcessShaders: [null],
+    postProcessShaderFree: [],
     textures: [null],
     samplers: [null],
     materials: [null],
+    postProcessSlots: [],
     instanceBufferSize: 512 * 1024,
     instanceOffset: 0,
     depthTexture: null,
     depthView: null,
+    surfaceView: null,
     inFrame: false,
     errorScopeDepth: 0,
     enableValidation: Boolean(enableValidation),
@@ -626,10 +779,16 @@ function destroyContextResources(ctx) {
     try { ctx.encoder.finish(); } catch (_) {}
     ctx.encoder = null;
   }
+  ctx.surfaceView = null;
   if (ctx.instanceBuffer) {
     ctx.instanceBuffer.destroy();
     webgpuDestroys.buffers += 1;
     ctx.instanceBuffer = null;
+  }
+  if (ctx.postProcessUniformBuffer) {
+    ctx.postProcessUniformBuffer.destroy();
+    webgpuDestroys.buffers += 1;
+    ctx.postProcessUniformBuffer = null;
   }
   if (ctx.triangleVertexBuffer) {
     ctx.triangleVertexBuffer.destroy();
@@ -676,6 +835,14 @@ function destroyContextResources(ctx) {
   }
   ctx.shaderFree.length = 0;
 
+  for (let i = 1; i < ctx.postProcessShaders.length; i += 1) {
+    const shader = ctx.postProcessShaders[i];
+    if (!shader) continue;
+    webgpuDestroys.pipelines += 2;
+    ctx.postProcessShaders[i] = null;
+  }
+  ctx.postProcessShaderFree.length = 0;
+
   for (let i = 1; i < ctx.textures.length; i += 1) {
     const tex = ctx.textures[i];
     if (!tex) continue;
@@ -700,6 +867,18 @@ function destroyContextResources(ctx) {
     webgpuDestroys.bindGroups += 1;
     ctx.materials[i] = null;
   }
+
+  for (let i = 0; i < ctx.postProcessSlots.length; i += 1) {
+    if (!ctx.postProcessSlots[i]) continue;
+    destroyPostProcessSlot(ctx.postProcessSlots[i]);
+    ctx.postProcessSlots[i] = null;
+  }
+  ctx.postProcessSlots.length = 0;
+
+  if (ctx.postProcessSampler) {
+    webgpuDestroys.samplers += 1;
+    ctx.postProcessSampler = null;
+  }
 }
 
 function reconfigureContextSurface(ctx, reason) {
@@ -712,6 +891,11 @@ function reconfigureContextSurface(ctx, reason) {
       alphaMode: "premultiplied",
     });
     createDepthTexture(ctx, size.framebufferWidth, size.framebufferHeight);
+    for (let i = 0; i < ctx.postProcessSlots.length; i += 1) {
+      if (!ctx.postProcessSlots[i]) continue;
+      destroyPostProcessSlot(ctx.postProcessSlots[i]);
+      ctx.postProcessSlots[i] = null;
+    }
     if (phasorDebug.lifecycleLogs) {
       console.log(
         "[phasor] webgpu surface reconfigured",
@@ -1014,27 +1198,12 @@ const imports = {
       try {
         const encoder = ctx.device.createCommandEncoder();
         webgpuCreates.commandEncoders += 1;
-        const view = ctx.context.getCurrentTexture().createView();
-        webgpuCreates.textureViews += 1;
-        const pass = encoder.beginRenderPass({
-          colorAttachments: [{
-            view,
-            loadOp: "clear",
-            storeOp: "store",
-            clearValue: { r, g, b, a },
-          }],
-          depthStencilAttachment: {
-            view: ctx.depthView,
-            depthLoadOp: "clear",
-            depthStoreOp: "store",
-            depthClearValue: 1.0,
-          },
-        });
-        webgpuCreates.renderPasses += 1;
         ctx.encoder = encoder;
-        ctx.pass = pass;
+        ctx.surfaceView = ctx.context.getCurrentTexture().createView();
+        webgpuCreates.textureViews += 1;
       } catch (err) {
         ctx.inFrame = false;
+        ctx.surfaceView = null;
         if (ctx.enableValidation && ctx.errorScopeDepth >= 3) {
           ctx.errorScopeDepth -= 3;
           ctx.device.popErrorScope().catch(() => {});
@@ -1045,9 +1214,23 @@ const imports = {
         throw err;
       }
     },
+    webgpu_begin_scene_pass(ctxId, targetSlot, r, g, b, a) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || !ctx.encoder) return;
+      const target = targetSlot === 0xffffffff ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
+      if (!target || !target.view) return;
+      beginRenderPass(ctx, target.view, { r, g, b, a }, ctx.depthView);
+    },
+    webgpu_begin_post_process_pass(ctxId, targetSlot, r, g, b, a) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || !ctx.encoder) return;
+      const target = targetSlot === 0xffffffff ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
+      if (!target || !target.view) return;
+      beginRenderPass(ctx, target.view, { r, g, b, a }, null);
+    },
     webgpu_draw_triangle(ctxId) {
       const ctx = ctxs.get(ctxId);
-      if (!ctx) return;
+      if (!ctx || !ctx.pass) return;
       ctx.pass.setPipeline(ctx.trianglePipeline);
       ctx.pass.setVertexBuffer(0, ctx.triangleVertexBuffer);
       ctx.pass.draw(3, 1, 0, 0);
@@ -1069,7 +1252,7 @@ const imports = {
     },
     webgpu_draw_textured_quad(ctxId, meshHandle, materialHandle, instancePtr, blend) {
       const ctx = ctxs.get(ctxId);
-      if (!ctx || deviceLost || recoveringDevice) return;
+      if (!ctx || deviceLost || recoveringDevice || !ctx.pass) return;
       const mesh = ctx.meshes[meshHandle];
       const material = ctx.materials[materialHandle];
       if (!mesh || !material) return;
@@ -1094,7 +1277,7 @@ const imports = {
     },
     webgpu_draw_textured_quads(ctxId, meshHandle, materialHandle, instancePtr, instanceCount, blend) {
       const ctx = ctxs.get(ctxId);
-      if (!ctx || deviceLost || recoveringDevice) return;
+      if (!ctx || deviceLost || recoveringDevice || !ctx.pass) return;
       const mesh = ctx.meshes[meshHandle];
       const material = ctx.materials[materialHandle];
       if (!mesh || !material) return;
@@ -1128,7 +1311,7 @@ const imports = {
     },
     webgpu_draw_colored_meshes(ctxId, meshHandle, shaderHandle, instancePtr, instanceCount, blend) {
       const ctx = ctxs.get(ctxId);
-      if (!ctx || deviceLost || recoveringDevice) return;
+      if (!ctx || deviceLost || recoveringDevice || !ctx.pass) return;
       const mesh = ctx.meshes[meshHandle];
       const shader = ctx.shaders[shaderHandle];
       if (!mesh || !shader) return;
@@ -1158,6 +1341,19 @@ const imports = {
       ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
       ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
       ctx.pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, 0);
+    },
+    webgpu_draw_post_process(ctxId, shaderHandle, sourceSlot, uniformsPtr, blend) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || deviceLost || recoveringDevice || !ctx.pass) return;
+      const shader = ctx.postProcessShaders[shaderHandle];
+      const source = ctx.postProcessSlots[sourceSlot];
+      if (!shader || !source) return;
+      const uniforms = new Float32Array(memory.buffer, uniformsPtr, 20);
+      const uniformBytes = new Uint8Array(uniforms.buffer, uniforms.byteOffset, 80);
+      ctx.queue.writeBuffer(ctx.postProcessUniformBuffer, 0, uniformBytes);
+      ctx.pass.setPipeline(blend ? shader.blend : shader.opaque);
+      ctx.pass.setBindGroup(0, source.bindGroup);
+      ctx.pass.draw(3, 1, 0, 0);
     },
     webgpu_end_frame(ctxId) {
       const ctx = ctxs.get(ctxId);
@@ -1200,12 +1396,13 @@ const imports = {
         lastFrameCounts.commandEncoders = webgpuCreates.commandEncoders;
         lastFrameCounts.renderPasses = webgpuCreates.renderPasses;
       }
-      ctx.pass.end();
+      endCurrentPass(ctx);
       ctx.queue.submit([ctx.encoder.finish()]);
       gpuFramesInFlight += 1;
       scheduleQueueFence(ctx);
       ctx.pass = null;
       ctx.encoder = null;
+      ctx.surfaceView = null;
       ctx.inFrame = false;
       webgpuFramesEnded += 1;
       if (deviceLost) return;
@@ -1393,6 +1590,21 @@ const imports = {
       }
       return handle;
     },
+    webgpu_create_post_process_shader(ctxId, wgslPtr, wgslLen) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const wgsl = readString(wgslPtr, wgslLen);
+      const shader = createPostProcessPipelinesFromWgsl(ctx, wgsl);
+      let handle = 0;
+      if (ctx.postProcessShaderFree.length > 0) {
+        handle = ctx.postProcessShaderFree.pop();
+        ctx.postProcessShaders[handle] = shader;
+      } else {
+        handle = ctx.postProcessShaders.length;
+        ctx.postProcessShaders.push(shader);
+      }
+      return handle;
+    },
     webgpu_destroy_shader(ctxId, handle) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
@@ -1402,6 +1614,17 @@ const imports = {
       webgpuDestroys.pipelines += 2;
       if (handle !== 0) {
         ctx.shaderFree.push(handle);
+      }
+    },
+    webgpu_destroy_post_process_shader(ctxId, handle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      const shader = ctx.postProcessShaders[handle];
+      if (!shader) return;
+      ctx.postProcessShaders[handle] = null;
+      webgpuDestroys.pipelines += 2;
+      if (handle !== 0) {
+        ctx.postProcessShaderFree.push(handle);
       }
     },
     webgpu_destroy_mesh(ctxId, handle) {
@@ -1590,18 +1813,39 @@ function handleKeyEvent(isDown, event) {
     event.preventDefault();
   }
 
+  function updatePointerState(event) {
+    const canvas = document.querySelector("#canvas");
+    if (!canvas || !wasm || !wasm.exports) return canvas;
+
+    if (wasm.exports.wasmInputMousePosition) {
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      wasm.exports.wasmInputMousePosition(x, y);
+    }
+    return canvas;
+  }
+
   window.addEventListener("keydown", (event) => handleKeyEvent(true, event));
   window.addEventListener("keyup", (event) => handleKeyEvent(false, event));
-  window.addEventListener("pointerdown", () => {
+  window.addEventListener("pointerdown", (event) => {
     ensureAudioContext();
-    const canvas = document.querySelector("#canvas");
+    const canvas = updatePointerState(event);
     if (!canvas) return;
+    if (wasm && wasm.exports && wasm.exports.wasmInputMouseButton) {
+      wasm.exports.wasmInputMouseButton(event.button, 1);
+    }
     if (wantsMouseCapture && document.pointerLockElement !== canvas && canvas.requestPointerLock) {
       canvas.requestPointerLock().catch(() => {});
     }
   });
+  window.addEventListener("pointerup", (event) => {
+    updatePointerState(event);
+    if (!wasm || !wasm.exports || !wasm.exports.wasmInputMouseButton) return;
+    wasm.exports.wasmInputMouseButton(event.button, 0);
+  });
   window.addEventListener("mousemove", (event) => {
-    const canvas = document.querySelector("#canvas");
+    const canvas = updatePointerState(event);
     if (!canvas) return;
     if (!wasm || !wasm.exports || !wasm.exports.wasmInputMouseDelta) return;
     if (!wantsMouseCapture) return;

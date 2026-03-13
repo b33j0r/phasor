@@ -80,6 +80,9 @@ fn pollKeyboard(
     var next_mouse = prev_mouse;
     next_mouse.delta_x = 0.0;
     next_mouse.delta_y = 0.0;
+    next_mouse.previous_x = prev_mouse.x;
+    next_mouse.previous_y = prev_mouse.y;
+    next_mouse.previous_buttons = prev_mouse.current_buttons;
 
     const wants_capture = if (capture_opt.ptr) |capture| capture.enabled else false;
     if (wants_capture != prev_mouse.captured) {
@@ -88,6 +91,11 @@ fn pollKeyboard(
     }
 
     const delta = wasm.drainMouseDelta();
+    const position = wasm.mousePosition();
+    next_mouse.x = position.x;
+    next_mouse.y = position.y;
+    next_mouse.has_position = true;
+    next_mouse.current_buttons = wasm.mouseButtons();
     next_mouse.delta_x = delta.dx;
     next_mouse.delta_y = delta.dy;
     if (delta.dx != 0.0 or delta.dy != 0.0) {

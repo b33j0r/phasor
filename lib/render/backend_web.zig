@@ -72,6 +72,15 @@ pub const Shader = struct {
     handle: u32,
 };
 
+pub const PostProcessShader = struct {
+    handle: u32,
+};
+
+pub const FrameTarget = union(enum) {
+    surface,
+    slot: u32,
+};
+
 pub const Material = struct {
     handle: u32,
 };
@@ -154,10 +163,13 @@ extern "env" fn webgpu_init(canvas_id_ptr: [*]const u8, canvas_id_len: usize, en
 extern "env" fn webgpu_deinit(ctx: u32) void;
 extern "env" fn webgpu_resize(ctx: u32, width: u32, height: u32) void;
 extern "env" fn webgpu_begin_frame(ctx: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
+extern "env" fn webgpu_begin_scene_pass(ctx: u32, target_slot: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
+extern "env" fn webgpu_begin_post_process_pass(ctx: u32, target_slot: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
 extern "env" fn webgpu_draw_triangle(ctx: u32) void;
 extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: *const InstanceData, blend: u32) void;
 extern "env" fn webgpu_draw_textured_quads(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_draw_colored_meshes(ctx: u32, mesh_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
+extern "env" fn webgpu_draw_post_process(ctx: u32, shader_handle: u32, source_slot: u32, uniforms_ptr: [*]const f32, blend: u32) void;
 extern "env" fn webgpu_end_frame(ctx: u32) void;
 extern "env" fn webgpu_set_viewport_scissor(ctx: u32, x: f32, y: f32, width: f32, height: f32) void;
 extern "env" fn webgpu_create_sampler(ctx: u32) u32;
@@ -170,6 +182,8 @@ extern "env" fn webgpu_update_mesh(ctx: u32, handle: u32, vertices_ptr: [*]const
 extern "env" fn webgpu_destroy_mesh(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_shader(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize) u32;
 extern "env" fn webgpu_destroy_shader(ctx: u32, handle: u32) void;
+extern "env" fn webgpu_create_post_process_shader(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize) u32;
+extern "env" fn webgpu_destroy_post_process_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_material(ctx: u32, texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_destroy_material(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_stats(ctx: u32, out_ptr: *RendererStats) void;
@@ -200,9 +214,8 @@ pub const Renderer = struct {
         webgpu_resize(self.ctx, width, height);
     }
 
-    pub fn beginFrame(self: *Renderer, clear: Color) !Frame {
-        const clear_f = Color.F32.fromColor(clear);
-        webgpu_begin_frame(self.ctx, clear_f.r, clear_f.g, clear_f.b, clear_f.a);
+    pub fn beginFrame(self: *Renderer) !Frame {
+        webgpu_begin_frame(self.ctx, 0.0, 0.0, 0.0, 0.0);
         return Frame{ .renderer = self };
     }
 
@@ -303,6 +316,23 @@ pub const Renderer = struct {
         shader.handle = 0;
     }
 
+    pub fn createPostProcessShader(self: *Renderer, source: ShaderSource) !PostProcessShader {
+        const wgsl = source.wgsl orelse return error.MissingShaderSource;
+        const handle = webgpu_create_post_process_shader(self.ctx, wgsl.ptr, wgsl.len);
+        if (handle == 0) return error.ShaderCreationFailed;
+        return PostProcessShader{ .handle = handle };
+    }
+
+    pub fn destroyPostProcessShader(self: *Renderer, shader: *PostProcessShader) void {
+        if (shader.handle == 0) return;
+        webgpu_destroy_post_process_shader(self.ctx, shader.handle);
+        shader.handle = 0;
+    }
+
+    pub fn ensurePostProcessSlot(_: *Renderer, slot_index: u32, _: u32, _: u32) !u32 {
+        return slot_index;
+    }
+
     pub fn stats(self: *const Renderer) RendererStats {
         var out: RendererStats = .{};
         webgpu_stats(self.ctx, &out);
@@ -318,6 +348,16 @@ pub const Frame = struct {
             .triangle => webgpu_draw_triangle(self.renderer.ctx),
             .textured_quad => |quad| self.drawTexturedQuad(quad),
         }
+    }
+
+    pub fn beginScenePass(self: *Frame, target: FrameTarget, clear: Color) !void {
+        const clear_f = Color.F32.fromColor(clear);
+        webgpu_begin_scene_pass(self.renderer.ctx, targetSlotValue(target), clear_f.r, clear_f.g, clear_f.b, clear_f.a);
+    }
+
+    pub fn beginPostProcessPass(self: *Frame, target: FrameTarget, clear: Color) !void {
+        const clear_f = Color.F32.fromColor(clear);
+        webgpu_begin_post_process_pass(self.renderer.ctx, targetSlotValue(target), clear_f.r, clear_f.g, clear_f.b, clear_f.a);
     }
 
     pub fn setViewportScissor(self: *Frame, x: f32, y: f32, width: f32, height: f32) void {
@@ -359,10 +399,40 @@ pub const Frame = struct {
         );
     }
 
+    pub fn drawPostProcess(
+        self: *Frame,
+        shader: PostProcessShader,
+        source_slot: u32,
+        params: [16]f32,
+        source_size: Size,
+        blend: bool,
+    ) void {
+        if (shader.handle == 0) return;
+        var uniforms = [20]f32{
+            params[0],  params[1],  params[2],  params[3],
+            params[4],  params[5],  params[6],  params[7],
+            params[8],  params[9],  params[10], params[11],
+            params[12], params[13], params[14], params[15],
+            1.0 / @as(f32, @floatFromInt(@max(source_size.width, 1))),
+            1.0 / @as(f32, @floatFromInt(@max(source_size.height, 1))),
+            @floatFromInt(source_size.width),
+            @floatFromInt(source_size.height),
+        };
+        const blend_flag: u32 = if (blend) 1 else 0;
+        webgpu_draw_post_process(self.renderer.ctx, shader.handle, source_slot, &uniforms, blend_flag);
+    }
+
     pub fn endFrame(self: *Frame) !void {
         webgpu_end_frame(self.renderer.ctx);
     }
 };
+
+fn targetSlotValue(target: FrameTarget) u32 {
+    return switch (target) {
+        .surface => std.math.maxInt(u32),
+        .slot => |slot| slot,
+    };
+}
 
 fn buildInstanceData(instance: MeshInstance) InstanceData {
     const m = instance.transform.m;

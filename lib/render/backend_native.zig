@@ -82,6 +82,16 @@ pub const Shader = struct {
     pipeline_blend: *wgpu.RenderPipeline,
 };
 
+pub const PostProcessShader = struct {
+    pipeline_opaque: *wgpu.RenderPipeline,
+    pipeline_blend: *wgpu.RenderPipeline,
+};
+
+pub const FrameTarget = union(enum) {
+    surface,
+    texture: Texture,
+};
+
 pub const Material = struct {
     bind_group: *wgpu.BindGroup,
 };
@@ -162,6 +172,20 @@ const InstanceData = extern struct {
     color: [4]f32,
 };
 
+const PostProcessUniformData = extern struct {
+    params0: [4]f32,
+    params1: [4]f32,
+    params2: [4]f32,
+    params3: [4]f32,
+    meta0: [4]f32,
+};
+
+const PostProcessSlot = struct {
+    texture: Texture,
+    bind_group: *wgpu.BindGroup,
+    alive: bool = false,
+};
+
 const PipelineCache = struct {
     map: std.AutoHashMap(u64, *wgpu.RenderPipeline),
 
@@ -189,6 +213,9 @@ pub const Renderer = struct {
     quad_pipeline_opaque: *wgpu.RenderPipeline,
     quad_pipeline_blend: *wgpu.RenderPipeline,
     quad_bind_group_layout: *wgpu.BindGroupLayout,
+    post_process_bind_group_layout: *wgpu.BindGroupLayout,
+    post_process_sampler: Sampler,
+    post_process_uniform_buffer: Buffer,
 
     triangle_vertex_buffer: Buffer,
     quad_vertex_buffer: Buffer,
@@ -196,6 +223,7 @@ pub const Renderer = struct {
     instance_buffer: Buffer,
     instance_ring: RingBuffer,
     depth_target: DepthTarget,
+    post_process_slots: std.ArrayListUnmanaged(PostProcessSlot),
 
     pipeline_cache: PipelineCache,
 
@@ -256,12 +284,16 @@ pub const Renderer = struct {
             .quad_pipeline_opaque = undefined,
             .quad_pipeline_blend = undefined,
             .quad_bind_group_layout = undefined,
+            .post_process_bind_group_layout = undefined,
+            .post_process_sampler = undefined,
+            .post_process_uniform_buffer = undefined,
             .triangle_vertex_buffer = undefined,
             .quad_vertex_buffer = undefined,
             .quad_index_buffer = undefined,
             .instance_buffer = undefined,
             .instance_ring = RingBuffer.init(512 * 1024),
             .depth_target = undefined,
+            .post_process_slots = .empty,
             .pipeline_cache = pipeline_cache,
         };
 
@@ -298,6 +330,11 @@ pub const Renderer = struct {
             wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
             self.instance_ring.size,
         );
+        self.post_process_uniform_buffer = try createEmptyBuffer(
+            self.device,
+            wgpu.BufferUsages.uniform | wgpu.BufferUsages.copy_dst,
+            @sizeOf(PostProcessUniformData),
+        );
 
         self.depth_target = try createDepthTarget(self.device, self.surface_size.width, self.surface_size.height);
 
@@ -319,6 +356,8 @@ pub const Renderer = struct {
         _ = hashCacheKey(quad_key);
         const quad_bind_group_layout = try createQuadBindGroupLayout(self.device);
         self.quad_bind_group_layout = quad_bind_group_layout;
+        self.post_process_bind_group_layout = try createPostProcessBindGroupLayout(self.device);
+        self.post_process_sampler = try self.createSampler();
         self.quad_pipeline_opaque = try createQuadPipeline(
             self.device,
             shader_quad,
@@ -340,15 +379,25 @@ pub const Renderer = struct {
     }
 
     pub fn deinit(self: *Renderer) void {
+        for (self.post_process_slots.items) |*slot| {
+            if (!slot.alive) continue;
+            slot.bind_group.release();
+            destroyTextureStorage(&slot.texture);
+        }
+        self.post_process_slots.deinit(self.allocator);
+
         self.triangle_pipeline.release();
         self.quad_pipeline_opaque.release();
         self.quad_pipeline_blend.release();
         self.quad_bind_group_layout.release();
+        self.post_process_bind_group_layout.release();
+        self.destroySampler(&self.post_process_sampler);
 
         self.triangle_vertex_buffer.buffer.release();
         self.quad_vertex_buffer.buffer.release();
         self.quad_index_buffer.buffer.release();
         self.instance_buffer.buffer.release();
+        self.post_process_uniform_buffer.buffer.release();
         self.depth_target.view.release();
         self.depth_target.texture.release();
 
@@ -369,10 +418,15 @@ pub const Renderer = struct {
         self.depth_target.view.release();
         self.depth_target.texture.release();
         self.depth_target = new_depth;
+        for (self.post_process_slots.items) |*slot| {
+            if (!slot.alive) continue;
+            slot.bind_group.release();
+            destroyTextureStorage(&slot.texture);
+            slot.alive = false;
+        }
     }
 
-    pub fn beginFrame(self: *Renderer, clear: Color) !Frame {
-        const clear_f = Color.F32.fromColor(clear);
+    pub fn beginFrame(self: *Renderer) !Frame {
         self.instance_ring.reset();
         var surface_texture: wgpu.SurfaceTexture = undefined;
         self.surface.getCurrentTexture(&surface_texture);
@@ -386,36 +440,12 @@ pub const Renderer = struct {
             .label = wgpu.StringView.fromSlice("phasor-lite encoder"),
         }) orelse return error.CommandEncoderFailed;
 
-        const color_attachment = wgpu.ColorAttachment{
-            .view = view,
-            .load_op = .clear,
-            .store_op = .store,
-            .clear_value = wgpu.Color{
-                .r = clear_f.r,
-                .g = clear_f.g,
-                .b = clear_f.b,
-                .a = clear_f.a,
-            },
-        };
-        const depth_attachment = wgpu.DepthStencilAttachment{
-            .view = self.depth_target.view,
-            .depth_load_op = .clear,
-            .depth_store_op = .store,
-            .depth_clear_value = 1.0,
-        };
-        const attachments = [_]wgpu.ColorAttachment{color_attachment};
-        const render_pass = encoder.beginRenderPass(&wgpu.RenderPassDescriptor{
-            .color_attachment_count = attachments.len,
-            .color_attachments = attachments[0..].ptr,
-            .depth_stencil_attachment = &depth_attachment,
-        }) orelse return error.RenderPassFailed;
-
         return Frame{
             .renderer = self,
             .encoder = encoder,
-            .render_pass = render_pass,
+            .render_pass = null,
             .surface_texture = surface_texture,
-            .view = view,
+            .surface_view = view,
         };
     }
 
@@ -494,8 +524,7 @@ pub const Renderer = struct {
     }
 
     pub fn destroyTexture(_: *Renderer, texture: *Texture) void {
-        texture.view.release();
-        texture.texture.release();
+        destroyTextureStorage(texture);
     }
 
     pub fn destroySampler(_: *Renderer, sampler: *Sampler) void {
@@ -659,6 +688,66 @@ pub const Renderer = struct {
         shader.pipeline_blend.release();
     }
 
+    pub fn createPostProcessShader(self: *Renderer, source: ShaderSource) !PostProcessShader {
+        const fragment_shader = try createShaderModule(self.device, .fragment, source);
+        defer fragment_shader.release();
+        const vertex_shader = self.device.createShaderModule(&wgpu.shaderModuleWGSLDescriptor(.{
+            .code = postProcessVertexWGSL,
+        })) orelse return error.ShaderCreationFailed;
+        defer vertex_shader.release();
+
+        return PostProcessShader{
+            .pipeline_opaque = try createPostProcessPipeline(self.device, vertex_shader, fragment_shader, self.surface_format, self.post_process_bind_group_layout, false),
+            .pipeline_blend = try createPostProcessPipeline(self.device, vertex_shader, fragment_shader, self.surface_format, self.post_process_bind_group_layout, true),
+        };
+    }
+
+    pub fn destroyPostProcessShader(_: *Renderer, shader: *PostProcessShader) void {
+        shader.pipeline_opaque.release();
+        shader.pipeline_blend.release();
+    }
+
+    pub fn ensurePostProcessSlot(self: *Renderer, slot_index: u32, width: u32, height: u32) !Texture {
+        const index: usize = @intCast(slot_index);
+        if (self.post_process_slots.items.len <= index) {
+            const previous_len = self.post_process_slots.items.len;
+            try self.post_process_slots.resize(self.allocator, index + 1);
+            for (self.post_process_slots.items[previous_len..]) |*slot| {
+                slot.* = .{
+                    .texture = undefined,
+                    .bind_group = undefined,
+                    .alive = false,
+                };
+            }
+        }
+        const slot = &self.post_process_slots.items[index];
+        if (!slot.alive or slot.texture.width != width or slot.texture.height != height) {
+            if (slot.alive) {
+                slot.bind_group.release();
+                destroyTextureStorage(&slot.texture);
+                slot.alive = false;
+            }
+            slot.texture = try createRenderTexture(self.device, width, height, self.surface_format);
+            slot.bind_group = try createPostProcessBindGroup(
+                self.device,
+                self.post_process_bind_group_layout,
+                self.post_process_sampler.sampler,
+                slot.texture.view,
+                self.post_process_uniform_buffer.buffer,
+            );
+            slot.alive = true;
+        }
+        return slot.texture;
+    }
+
+    fn postProcessBindGroup(self: *Renderer, slot_index: u32) ?*wgpu.BindGroup {
+        const index: usize = @intCast(slot_index);
+        if (index >= self.post_process_slots.items.len) return null;
+        const slot = &self.post_process_slots.items[index];
+        if (!slot.alive) return null;
+        return slot.bind_group;
+    }
+
     pub fn stats(_: *const Renderer) RendererStats {
         return .{};
     }
@@ -667,9 +756,9 @@ pub const Renderer = struct {
 pub const Frame = struct {
     renderer: *Renderer,
     encoder: *wgpu.CommandEncoder,
-    render_pass: *wgpu.RenderPassEncoder,
+    render_pass: ?*wgpu.RenderPassEncoder,
     surface_texture: wgpu.SurfaceTexture,
-    view: *wgpu.TextureView,
+    surface_view: *wgpu.TextureView,
 
     pub fn draw(self: *Frame, cmd: DrawCmd) void {
         switch (cmd) {
@@ -678,42 +767,54 @@ pub const Frame = struct {
         }
     }
 
+    pub fn beginScenePass(self: *Frame, target: FrameTarget, clear: Color) !void {
+        try self.beginPass(target, clear, true);
+    }
+
+    pub fn beginPostProcessPass(self: *Frame, target: FrameTarget, clear: Color) !void {
+        try self.beginPass(target, clear, false);
+    }
+
     pub fn setViewportScissor(self: *Frame, x: f32, y: f32, width: f32, height: f32) void {
-        self.render_pass.setViewport(x, y, width, height, 0.0, 1.0);
+        const render_pass = self.render_pass orelse return;
+        render_pass.setViewport(x, y, width, height, 0.0, 1.0);
         const sx: u32 = @intFromFloat(@max(0.0, x));
         const sy: u32 = @intFromFloat(@max(0.0, y));
         const sw: u32 = @intFromFloat(@max(0.0, width));
         const sh: u32 = @intFromFloat(@max(0.0, height));
-        self.render_pass.setScissorRect(sx, sy, sw, sh);
+        render_pass.setScissorRect(sx, sy, sw, sh);
     }
 
     fn drawTriangle(self: *Frame, triangle: Triangle) void {
+        const render_pass = self.render_pass orelse return;
         const data = std.mem.asBytes(&triangle.vertices);
         self.renderer.queue.writeBuffer(self.renderer.triangle_vertex_buffer.buffer, 0, data.ptr, data.len);
-        self.render_pass.setPipeline(self.renderer.triangle_pipeline);
-        self.render_pass.setVertexBuffer(0, self.renderer.triangle_vertex_buffer.buffer, 0, self.renderer.triangle_vertex_buffer.size);
-        self.render_pass.draw(3, 1, 0, 0);
+        render_pass.setPipeline(self.renderer.triangle_pipeline);
+        render_pass.setVertexBuffer(0, self.renderer.triangle_vertex_buffer.buffer, 0, self.renderer.triangle_vertex_buffer.size);
+        render_pass.draw(3, 1, 0, 0);
     }
 
     fn drawTexturedQuad(self: *Frame, quad: TexturedQuad) void {
         if (quad.mesh.vertex_layout != .uv2) return;
+        const render_pass = self.render_pass orelse return;
         const instance = buildInstanceData(quad.instance);
         const instance_bytes = std.mem.asBytes(&instance);
         const offset = self.renderer.instance_ring.allocate(@sizeOf(InstanceData), 256);
         self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, offset, instance_bytes.ptr, instance_bytes.len);
 
         const pipeline = if (quad.blend) self.renderer.quad_pipeline_blend else self.renderer.quad_pipeline_opaque;
-        self.render_pass.setPipeline(pipeline);
-        self.render_pass.setBindGroup(0, quad.material.bind_group, 0, null);
-        self.render_pass.setVertexBuffer(0, quad.mesh.vertex_buffer.buffer, 0, quad.mesh.vertex_buffer.size);
-        self.render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, @sizeOf(InstanceData));
-        self.render_pass.setIndexBuffer(quad.mesh.index_buffer.buffer, .uint16, 0, quad.mesh.index_buffer.size);
-        self.render_pass.drawIndexed(quad.mesh.index_count, 1, 0, 0, 0);
+        render_pass.setPipeline(pipeline);
+        render_pass.setBindGroup(0, quad.material.bind_group, 0, null);
+        render_pass.setVertexBuffer(0, quad.mesh.vertex_buffer.buffer, 0, quad.mesh.vertex_buffer.size);
+        render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, @sizeOf(InstanceData));
+        render_pass.setIndexBuffer(quad.mesh.index_buffer.buffer, .uint16, 0, quad.mesh.index_buffer.size);
+        render_pass.drawIndexed(quad.mesh.index_count, 1, 0, 0, 0);
     }
 
     pub fn drawTexturedQuads(self: *Frame, mesh: Mesh, material: Material, instances: []const MeshInstance, blend: bool) void {
         if (mesh.vertex_layout != .uv2) return;
         if (instances.len == 0) return;
+        const render_pass = self.render_pass orelse return;
         const total_bytes: usize = instances.len * @sizeOf(InstanceData);
         const offset = self.renderer.instance_ring.allocate(total_bytes, 256);
 
@@ -726,17 +827,18 @@ pub const Frame = struct {
         }
 
         const pipeline = if (blend) self.renderer.quad_pipeline_blend else self.renderer.quad_pipeline_opaque;
-        self.render_pass.setPipeline(pipeline);
-        self.render_pass.setBindGroup(0, material.bind_group, 0, null);
-        self.render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
-        self.render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
-        self.render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
-        self.render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
+        render_pass.setPipeline(pipeline);
+        render_pass.setBindGroup(0, material.bind_group, 0, null);
+        render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
+        render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
+        render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
+        render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
     }
 
     pub fn drawColoredMeshes(self: *Frame, mesh: Mesh, shader: Shader, instances: []const MeshInstance, blend: bool) void {
         if (mesh.vertex_layout != .pos3_color4) return;
         if (instances.len == 0) return;
+        const render_pass = self.render_pass orelse return;
         const total_bytes: usize = instances.len * @sizeOf(InstanceData);
         const offset = self.renderer.instance_ring.allocate(total_bytes, 256);
 
@@ -749,27 +851,98 @@ pub const Frame = struct {
         }
 
         const pipeline = if (blend) shader.pipeline_blend else shader.pipeline_opaque;
-        self.render_pass.setPipeline(pipeline);
-        self.render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
-        self.render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
-        self.render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
-        self.render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
+        render_pass.setPipeline(pipeline);
+        render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
+        render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
+        render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
+        render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
+    }
+
+    pub fn drawPostProcess(
+        self: *Frame,
+        shader: PostProcessShader,
+        source_slot: u32,
+        params: [16]f32,
+        source_size: Size,
+        blend: bool,
+    ) void {
+        const render_pass = self.render_pass orelse return;
+        const bind_group = self.renderer.postProcessBindGroup(source_slot) orelse return;
+        const uniforms = PostProcessUniformData{
+            .params0 = .{ params[0], params[1], params[2], params[3] },
+            .params1 = .{ params[4], params[5], params[6], params[7] },
+            .params2 = .{ params[8], params[9], params[10], params[11] },
+            .params3 = .{ params[12], params[13], params[14], params[15] },
+            .meta0 = .{
+                1.0 / @as(f32, @floatFromInt(@max(source_size.width, 1))),
+                1.0 / @as(f32, @floatFromInt(@max(source_size.height, 1))),
+                @floatFromInt(source_size.width),
+                @floatFromInt(source_size.height),
+            },
+        };
+        const uniform_bytes = std.mem.asBytes(&uniforms);
+        self.renderer.queue.writeBuffer(self.renderer.post_process_uniform_buffer.buffer, 0, uniform_bytes.ptr, uniform_bytes.len);
+
+        const pipeline = if (blend) shader.pipeline_blend else shader.pipeline_opaque;
+        render_pass.setPipeline(pipeline);
+        render_pass.setBindGroup(0, bind_group, 0, null);
+        render_pass.draw(3, 1, 0, 0);
     }
 
     pub fn endFrame(self: *Frame) !void {
-        self.render_pass.end();
-        self.render_pass.release();
+        self.endPass();
 
         const command_buffer = self.encoder.finish(&wgpu.CommandBufferDescriptor{}) orelse return error.CommandBufferFailed;
         defer command_buffer.release();
         self.renderer.queue.submit(&[_]*const wgpu.CommandBuffer{command_buffer});
 
         _ = self.renderer.surface.present();
-        self.view.release();
+        self.surface_view.release();
         if (self.surface_texture.texture) |texture| {
             texture.release();
         }
         self.encoder.release();
+    }
+
+    fn beginPass(self: *Frame, target: FrameTarget, clear: Color, use_depth: bool) !void {
+        self.endPass();
+
+        const clear_f = Color.F32.fromColor(clear);
+        const target_view = switch (target) {
+            .surface => self.surface_view,
+            .texture => |texture| texture.view,
+        };
+        const color_attachment = wgpu.ColorAttachment{
+            .view = target_view,
+            .load_op = .clear,
+            .store_op = .store,
+            .clear_value = wgpu.Color{
+                .r = clear_f.r,
+                .g = clear_f.g,
+                .b = clear_f.b,
+                .a = clear_f.a,
+            },
+        };
+        const attachments = [_]wgpu.ColorAttachment{color_attachment};
+        var depth_attachment = wgpu.DepthStencilAttachment{
+            .view = self.renderer.depth_target.view,
+            .depth_load_op = .clear,
+            .depth_store_op = .store,
+            .depth_clear_value = 1.0,
+        };
+        self.render_pass = self.encoder.beginRenderPass(&wgpu.RenderPassDescriptor{
+            .color_attachment_count = attachments.len,
+            .color_attachments = attachments[0..].ptr,
+            .depth_stencil_attachment = if (use_depth) &depth_attachment else null,
+        }) orelse return error.RenderPassFailed;
+    }
+
+    fn endPass(self: *Frame) void {
+        if (self.render_pass) |render_pass| {
+            render_pass.end();
+            render_pass.release();
+            self.render_pass = null;
+        }
     }
 };
 
@@ -940,6 +1113,56 @@ fn createBufferWithData(
     return buffer;
 }
 
+fn createRenderTexture(device: *wgpu.Device, width: u32, height: u32, format: wgpu.TextureFormat) !Texture {
+    const texture = device.createTexture(&wgpu.TextureDescriptor{
+        .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
+        .format = format,
+        .usage = wgpu.TextureUsages.render_attachment | wgpu.TextureUsages.texture_binding,
+        .mip_level_count = 1,
+        .sample_count = 1,
+        .dimension = .@"2d",
+    }) orelse return error.TextureCreationFailed;
+    errdefer texture.release();
+
+    const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.TextureViewFailed;
+    return .{
+        .texture = texture,
+        .view = view,
+        .width = width,
+        .height = height,
+        .format = format,
+    };
+}
+
+fn createPostProcessBindGroup(
+    device: *wgpu.Device,
+    layout: *wgpu.BindGroupLayout,
+    sampler: *wgpu.Sampler,
+    texture_view: *wgpu.TextureView,
+    uniform_buffer: *wgpu.Buffer,
+) !*wgpu.BindGroup {
+    const entries = [_]wgpu.BindGroupEntry{
+        .{ .binding = 0, .sampler = sampler },
+        .{ .binding = 1, .texture_view = texture_view },
+        .{
+            .binding = 2,
+            .buffer = uniform_buffer,
+            .offset = 0,
+            .size = @sizeOf(PostProcessUniformData),
+        },
+    };
+    return device.createBindGroup(&wgpu.BindGroupDescriptor{
+        .layout = layout,
+        .entry_count = entries.len,
+        .entries = entries[0..].ptr,
+    }) orelse error.BindGroupCreationFailed;
+}
+
+fn destroyTextureStorage(texture: *Texture) void {
+    texture.view.release();
+    texture.texture.release();
+}
+
 fn createTrianglePipeline(
     device: *wgpu.Device,
     shader: *wgpu.ShaderModule,
@@ -1009,6 +1232,36 @@ fn createQuadBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
         },
     }) orelse return error.BindGroupLayoutFailed;
     return bind_group_layout;
+}
+
+fn createPostProcessBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
+    return device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
+        .entry_count = 3,
+        .entries = &[_]wgpu.BindGroupLayoutEntry{
+            .{
+                .binding = 0,
+                .visibility = wgpu.ShaderStages.fragment,
+                .sampler = .{ .type = .filtering },
+            },
+            .{
+                .binding = 1,
+                .visibility = wgpu.ShaderStages.fragment,
+                .texture = .{
+                    .sample_type = .float,
+                    .view_dimension = .@"2d",
+                    .multisampled = @intFromBool(false),
+                },
+            },
+            .{
+                .binding = 2,
+                .visibility = wgpu.ShaderStages.fragment,
+                .buffer = .{
+                    .type = .uniform,
+                    .min_binding_size = 80,
+                },
+            },
+        },
+    }) orelse return error.BindGroupLayoutFailed;
 }
 
 fn createQuadPipeline(
@@ -1210,6 +1463,60 @@ fn createColorPipeline(
     }) orelse return error.PipelineCreationFailed;
 }
 
+fn createPostProcessPipeline(
+    device: *wgpu.Device,
+    vertex_shader: *wgpu.ShaderModule,
+    fragment_shader: *wgpu.ShaderModule,
+    format: wgpu.TextureFormat,
+    bind_group_layout: *wgpu.BindGroupLayout,
+    enable_blend: bool,
+) !*wgpu.RenderPipeline {
+    const pipeline_layout = device.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
+        .bind_group_layout_count = 1,
+        .bind_group_layouts = &[_]*wgpu.BindGroupLayout{bind_group_layout},
+    }) orelse return error.PipelineLayoutFailed;
+    defer pipeline_layout.release();
+    const vertex_buffers = [_]wgpu.VertexBufferLayout{};
+
+    const blend_state = wgpu.BlendState{
+        .color = .{
+            .operation = .add,
+            .src_factor = .src_alpha,
+            .dst_factor = .one_minus_src_alpha,
+        },
+        .alpha = .{
+            .operation = .add,
+            .src_factor = .one,
+            .dst_factor = .one_minus_src_alpha,
+        },
+    };
+    const color_targets = [_]wgpu.ColorTargetState{wgpu.ColorTargetState{
+        .format = format,
+        .blend = if (enable_blend) &blend_state else null,
+    }};
+
+    return device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
+        .layout = pipeline_layout,
+        .vertex = wgpu.VertexState{
+            .module = vertex_shader,
+            .entry_point = wgpu.StringView.fromSlice("vs_main"),
+            .buffer_count = vertex_buffers.len,
+            .buffers = vertex_buffers[0..].ptr,
+        },
+        .primitive = wgpu.PrimitiveState{
+            .topology = .triangle_list,
+        },
+        .depth_stencil = null,
+        .fragment = &wgpu.FragmentState{
+            .module = fragment_shader,
+            .entry_point = wgpu.StringView.fromSlice("fs_main"),
+            .target_count = color_targets.len,
+            .targets = color_targets[0..].ptr,
+        },
+        .multisample = wgpu.MultisampleState{},
+    }) orelse return error.PipelineCreationFailed;
+}
+
 fn createDepthTarget(device: *wgpu.Device, width: u32, height: u32) !DepthTarget {
     const texture = device.createTexture(&wgpu.TextureDescriptor{
         .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
@@ -1267,6 +1574,30 @@ const defaultQuadIndices = [_]u16{ 0, 1, 2, 2, 3, 0 };
 
 const triangleShaderWGSL = @embedFile("shaders/triangle.wgsl");
 const quadShaderWGSL = @embedFile("shaders/quad.wgsl");
+const postProcessVertexWGSL =
+    \\struct VertexOut {
+    \\    @builtin(position) position: vec4<f32>,
+    \\    @location(0) uv: vec2<f32>,
+    \\};
+    \\
+    \\@vertex
+    \\fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOut {
+    \\    var positions = array<vec2<f32>, 3>(
+    \\        vec2<f32>(-1.0, -3.0),
+    \\        vec2<f32>(-1.0, 1.0),
+    \\        vec2<f32>(3.0, 1.0),
+    \\    );
+    \\    var uvs = array<vec2<f32>, 3>(
+    \\        vec2<f32>(0.0, 2.0),
+    \\        vec2<f32>(0.0, 0.0),
+    \\        vec2<f32>(2.0, 0.0),
+    \\    );
+    \\    var out: VertexOut;
+    \\    out.position = vec4<f32>(positions[vertex_index], 0.0, 1.0);
+    \\    out.uv = uvs[vertex_index];
+    \\    return out;
+    \\}
+;
 
 // Imports
 const std = @import("std");

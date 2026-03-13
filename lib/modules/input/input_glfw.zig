@@ -73,6 +73,9 @@ fn pollKeyboard(
     var next_mouse = prev_mouse;
     next_mouse.delta_x = 0.0;
     next_mouse.delta_y = 0.0;
+    next_mouse.previous_x = prev_mouse.x;
+    next_mouse.previous_y = prev_mouse.y;
+    next_mouse.previous_buttons = prev_mouse.current_buttons;
 
     const wants_capture = if (capture_opt.ptr) |capture| capture.enabled else false;
     if (wants_capture != prev_mouse.captured) {
@@ -85,10 +88,20 @@ fn pollKeyboard(
         next_mouse.has_last = false;
     }
 
+    var x: f64 = 0.0;
+    var y: f64 = 0.0;
+    glfw.glfwGetCursorPos(handle, &x, &y);
+    next_mouse.x = @floatCast(x);
+    next_mouse.y = @floatCast(y);
+    next_mouse.has_position = true;
+
+    var buttons: u8 = 0;
+    if (glfw.glfwGetMouseButton(handle, glfw.GLFW_MOUSE_BUTTON_LEFT) == glfw.GLFW_PRESS) buttons |= @as(u8, 1) << @as(u3, @intCast(@intFromEnum(core.MouseButton.left)));
+    if (glfw.glfwGetMouseButton(handle, glfw.GLFW_MOUSE_BUTTON_RIGHT) == glfw.GLFW_PRESS) buttons |= @as(u8, 1) << @as(u3, @intCast(@intFromEnum(core.MouseButton.right)));
+    if (glfw.glfwGetMouseButton(handle, glfw.GLFW_MOUSE_BUTTON_MIDDLE) == glfw.GLFW_PRESS) buttons |= @as(u8, 1) << @as(u3, @intCast(@intFromEnum(core.MouseButton.middle)));
+    next_mouse.current_buttons = buttons;
+
     if (wants_capture) {
-        var x: f64 = 0.0;
-        var y: f64 = 0.0;
-        glfw.glfwGetCursorPos(handle, &x, &y);
         if (next_mouse.has_last) {
             next_mouse.delta_x = @floatCast(x - next_mouse.last_x);
             next_mouse.delta_y = @floatCast(y - next_mouse.last_y);
