@@ -25,18 +25,18 @@ const App = struct {
 
 pub const main = platform.main(App);
 
-fn setupScene(commands: *ecs.Commands) !void {
-    const cube_assets = commands.getResource(Assets) orelse return;
-    if (!cube_assets.cube_mesh.handle.isValid()) return error.CubeMeshMissing;
-    if (!cube_assets.cube_shader.handle.isValid()) return error.CubeShaderMissing;
+fn setupScene(commands: *ecs.Commands, cube_assets: Res(Assets)) !void {
+    const assets_ptr = cube_assets.ptr;
+    if (!assets_ptr.cube_mesh.handle.isValid()) return error.CubeMeshMissing;
+    if (!assets_ptr.cube_shader.handle.isValid()) return error.CubeShaderMissing;
 
     _ = try commands.createEntity(.{
         Transform{ .translation = .{ .x = 0.0, .y = 0.0, .z = -4.0 } },
         CubeRoot{},
         render.MeshInstance{
-            .mesh_handle = cube_assets.cube_mesh.handle,
+            .mesh_handle = assets_ptr.cube_mesh.handle,
             .color = Color.WHITE,
-            .material = render.Material.withShader(cube_assets.cube_shader.handle),
+            .material = render.Material.withShader(assets_ptr.cube_shader.handle),
         },
         render.Layer(0){},
     });

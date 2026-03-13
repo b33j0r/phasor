@@ -49,20 +49,19 @@ const Running = struct {
         try ctx.addSystem("Update", handleExitEvent);
     }
 
-    fn spawnParticles(commands: *ecs.Commands, spawner_query: Query(.{ SpawnerTag, StopwatchTimer })) !void {
-        const counter = commands.getResourceMut(SpawnCounter) orelse return;
+    fn spawnParticles(commands: *ecs.Commands, counter: ResMut(SpawnCounter), spawner_query: Query(.{ SpawnerTag, StopwatchTimer })) !void {
         var spawner_it = spawner_query.iterator();
         const spawner_row = spawner_it.next() orelse return;
 
-        counter.value += 1;
+        counter.ptr.value += 1;
         const stopwatch = spawner_row.get(StopwatchTimer).?;
-        if (counter.value % 100 == 0) {
-            std.log.debug("Spawning particle #{d} ({d})", .{ counter.value, stopwatch.elapsed });
+        if (counter.ptr.value % 100 == 0) {
+            std.log.debug("Spawning particle #{d} ({d})", .{ counter.ptr.value, stopwatch.elapsed });
         }
 
         _ = try commands.createEntity(.{
             ParticleTag{},
-            Position{ .x = @floatFromInt(counter.value), .y = 0 },
+            Position{ .x = @floatFromInt(counter.ptr.value), .y = 0 },
             Velocity{ .dx = 1, .dy = 0 },
         });
     }
@@ -142,6 +141,7 @@ const StopwatchTimer = modules.TimerModule.StopwatchTimer;
 const system_params = ecs.system_params;
 const Query = system_params.Query;
 const Res = system_params.Res;
+const ResMut = system_params.ResMut;
 const events = ecs.events;
 const EventWriter = events.EventWriter;
 const EventReader = events.EventReader;

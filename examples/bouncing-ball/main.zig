@@ -56,20 +56,19 @@ fn setupScene(
     window_bounds_opt: ResOpt(WindowBounds),
     render_bounds_opt: ResOpt(RenderBounds),
     render_state_opt: ResOpt(RenderState),
+    render_state: ResMut(RenderState),
+    mesh_library: ResMut(MeshLibrary),
+    assets_res: Res(Assets),
 ) !void {
-    const state = commands.getResourceMut(RenderState) orelse return;
-    const mesh_library = commands.getResourceMut(MeshLibrary) orelse return;
     var decal_material: ?Material = null;
-    if (commands.getResource(Assets)) |asset_data| {
-        decal_material = asset_data.favicon.material;
-    }
+    decal_material = assets_res.ptr.favicon.material;
     const bounds = resolveBounds(viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
 
     const radius: f32 = 40.0;
     const inset_radius: f32 = 34.0;
-    var factory = render.MeshFactory.init(commands.allocator, mesh_library);
-    const outer_mesh = try factory.circle(&state.renderer, radius, 48);
-    const inner_mesh = try factory.circle(&state.renderer, inset_radius, 48);
+    var factory = render.MeshFactory.init(commands.allocator, mesh_library.ptr);
+    const outer_mesh = try factory.circle(&render_state.ptr.renderer, radius, 48);
+    const inner_mesh = try factory.circle(&render_state.ptr.renderer, inset_radius, 48);
 
     const start = Vec3{ .x = bounds.width * 0.5, .y = bounds.height * 0.5, .z = -10.0 };
     const ball_entity = try commands.createEntity(.{
@@ -218,6 +217,7 @@ const ElapsedTime = modules.TimeModule.ElapsedTime;
 const system_params = ecs.system_params;
 const Query = system_params.Query;
 const Res = system_params.Res;
+const ResMut = system_params.ResMut;
 const ResOpt = system_params.ResOpt;
 
 const Vec2 = common.Vec2;
