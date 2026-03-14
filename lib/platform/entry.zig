@@ -107,6 +107,16 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             return options.pause_on_gpu_error;
         }
 
+        pub fn wasmWindowTitlePtr() callconv(.c) [*]const u8 {
+            if (!is_wasm) return @ptrFromInt(0);
+            return options.window.title.ptr;
+        }
+
+        pub fn wasmWindowTitleLen() callconv(.c) usize {
+            if (!is_wasm) return 0;
+            return options.window.title.len;
+        }
+
         pub fn wasmFrame(handle: u32) callconv(.c) void {
             if (!is_wasm) return;
             if (handle == 0) return;
@@ -301,6 +311,8 @@ pub fn exportWasm(comptime AppSpec: type) void {
     @export(&Entry.wasmCreate, .{ .name = "wasmCreate" });
     @export(&Entry.wasmVsyncEnabled, .{ .name = "wasmVsyncEnabled" });
     @export(&Entry.wasmFullscreenEnabled, .{ .name = "wasmFullscreenEnabled" });
+    @export(&Entry.wasmWindowTitlePtr, .{ .name = "wasmWindowTitlePtr" });
+    @export(&Entry.wasmWindowTitleLen, .{ .name = "wasmWindowTitleLen" });
     @export(&Entry.wasmFrame, .{ .name = "wasmFrame" });
     @export(&Entry.wasmResize, .{ .name = "wasmResize" });
     @export(&Entry.wasmOnDeviceLost, .{ .name = "wasmOnDeviceLost" });

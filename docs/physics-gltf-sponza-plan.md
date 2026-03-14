@@ -14,6 +14,7 @@ Merge note:
 This branch is complete when all of the following are true:
 
 - `phasor-lite` exposes a standalone public `physics` module
+- `phasor-lite` has a `gltf` example that loads a Khronos sample model with materials
 - `phasor-lite` can import static glTF scenes needed for Sponza
 - static collision for Sponza is baked ahead of runtime
 - Sponza assets are fetched on first use and are not vendored into git
@@ -56,6 +57,15 @@ These decisions are fixed for this branch unless we hit a concrete blocker.
   - [KhronosGroup/glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets)
   - `Models/Sponza/glTF/Sponza.gltf`
 - keep downloaded assets under a local ignored cache, not tracked source
+
+### Khronos sample asset repo policy
+
+- do not vendor the full Khronos sample asset repository into `phasor-lite`
+- keep a developer checkout at:
+  - `~/Projects/phasor/vendor/glTF-Sample-Assets`
+- use that checkout for manual inspection and pre-Sponza rendering work
+- the first example target should use:
+  - `Models/FlightHelmet/glTF/FlightHelmet.gltf`
 
 ## Minimum Feature Set
 
@@ -269,11 +279,15 @@ Work:
 - support ECS spawning for imported node hierarchy
 - preserve parent-child transforms using existing `Parent` and `LocalTransform`
 - support base-color textured opaque and alpha-tested surfaces
+- add `examples/gltf/` as the pre-Sponza import example
+- load the Khronos `FlightHelmet` sample from the external checkout
+- place it at the camera center and rotate it so material correctness is easy to inspect
 
 Gate:
 
-- a simple imported glTF scene renders correctly
+- `zig build run-gltf` renders the Khronos `FlightHelmet` sample with materials on native
 - multi-primitive materials render on the right primitives
+- imported hierarchy spawn uses `Parent` and `LocalTransform`, not glTF-specific runtime coupling
 
 ### Phase 3: Sponza Fetch Pipeline
 
@@ -393,6 +407,7 @@ Testing should be attached to each phase, not deferred to the end.
 ### End-to-end smoke tests
 
 - import and render a small sample scene
+- import and render the Khronos `FlightHelmet` sample through `run-gltf`
 - bake and load collision for a small sample scene
 - FPS controller in a tiny room scene before Sponza
 
@@ -448,4 +463,5 @@ The next execution steps, in order, are:
 1. Finish Phase 0 by stabilizing `common.Channel(T)` and the standalone `physics` module export path.
 2. Implement Phase 1 with a thin `cgltf` wrapper and neutral `SceneData`.
 3. Add a tiny importer smoke-test scene before touching Sponza.
-4. Only after that, add Sponza fetch and collision bake steps.
+4. Add `run-gltf` with the Khronos `FlightHelmet` sample before touching Sponza.
+5. Only after that, add Sponza fetch and collision bake steps.

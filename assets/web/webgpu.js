@@ -130,6 +130,13 @@ function readString(ptr, len) {
   return textDecoder.decode(new Uint8Array(memory.buffer, ptr, len));
 }
 
+function setPageTitle(title) {
+  if (!title) return;
+  document.title = title;
+  const header = document.querySelector("#app-title");
+  if (header) header.textContent = title;
+}
+
 function captureLastWasmError() {
   if (!wasm || !wasm.exports || !wasm.exports.wasmLastErrorPtr || !wasm.exports.wasmLastErrorLen) {
     return "unavailable";
@@ -1794,6 +1801,14 @@ async function start() {
       console.error("[phasor] wasmCreate failed", reason);
       const hint = document.querySelector(".hint");
       if (hint) hint.textContent = `WebGPU: wasmCreate failed (${reason})`;
+    }
+  }
+
+  if (wasm.exports.wasmWindowTitlePtr && wasm.exports.wasmWindowTitleLen) {
+    const ptr = wasm.exports.wasmWindowTitlePtr();
+    const len = wasm.exports.wasmWindowTitleLen();
+    if (ptr && len) {
+      setPageTitle(readString(ptr, len));
     }
   }
 

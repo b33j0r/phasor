@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Phasor Lite WebGPU</title>
+    <title>Phasor Lite</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" sizes="any" />
     <style>
       :root {
@@ -73,19 +73,19 @@
         font-size: 11px;
         color: rgba(233, 237, 242, 0.6);
       }
-      .hint span {
-        color: var(--accent);
+      .hint:empty {
+        display: none;
       }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <header>Phasor Lite / WebGPU Demo</header>
+      <header id="app-title">Phasor Lite</header>
       <main>
         <canvas id="canvas" width="900" height="600"></canvas>
       </main>
     </div>
-    <div class="hint">WebGPU: <span>enabled</span></div>
+    <div class="hint" aria-live="polite"></div>
     <script type="module" src="webgpu.js"></script>
   </body>
 </html>
