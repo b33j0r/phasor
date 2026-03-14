@@ -37,8 +37,10 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
 
     try app.addSystem(schedule.DefaultSchedule.WindowCreate, initSystem);
     try app.addSystem(schedule.DefaultSchedule.AssetsLoad, ensureAssetsContextSystem);
+    try app.addSystem(schedule.DefaultSchedule.AssetsLoad, ensureBuildContextSystem);
     try app.addSystem("BeforeFrame", initSystem);
     try app.addSystem("BeforeFrame", ensureAssetsContextSystem);
+    try app.addSystem("BeforeFrame", ensureBuildContextSystem);
     try app.addSystem("BeforeFrame", render_prepare.handleViewportResize);
     try app.addSystem("BeforeFrame", render_prepare.updateSpriteMeshes);
     try app.addSystem("BeforeFrame", render_prepare.updateTextMeshes);
@@ -52,6 +54,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
 pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(initSystem);
     app.removeSystem(ensureAssetsContextSystem);
+    app.removeSystem(ensureBuildContextSystem);
     app.removeSystem(render_prepare.handleViewportResize);
     app.removeSystem(render_prepare.updateSpriteMeshes);
     app.removeSystem(render_prepare.updateTextMeshes);
@@ -125,7 +128,6 @@ fn initRenderer(commands: *Commands) !void {
     if (!commands.hasResource(render.MaterialLibrary)) {
         try commands.insertResource(render.MaterialLibrary.init(commands.allocator));
     }
-    try ensureBuildContextResource(commands);
 }
 
 fn ensureAssetsContextSystem(commands: *Commands) !void {
@@ -172,6 +174,10 @@ fn ensureBuildContextResource(commands: *Commands) !void {
         .material_library = material_library,
         .font_library = font_library,
     });
+}
+
+fn ensureBuildContextSystem(commands: *Commands) !void {
+    try ensureBuildContextResource(commands);
 }
 
 fn shutdownSystem(commands: *Commands) void {

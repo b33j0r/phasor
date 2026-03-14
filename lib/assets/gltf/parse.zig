@@ -261,7 +261,7 @@ fn buildAccessors(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]sc
         dst.* = .{
             .buffer_view_index = ptrIndex(c.cgltf_buffer_view, src.buffer_view, data.buffer_views, data.buffer_views_count),
             .count = src.count,
-            .component_type = @intCast(src.component_type),
+            .component_type = gltfComponentType(src.component_type),
             .element_type = element_type,
             .byte_offset = src.offset,
             .byte_stride = stride,
@@ -312,7 +312,7 @@ fn accessorRef(data: *const c.cgltf_data, accessor: ?*const c.cgltf_accessor) ?s
     return .{
         .accessor_index = ptrIndex(c.cgltf_accessor, value, data.accessors, data.accessors_count) orelse return null,
         .count = value.count,
-        .component_type = @intCast(value.component_type),
+        .component_type = gltfComponentType(value.component_type),
         .element_type = switch (value.type) {
             c.cgltf_type_scalar => .Scalar,
             c.cgltf_type_vec2 => .Vec2,
@@ -324,6 +324,18 @@ fn accessorRef(data: *const c.cgltf_data, accessor: ?*const c.cgltf_accessor) ?s
             else => .Scalar,
         },
         .byte_offset = value.offset,
+    };
+}
+
+fn gltfComponentType(component_type: c.cgltf_component_type) u32 {
+    return switch (component_type) {
+        c.cgltf_component_type_r_8 => 5120,
+        c.cgltf_component_type_r_8u => 5121,
+        c.cgltf_component_type_r_16 => 5122,
+        c.cgltf_component_type_r_16u => 5123,
+        c.cgltf_component_type_r_32u => 5125,
+        c.cgltf_component_type_r_32f => 5126,
+        else => 0,
     };
 }
 

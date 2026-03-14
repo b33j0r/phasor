@@ -1,5 +1,6 @@
 const GltfPivot = struct {};
 const SceneReady = struct {};
+const DebugReported = struct {};
 
 const App = struct {
     pub const options = platform.Options{
@@ -19,8 +20,10 @@ const App = struct {
             .text_color = Color.WHITE,
         });
 
+        try app.addSystemTo("Startup", setupScene);
         try app.addSystemTo("BeforeFrame", setupScene);
         try app.addSystemTo("Update", updatePivot);
+        try app.addSystemTo("AfterFrame", debugSceneStatus);
         try app.addSystemTo("Shutdown", unloadImportedScene);
     }
 };
@@ -34,11 +37,10 @@ fn setupScene(
     gltf_assets: Res(Assets),
 ) !void {
     if (commands.hasResource(SceneReady)) return;
+    const scene_asset = &gltf_assets.ptr.flight_helmet;
     const build_ctx_res = build_ctx.ptr orelse return;
     const assets_ctx_res = assets_ctx.ptr orelse return;
-
-    const scene_asset = &gltf_assets.ptr.flight_helmet;
-    const scene_data = scene_asset.scene_data orelse return error.SceneMissing;
+    const scene_data = scene_asset.scene_data orelse return;
 
     try commands.insertResource(ClearColor{ .color = Color.rgb(10, 12, 18) });
 
@@ -63,10 +65,7 @@ fn setupScene(
     try commands.insertResource(SceneReady{});
 
     _ = try commands.createEntity(.{
-        Transform{
-            .translation = .{ .x = 0.0, .y = 0.15, .z = 2.9 },
-            .rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi),
-        },
+        Transform{},
         Camera3d{ .Perspective = .{
             .fov = std.math.pi / 3.0,
             .near = 0.05,
@@ -100,7 +99,7 @@ fn updatePivot(
         transform.translation = .{
             .x = -center.x * scale,
             .y = -center.y * scale,
-            .z = -1.4,
+            .z = -3.8,
         };
         transform.scale = Vec3.splat(scale);
         transform.rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, t * 0.6);
@@ -110,6 +109,35 @@ fn updatePivot(
 fn unloadImportedScene(commands: *ecs.Commands) void {
     _ = commands.removeResource(assets.ImportedScene);
     _ = commands.removeResource(SceneReady);
+    _ = commands.removeResource(DebugReported);
+}
+
+fn debugSceneStatus(
+    commands: *ecs.Commands,
+    imported: ResOpt(assets.ImportedScene),
+    queue: Res(render.RenderQueue),
+    meshes: Query(.{render.MeshInstance}),
+) !void {
+    if (!commands.hasResource(SceneReady)) return;
+    if (commands.hasResource(DebugReported)) return;
+
+    var mesh_count: usize = 0;
+    var it = meshes.iterator();
+    while (it.next()) |_| {
+        mesh_count += 1;
+    }
+
+    const imported_scene = imported.ptr orelse return;
+    std.debug.print(
+        "debugSceneStatus: mesh_entities={} queue_items={} imported_meshes={} imported_materials={}\n",
+        .{
+            mesh_count,
+            queue.ptr.items.items.len,
+            imported_scene.mesh_handles.len,
+            imported_scene.material_handles.len,
+        },
+    );
+    try commands.insertResource(DebugReported{});
 }
 
 const Assets = struct {
