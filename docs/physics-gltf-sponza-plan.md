@@ -2,11 +2,11 @@
 
 Status: authoritative branch roadmap
 
-Branch: `codex/physics`
+Branch: `codex/gltf`
 
 Merge note:
 
-- delete this roadmap before merging `codex/physics`
+- delete this roadmap before merging `codex/gltf`
 - it is a branch execution document, not intended as durable merged docs
 
 ## Branch Outcome
@@ -19,6 +19,20 @@ This branch is complete when all of the following are true:
 - static collision for Sponza is baked ahead of runtime
 - Sponza assets are fetched on first use and are not vendored into git
 - a native command such as `zig build run-sponza-fps` launches a basic FPS walkthrough in Sponza
+
+## Execution Order
+
+The branch name is now `codex/gltf` because glTF ingestion is the first delivery track.
+That does not change the acceptance criteria: the project is still complete only when the Sponza FPS demo exists and is backed by the new `physics` module.
+
+The practical dependency chain is:
+
+1. make glTF scenes load naturally in `phasor-lite`
+2. use that scene pipeline to render real imported content and bake static collision
+3. feed the baked collision into `physics`
+4. finish at the native Sponza FPS demo
+
+So glTF work is not a detour from physics. It is the front half of the physics deliverable because the chosen acceptance scene is Sponza.
 
 ## Architectural Decisions
 
@@ -35,6 +49,7 @@ These decisions are fixed for this branch unless we hit a concrete blocker.
 - primary importer implementation for this branch: `cgltf`
 - Assimp is reference material only, using `../phasor-vulkan`
 - `fastgltf` is the technically stronger glTF library overall, but not the right first integration for this repo because it introduces a new C++17 dependency surface before the asset pipeline is stable
+- branch execution starts here before backend-complete physics work, because imported scenes are required for both visual validation and collision baking
 
 ### Module boundaries
 
@@ -64,7 +79,8 @@ These decisions are fixed for this branch unless we hit a concrete blocker.
 - keep a developer checkout at:
   - `~/Projects/phasor/vendor/glTF-Sample-Assets`
 - use that checkout for manual inspection and pre-Sponza rendering work
-- the first example target should use:
+- the branch now vendors only the specific `FlightHelmet` sample needed by `examples/gltf/` so the example runs from a clean checkout without extra setup
+- the first example target uses:
   - `Models/FlightHelmet/glTF/FlightHelmet.gltf`
 
 ## Minimum Feature Set

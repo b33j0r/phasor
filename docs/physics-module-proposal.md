@@ -6,7 +6,7 @@ Scope: new public `physics` Zig module for `phasor-lite`, designed to split into
 
 Merge note:
 
-- delete this planning/proposal doc before merging `codex/physics`
+- delete this planning/proposal doc before merging `codex/gltf`
 - only keep extracted durable documentation if it is still useful after implementation lands
 
 Execution plan:
@@ -20,7 +20,7 @@ Recommended path:
 
 1. Build a new public `physics` module with an ECS-first API and a backend interface.
 2. Keep cross-thread communication consistent with `Commands`, `ecs.Events(T)`, and metrics by standardizing on `std.Io.Queue` behind a reusable `Channel(T)` abstraction.
-3. Add glTF scene import as a parallel workstream under `assets`, because the branch target is an FPS demo in Sponza.
+3. Do glTF scene import first under `assets`, because the branch acceptance target is an FPS demo in Sponza and that makes import plus collision baking part of the physics critical path.
 4. Use Jolt Physics as the primary 3D backend for native targets.
 5. Keep the current ad-hoc `FpsPhysicsModule` only as a temporary gameplay helper, then migrate it onto `physics`.
 6. Do not make wasm parity a design blocker for v1. Keep wasm behind a fallback backend or feature gate until the native API stabilizes.
@@ -54,6 +54,7 @@ Related boundary:
 
 - model and scene import belong in `assets`, not in `physics`
 - `physics` should consume baked collision assets, not raw importer state
+- glTF-first execution does not change that ownership split; it only reflects the order required to reach the Sponza FPS acceptance target
 
 ## Engine Shortlist
 

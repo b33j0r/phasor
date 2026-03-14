@@ -2,10 +2,12 @@
 
 Merge note:
 
-- delete this branch-local planning note before merging `codex/physics`
+- delete this branch-local planning note before merging `codex/gltf`
 - if needed, keep only a durable asset-source note in final merged docs
 
-The target deliverable for the `codex/physics` branch is a simple FPS demo running in Sponza.
+The target deliverable for the `codex/gltf` branch is still a simple FPS demo running in Sponza.
+The branch was renamed because glTF ingestion comes first, not because the physics goal changed.
+We are using glTF work to reach the physics acceptance target: imported scenes are needed to validate rendering, prepare Sponza, and generate the baked collision data that the FPS demo depends on.
 
 Asset policy:
 

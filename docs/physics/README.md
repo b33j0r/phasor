@@ -1,6 +1,9 @@
-# Physics Branch Docs
+# glTF Branch Docs
 
-Status: active branch-local planning/index for `codex/physics`
+Status: active branch-local planning/index for `codex/gltf`
+
+This branch is glTF-first by design.
+The acceptance target is still the native Sponza FPS demo, which means scene import and material handling are the first critical path for the physics project rather than a separate side quest.
 
 Read order for a new session:
 
@@ -23,5 +26,5 @@ phasor-lite/docs/
 Branch note:
 
 - these planning docs are branch-local working documents
-- delete the planning docs before merging `codex/physics`
+- delete the planning docs before merging `codex/gltf`
 - only durable rules or finalized user-facing docs should survive merge
