@@ -1,8 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const common = @import("common");
 
 const http = std.http;
 const net = std.Io.net;
+
+pub const std_options = common.logging.stdOptions(.info);
 
 const default_https_cert = "local/tls/phasor.pem";
 const default_https_key = "local/tls/phasor-key.pem";
@@ -45,7 +48,7 @@ pub fn serve(init: std.process.Init, options: Options) !void {
     const http_url = try std.fmt.allocPrint(init.gpa, "http://{f}/", .{bound_address});
     defer init.gpa.free(http_url);
 
-    std.debug.print("Serving {s} at {s}\n", .{ options.root_dir, http_url });
+    log.info("serving {s} at {s}", .{ options.root_dir, http_url });
 
     var https_child: ?std.process.Child = null;
     defer if (https_child) |*child| child.kill(init.io);
@@ -65,20 +68,20 @@ pub fn serve(init: std.process.Init, options: Options) !void {
             .script_path = options.tls_proxy_script,
         }) catch |err| {
             if (err == error.FileNotFound) {
-                std.debug.print("Failed to start HTTPS proxy: python3 not found\n", .{});
+                log.err("failed to start HTTPS proxy: python3 not found", .{});
             } else {
-                std.debug.print("Failed to start HTTPS proxy: {s}\n", .{@errorName(err)});
+                log.err("failed to start HTTPS proxy: {s}", .{@errorName(err)});
             }
             return err;
         };
         https_url = try std.fmt.allocPrint(init.gpa, "https://{s}:{d}/", .{ https_host, options.https_port });
-        std.debug.print("HTTPS proxy at {s}\n", .{https_url.?});
+        log.info("HTTPS proxy at {s}", .{https_url.?});
     }
 
     if (options.open_browser) {
         const url = https_url orelse http_url;
         openBrowser(init, url) catch |err| {
-            std.debug.print("Failed to open browser: {s}\n", .{@errorName(err)});
+            log.warn("failed to open browser: {s}", .{@errorName(err)});
         };
     }
 
@@ -87,11 +90,11 @@ pub fn serve(init: std.process.Init, options: Options) !void {
 
     while (true) {
         const stream = server.accept(init.io) catch |err| {
-            std.debug.print("Accept failed: {s}\n", .{@errorName(err)});
+            log.err("accept failed: {s}", .{@errorName(err)});
             continue;
         };
         handleConnection(init, root_dir, stream, options.index_file) catch |err| {
-            std.debug.print("Connection error: {s}\n", .{@errorName(err)});
+            log.warn("connection error: {s}", .{@errorName(err)});
         };
     }
 }
@@ -320,7 +323,7 @@ fn parseArgs(init: std.process.Init, options: *Options) !void {
             printUsage();
             return error.InvalidArguments;
         } else {
-            std.debug.print("Unknown argument: {s}\n", .{arg});
+            log.err("unknown argument: {s}", .{arg});
             printUsage();
             return error.InvalidArguments;
         }
@@ -334,17 +337,17 @@ fn nextArg(it: *std.process.Args.Iterator) ?[]const u8 {
 fn validateOptions(init: std.process.Init, options: *Options) !void {
     if (!options.https) return;
     if (options.https_port == 0) {
-        std.debug.print("Invalid --https-port: 0\n", .{});
+        log.err("invalid --https-port: 0", .{});
         printUsage();
         return error.InvalidArguments;
     }
     ensureHttpsCerts(init, options) catch |err| {
         if (err == error.FileNotFound) {
-            std.debug.print("mkcert not found; install it or pass --https-cert/--https-key\n", .{});
+            log.err("mkcert not found; install it or pass --https-cert/--https-key", .{});
             printUsage();
             return error.InvalidArguments;
         } else if (err == error.MkcertFailed) {
-            std.debug.print("mkcert failed; ensure its root CA is installed (mkcert -install)\n", .{});
+            log.err("mkcert failed; ensure its root CA is installed (mkcert -install)", .{});
             printUsage();
             return error.InvalidArguments;
         }
@@ -357,7 +360,7 @@ fn ensureHttpsCerts(init: std.process.Init, options: *Options) !void {
     try ensureTlsDir(init);
     try runMkcert(init, options);
     if (!fileExists(init, options.https_cert) or !fileExists(init, options.https_key)) {
-        std.debug.print("Missing TLS cert/key at {s} and {s}\n", .{
+        log.err("missing TLS cert/key at {s} and {s}", .{
             options.https_cert,
             options.https_key,
         });
@@ -447,8 +450,10 @@ fn isWildcardHost(host: []const u8) bool {
 }
 
 fn printUsage() void {
-    std.debug.print(
-        "wasm-server [--root DIR] [--index FILE] [--host ADDR] [--port N] [--no-open] [--https --https-host ADDR --https-port N --https-cert FILE --https-key FILE --tls-proxy-script FILE]\n",
+    log.info(
+        "wasm-server [--root DIR] [--index FILE] [--host ADDR] [--port N] [--no-open] [--https --https-host ADDR --https-port N --https-cert FILE --https-key FILE --tls-proxy-script FILE]",
         .{},
     );
 }
+
+const log = std.log.scoped(.wasm_server);

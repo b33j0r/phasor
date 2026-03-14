@@ -7,6 +7,7 @@ pub fn AssetsModule(comptime T: type) type {
                 try commands.insertResource(T{});
             }
             try app.addSystem(schedule.DefaultSchedule.AssetsLoad, Self.loadAssets);
+            try app.addSystem(schedule.DefaultSchedule.BeforeFrame, Self.loadAssets);
             try app.addSystem(schedule.DefaultSchedule.AssetsUnload, Self.unloadAssets);
         }
 

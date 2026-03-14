@@ -37,8 +37,10 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
 
     try app.addSystem(schedule.DefaultSchedule.WindowCreate, initSystem);
     try app.addSystem(schedule.DefaultSchedule.AssetsLoad, ensureAssetsContextSystem);
+    try app.addSystem(schedule.DefaultSchedule.AssetsLoad, ensureBuildContextSystem);
     try app.addSystem("BeforeFrame", initSystem);
     try app.addSystem("BeforeFrame", ensureAssetsContextSystem);
+    try app.addSystem("BeforeFrame", ensureBuildContextSystem);
     try app.addSystem("BeforeFrame", render_prepare.handleViewportResize);
     try app.addSystem("BeforeFrame", render_prepare.updateSpriteMeshes);
     try app.addSystem("BeforeFrame", render_prepare.updateTextMeshes);
@@ -52,6 +54,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
 pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(initSystem);
     app.removeSystem(ensureAssetsContextSystem);
+    app.removeSystem(ensureBuildContextSystem);
     app.removeSystem(render_prepare.handleViewportResize);
     app.removeSystem(render_prepare.updateSpriteMeshes);
     app.removeSystem(render_prepare.updateTextMeshes);
@@ -125,7 +128,7 @@ fn initRenderer(commands: *Commands) !void {
     if (!commands.hasResource(render.MaterialLibrary)) {
         try commands.insertResource(render.MaterialLibrary.init(commands.allocator));
     }
-    try ensureBuildContextResource(commands);
+    log.debug("renderer core resources initialized", .{});
 }
 
 fn ensureAssetsContextSystem(commands: *Commands) !void {
@@ -149,6 +152,7 @@ fn ensureAssetsContextSystem(commands: *Commands) !void {
         .texture_library = texture_library,
         .material_library = material_library,
     });
+    log.debug("AssetsContext ready", .{});
 }
 
 fn ensureBuildContextResource(commands: *Commands) !void {
@@ -172,6 +176,11 @@ fn ensureBuildContextResource(commands: *Commands) !void {
         .material_library = material_library,
         .font_library = font_library,
     });
+    log.debug("BuildContext ready", .{});
+}
+
+fn ensureBuildContextSystem(commands: *Commands) !void {
+    try ensureBuildContextResource(commands);
 }
 
 fn shutdownSystem(commands: *Commands) void {
@@ -229,6 +238,7 @@ fn shutdownSystem(commands: *Commands) void {
     _ = commands.removeResource(render.BuildContext);
     _ = commands.removeResource(render.RenderQueue);
     _ = commands.removeResource(RenderState);
+    log.debug("renderer resources released", .{});
 }
 
 pub fn signalDeviceLost(commands: *Commands) void {
@@ -291,3 +301,5 @@ const assets = @import("assets");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const schedule = ecs.schedule;
+const std = @import("std");
+const log = std.log.scoped(.render_module);

@@ -1,5 +1,7 @@
 //! Window module built on GLFW.
 
+pub const std_options = @import("common").logging.moduleStdOptions();
+
 test "import tests" {
     _ = WindowModule;
 }

@@ -1,0 +1,18 @@
+const imported = @import("../scene.zig");
+
+pub const SceneData = imported.SceneData;
+pub const SceneDef = imported.SceneDef;
+pub const NodeData = imported.NodeData;
+pub const MeshData = imported.MeshData;
+pub const PrimitiveData = imported.PrimitiveData;
+pub const MaterialData = imported.MaterialData;
+pub const TextureData = imported.TextureData;
+pub const TextureRef = imported.TextureRef;
+pub const ImageData = imported.ImageData;
+pub const BufferViewData = imported.BufferViewData;
+pub const AccessorData = imported.AccessorData;
+pub const BufferData = imported.BufferData;
+pub const BufferSource = imported.BufferSource;
+pub const AlphaMode = imported.AlphaMode;
+pub const Topology = imported.Topology;
+pub const AccessorRef = imported.AccessorRef;

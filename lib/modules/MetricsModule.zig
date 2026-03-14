@@ -477,7 +477,7 @@ fn copyLine(out: []u8, text: []const u8) []const u8 {
 fn drainMetrics(bus: *metrics.Bus, store: *metrics.Store) void {
     var buffer: [8]metrics.Event = undefined;
     while (true) {
-        const count = bus.queue.get(bus.io.*, &buffer, 0) catch |err| switch (err) {
+        const count = bus.channel.get(bus.channel.io.*, &buffer, 0) catch |err| switch (err) {
             error.Closed, error.Canceled => return,
         };
         if (count == 0) return;

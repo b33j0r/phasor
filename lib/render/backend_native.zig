@@ -104,6 +104,7 @@ pub const ShaderSource = struct {
 
 pub const MeshVertexLayout = enum(u8) {
     uv2,
+    pos3_uv2,
     pos3_color4,
 };
 
@@ -140,6 +141,11 @@ pub const VertexColor = extern struct {
 
 pub const VertexUv = extern struct {
     position: [2]f32,
+    uv: [2]f32,
+};
+
+pub const VertexPos3Uv = extern struct {
+    position: [3]f32,
     uv: [2]f32,
 };
 
@@ -212,6 +218,8 @@ pub const Renderer = struct {
     triangle_pipeline: *wgpu.RenderPipeline,
     quad_pipeline_opaque: *wgpu.RenderPipeline,
     quad_pipeline_blend: *wgpu.RenderPipeline,
+    mesh_textured_pipeline_opaque: *wgpu.RenderPipeline,
+    mesh_textured_pipeline_blend: *wgpu.RenderPipeline,
     quad_bind_group_layout: *wgpu.BindGroupLayout,
     post_process_bind_group_layout: *wgpu.BindGroupLayout,
     post_process_sampler: Sampler,
@@ -283,6 +291,8 @@ pub const Renderer = struct {
             .triangle_pipeline = undefined,
             .quad_pipeline_opaque = undefined,
             .quad_pipeline_blend = undefined,
+            .mesh_textured_pipeline_opaque = undefined,
+            .mesh_textured_pipeline_blend = undefined,
             .quad_bind_group_layout = undefined,
             .post_process_bind_group_layout = undefined,
             .post_process_sampler = undefined,
@@ -348,6 +358,11 @@ pub const Renderer = struct {
         })) orelse return error.ShaderCreationFailed;
         defer shader_quad.release();
 
+        const shader_mesh_textured = self.device.createShaderModule(&wgpu.shaderModuleWGSLDescriptor(.{
+            .code = meshTexturedShaderWGSL,
+        })) orelse return error.ShaderCreationFailed;
+        defer shader_mesh_textured.release();
+
         const triangle_key = CacheKey{ .a = 1, .b = 0, .c = 0 };
         _ = hashCacheKey(triangle_key);
         self.triangle_pipeline = try createTrianglePipeline(self.device, shader_triangle, self.surface_format, depth_format);
@@ -376,6 +391,24 @@ pub const Renderer = struct {
             true,
             false,
         );
+        self.mesh_textured_pipeline_opaque = try createMeshTexturedPipeline(
+            self.device,
+            shader_mesh_textured,
+            self.surface_format,
+            depth_format,
+            quad_bind_group_layout,
+            false,
+            true,
+        );
+        self.mesh_textured_pipeline_blend = try createMeshTexturedPipeline(
+            self.device,
+            shader_mesh_textured,
+            self.surface_format,
+            depth_format,
+            quad_bind_group_layout,
+            true,
+            false,
+        );
     }
 
     pub fn deinit(self: *Renderer) void {
@@ -389,6 +422,8 @@ pub const Renderer = struct {
         self.triangle_pipeline.release();
         self.quad_pipeline_opaque.release();
         self.quad_pipeline_blend.release();
+        self.mesh_textured_pipeline_opaque.release();
+        self.mesh_textured_pipeline_blend.release();
         self.quad_bind_group_layout.release();
         self.post_process_bind_group_layout.release();
         self.destroySampler(&self.post_process_sampler);
@@ -573,6 +608,57 @@ pub const Renderer = struct {
 
     pub fn updateMeshUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexUv, indices: []const u16) !void {
         if (mesh.vertex_layout != .uv2) return error.InvalidMeshLayout;
+        const vertex_bytes = std.mem.sliceAsBytes(vertices);
+        const index_bytes = std.mem.sliceAsBytes(indices);
+        if (vertex_bytes.len > mesh.vertex_buffer.size or index_bytes.len > mesh.index_buffer.size) {
+            mesh.vertex_buffer.buffer.release();
+            mesh.index_buffer.buffer.release();
+            mesh.vertex_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+                vertex_bytes,
+            );
+            mesh.index_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+                index_bytes,
+            );
+        } else {
+            self.queue.writeBuffer(mesh.vertex_buffer.buffer, 0, vertex_bytes.ptr, vertex_bytes.len);
+            self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
+        }
+        mesh.index_count = @intCast(indices.len);
+    }
+
+    pub fn createMeshPos3Uv(self: *Renderer, vertices: []const VertexPos3Uv, indices: []const u16) !Mesh {
+        const vertex_buf = try createBufferWithData(
+            self.allocator,
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(vertices),
+        );
+        const index_buf = try createBufferWithData(
+            self.allocator,
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(indices),
+        );
+        return Mesh{
+            .vertex_buffer = vertex_buf,
+            .index_buffer = index_buf,
+            .index_count = @intCast(indices.len),
+            .vertex_layout = .pos3_uv2,
+        };
+    }
+
+    pub fn updateMeshPos3Uv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3Uv, indices: []const u16) !void {
+        if (mesh.vertex_layout != .pos3_uv2) return error.InvalidMeshLayout;
         const vertex_bytes = std.mem.sliceAsBytes(vertices);
         const index_bytes = std.mem.sliceAsBytes(indices);
         if (vertex_bytes.len > mesh.vertex_buffer.size or index_bytes.len > mesh.index_buffer.size) {
@@ -816,7 +902,11 @@ pub const Frame = struct {
     }
 
     pub fn drawTexturedQuads(self: *Frame, mesh: Mesh, material: Material, instances: []const MeshInstance, blend: bool) void {
-        if (mesh.vertex_layout != .uv2) return;
+        const pipeline = switch (mesh.vertex_layout) {
+            .uv2 => if (blend) self.renderer.quad_pipeline_blend else self.renderer.quad_pipeline_opaque,
+            .pos3_uv2 => if (blend) self.renderer.mesh_textured_pipeline_blend else self.renderer.mesh_textured_pipeline_opaque,
+            else => return,
+        };
         if (instances.len == 0) return;
         const render_pass = self.render_pass orelse return;
         const total_bytes: usize = instances.len * @sizeOf(InstanceData);
@@ -830,7 +920,6 @@ pub const Frame = struct {
             self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, byte_offset, bytes.ptr, bytes.len);
         }
 
-        const pipeline = if (blend) self.renderer.quad_pipeline_blend else self.renderer.quad_pipeline_opaque;
         render_pass.setPipeline(pipeline);
         render_pass.setBindGroup(0, material.bind_group, 0, null);
         render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
@@ -1358,6 +1447,95 @@ fn createQuadPipeline(
     return pipeline;
 }
 
+fn createMeshTexturedPipeline(
+    device: *wgpu.Device,
+    shader: *wgpu.ShaderModule,
+    format: wgpu.TextureFormat,
+    depth_format_param: wgpu.TextureFormat,
+    bind_group_layout: *wgpu.BindGroupLayout,
+    enable_blend: bool,
+    depth_write_enabled: bool,
+) !*wgpu.RenderPipeline {
+    const pipeline_layout = device.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
+        .bind_group_layout_count = 1,
+        .bind_group_layouts = &[_]*wgpu.BindGroupLayout{bind_group_layout},
+    }) orelse return error.PipelineLayoutFailed;
+    defer pipeline_layout.release();
+
+    const vertex_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x2, .offset = @sizeOf([3]f32), .shader_location = 1 },
+    };
+    const instance_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x4, .offset = 0, .shader_location = 2 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 3 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 4 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 5 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = 6 },
+    };
+    const vertex_buffers = [_]wgpu.VertexBufferLayout{
+        .{
+            .array_stride = @sizeOf(VertexPos3Uv),
+            .attribute_count = vertex_attributes.len,
+            .attributes = vertex_attributes[0..].ptr,
+            .step_mode = .vertex,
+        },
+        .{
+            .array_stride = @sizeOf(InstanceData),
+            .attribute_count = instance_attributes.len,
+            .attributes = instance_attributes[0..].ptr,
+            .step_mode = .instance,
+        },
+    };
+    const blend_state = wgpu.BlendState{
+        .color = .{
+            .operation = .add,
+            .src_factor = .src_alpha,
+            .dst_factor = .one_minus_src_alpha,
+        },
+        .alpha = .{
+            .operation = .add,
+            .src_factor = .one,
+            .dst_factor = .one_minus_src_alpha,
+        },
+    };
+    const color_targets = [_]wgpu.ColorTargetState{wgpu.ColorTargetState{
+        .format = format,
+        .blend = if (enable_blend) &blend_state else null,
+    }};
+    const depth_state = wgpu.DepthStencilState{
+        .format = depth_format_param,
+        .depth_write_enabled = switch (depth_write_enabled) {
+            true => .true,
+            false => .false,
+        },
+        .depth_compare = .less_equal,
+        .stencil_front = .{},
+        .stencil_back = .{},
+    };
+
+    return device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
+        .layout = pipeline_layout,
+        .vertex = wgpu.VertexState{
+            .module = shader,
+            .entry_point = wgpu.StringView.fromSlice("vs_main"),
+            .buffer_count = vertex_buffers.len,
+            .buffers = vertex_buffers[0..].ptr,
+        },
+        .primitive = wgpu.PrimitiveState{
+            .topology = .triangle_list,
+        },
+        .depth_stencil = &depth_state,
+        .fragment = &wgpu.FragmentState{
+            .module = shader,
+            .entry_point = wgpu.StringView.fromSlice("fs_main"),
+            .target_count = color_targets.len,
+            .targets = color_targets[0..].ptr,
+        },
+        .multisample = wgpu.MultisampleState{},
+    }) orelse return error.PipelineCreationFailed;
+}
+
 const ShaderStageKind = enum {
     vertex,
     fragment,
@@ -1578,6 +1756,7 @@ const defaultQuadIndices = [_]u16{ 0, 1, 2, 2, 3, 0 };
 
 const triangleShaderWGSL = @embedFile("shaders/triangle.wgsl");
 const quadShaderWGSL = @embedFile("shaders/quad.wgsl");
+const meshTexturedShaderWGSL = @embedFile("shaders/mesh_textured.wgsl");
 const postProcessVertexWGSL =
     \\struct VertexOut {
     \\    @builtin(position) position: vec4<f32>,

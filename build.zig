@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
     const glfw = if (!is_wasm) GlfwModule.build(&ctx) else null;
     const stb = StbModule.build(&ctx);
     const stb_image = StbImageModule.build(&ctx);
+    const cgltf = CgltfModule.build(&ctx);
     const miniaudio = if (!is_wasm) MiniaudioModule.build(&ctx) else null;
     const fastnoise = FastNoiseModule.build(&ctx);
     const ecs = EcsModule.build(&ctx, .{
@@ -19,7 +20,13 @@ pub fn build(b: *std.Build) void {
         .db = db.module,
         .graph = graph.module,
     });
-    const metrics = MetricsModule.build(&ctx);
+    const physics = PhysicsModuleLib.build(&ctx, .{
+        .common = common.module,
+        .ecs = ecs.module,
+    });
+    const metrics = MetricsModule.build(&ctx, .{
+        .common = common.module,
+    });
     const wasm_support = WasmSupportModule.build(&ctx);
     const renderer = RenderModule.build(&ctx, .{
         .common = common.module,
@@ -32,8 +39,10 @@ pub fn build(b: *std.Build) void {
         .render = renderer.module,
     });
     const assets = AssetsModule.build(&ctx, .{
+        .common = common.module,
         .render = renderer.module,
         .stb_image = stb_image.module,
+        .cgltf = cgltf.module,
     });
     const audio = AudioModule.build(&ctx, .{
         .assets = assets.module,
@@ -47,6 +56,7 @@ pub fn build(b: *std.Build) void {
         .common = common.module,
         .db = db.module,
         .ecs = ecs.module,
+        .physics = physics.module,
         .gui = gui.module,
         .assets = assets.module,
         .audio = audio.module,
@@ -72,6 +82,7 @@ pub fn build(b: *std.Build) void {
         .ecs = ecs.module,
         .graph = graph.module,
         .metrics = metrics.module,
+        .physics = physics.module,
         .modules = modules.module,
         .platform = platform.module,
         .renderer = renderer.module,
@@ -98,10 +109,19 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "bouncing-ball", "examples/bouncing-ball/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "cube", "examples/cube/main.zig", &.{});
+    const gltf_embedded_assets = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("assets/gltf/embedded_assets.zig"),
+        .target = ctx.target,
+        .optimize = ctx.optimize,
+    });
+    _ = addExample(&ctx, phasor.module, "gltf", "examples/gltf/main.zig", &.{.{
+        .name = "gltf_embedded_assets",
+        .module = gltf_embedded_assets,
+    }});
     _ = addExample(&ctx, phasor.module, "warehouse", "examples/warehouse/main.zig", &.{});
     addEcsQueryCacheBenchmark(&ctx, phasor.module);
 
-    addWebExamples(&ctx);
+    addWebExamples(&ctx, common.module);
 
     const test_step = b.step("test", "Run tests");
     if (is_wasm) {
@@ -110,8 +130,10 @@ pub fn build(b: *std.Build) void {
             db.tests,
             ecs.tests,
             graph.tests,
+            physics.tests,
             stb.tests,
             stb_image.tests,
+            cgltf.tests,
             fastnoise.tests,
             metrics.tests,
             audio.tests,
@@ -128,9 +150,11 @@ pub fn build(b: *std.Build) void {
             db.tests,
             ecs.tests,
             graph.tests,
+            physics.tests,
             glfw.?.tests,
             stb.tests,
             stb_image.tests,
+            cgltf.tests,
             fastnoise.tests,
             metrics.tests,
             audio.tests,
@@ -397,19 +421,52 @@ const StbImageModule = struct {
     }
 };
 
+const CgltfModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    fn build(ctx: *const BuildContext) CgltfModule {
+        const cgltf_dep = ctx.b.dependency("cgltf", .{
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+        });
+
+        const cgltf_mod = ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("deps/cgltf/root.zig"),
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+            .link_libc = true,
+        });
+        cgltf_mod.addIncludePath(cgltf_dep.path(""));
+        cgltf_mod.addCSourceFiles(.{
+            .root = ctx.b.path("deps/cgltf"),
+            .files = &.{"cgltf_impl.c"},
+        });
+
+        return .{
+            .module = cgltf_mod,
+            .tests = ctx.b.addTest(.{ .root_module = cgltf_mod }),
+        };
+    }
+};
+
 const AssetsModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
 
     const Deps = struct {
+        common: *std.Build.Module,
         render: *std.Build.Module,
         stb_image: *std.Build.Module,
+        cgltf: *std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) AssetsModule {
         const bundle = ctx.moduleBundle("lib/assets/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
             .{ .name = "render", .module = deps.render },
             .{ .name = "stb_image", .module = deps.stb_image },
+            .{ .name = "cgltf", .module = deps.cgltf },
         });
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
@@ -477,8 +534,33 @@ const MetricsModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
 
-    fn build(ctx: *const BuildContext) MetricsModule {
-        const bundle = ctx.moduleBundle("lib/metrics/root.zig", &.{});
+    const Deps = struct {
+        common: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) MetricsModule {
+        const bundle = ctx.moduleBundle("lib/metrics/root.zig", &.{.{
+            .name = "common",
+            .module = deps.common,
+        }});
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
+const PhysicsModuleLib = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    const Deps = struct {
+        common: *std.Build.Module,
+        ecs: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) PhysicsModuleLib {
+        const bundle = ctx.moduleBundlePublic("physics", "lib/physics/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
+            .{ .name = "ecs", .module = deps.ecs },
+        });
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -511,6 +593,7 @@ const ModulesModule = struct {
         common: *std.Build.Module,
         db: *std.Build.Module,
         ecs: *std.Build.Module,
+        physics: *std.Build.Module,
         gui: *std.Build.Module,
         assets: *std.Build.Module,
         audio: *std.Build.Module,
@@ -529,6 +612,7 @@ const ModulesModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "physics", .module = deps.physics }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "gui", .module = deps.gui }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
@@ -563,6 +647,7 @@ const PhasorModule = struct {
         ecs: *std.Build.Module,
         graph: *std.Build.Module,
         metrics: *std.Build.Module,
+        physics: *std.Build.Module,
         modules: *std.Build.Module,
         platform: *std.Build.Module,
         renderer: *std.Build.Module,
@@ -583,6 +668,7 @@ const PhasorModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "graph", .module = deps.graph }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "physics", .module = deps.physics }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "platform", .module = deps.platform }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
@@ -816,6 +902,13 @@ fn addWasmExample(
             .{ .name = "wasm", .module = wasm.support },
         },
     });
+    if (std.mem.eql(u8, ex.name, "gltf")) {
+        wasm_mod.addImport("gltf_embedded_assets", ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("assets/gltf/embedded_assets.zig"),
+            .target = wasm.target,
+            .optimize = ctx.optimize,
+        }));
+    }
 
     const exe_name = ctx.b.fmt("{s}_web", .{sanitizeName(ctx.b.allocator, ex.name)});
     const wasm_exe = ctx.b.addExecutable(.{
@@ -838,6 +931,18 @@ fn addWasmExample(
         ctx.b.path("lib/render/shaders/quad.wgsl"),
         ctx.b.fmt("{s}/shaders/quad.wgsl", .{web_dir}),
     );
+    const install_mesh_textured_shader = ctx.b.addInstallFile(
+        ctx.b.path("lib/render/shaders/mesh_textured.wgsl"),
+        ctx.b.fmt("{s}/shaders/mesh_textured.wgsl", .{web_dir}),
+    );
+    const install_example_assets = if (std.mem.eql(u8, ex.name, "gltf"))
+        ctx.b.addInstallDirectory(.{
+            .source_dir = ctx.b.path("assets/gltf/FlightHelmet"),
+            .install_dir = .prefix,
+            .install_subdir = ctx.b.fmt("{s}/assets/gltf/FlightHelmet", .{web_dir}),
+        })
+    else
+        null;
 
     const web_step = ctx.b.step(ctx.b.fmt("web-{s}", .{ex.name}), ctx.b.fmt("Build the {s} web example", .{ex.name}));
     web_step.dependOn(&install_wasm.step);
@@ -846,6 +951,8 @@ fn addWasmExample(
     web_step.dependOn(&install_favicon.step);
     web_step.dependOn(&install_triangle_shader.step);
     web_step.dependOn(&install_quad_shader.step);
+    web_step.dependOn(&install_mesh_textured_shader.step);
+    if (install_example_assets) |step| web_step.dependOn(&step.step);
 
     web_all.dependOn(web_step);
 
@@ -864,6 +971,8 @@ fn addWasmExample(
     run_server.step.dependOn(&install_favicon.step);
     run_server.step.dependOn(&install_triangle_shader.step);
     run_server.step.dependOn(&install_quad_shader.step);
+    run_server.step.dependOn(&install_mesh_textured_shader.step);
+    if (install_example_assets) |step| run_server.step.dependOn(&step.step);
 
     const run_step = ctx.b.step(ctx.b.fmt("run-{s}-wasm", .{ex.name}), ctx.b.fmt("Run the {s} wasm example", .{ex.name}));
     run_step.dependOn(&run_server.step);
@@ -884,6 +993,8 @@ fn addWasmExample(
     run_server_https.step.dependOn(&install_favicon.step);
     run_server_https.step.dependOn(&install_triangle_shader.step);
     run_server_https.step.dependOn(&install_quad_shader.step);
+    run_server_https.step.dependOn(&install_mesh_textured_shader.step);
+    if (install_example_assets) |step| run_server_https.step.dependOn(&step.step);
 
     const run_https_step = ctx.b.step(
         ctx.b.fmt("run-{s}-wasm-https", .{ex.name}),
@@ -892,7 +1003,7 @@ fn addWasmExample(
     run_https_step.dependOn(&run_server_https.step);
 }
 
-fn addWebExamples(ctx: *const BuildContext) void {
+fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module) void {
     const wasm_target = ctx.b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
@@ -927,8 +1038,24 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .root_source_file = ctx.b.path("lib/metrics/root.zig"),
         .target = wasm_target,
         .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "common", .module = wasm_common },
+        },
+    });
+    const wasm_physics = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/physics/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "common", .module = wasm_common },
+            .{ .name = "ecs", .module = wasm_ecs },
+        },
     });
     const wasm_stb_dep = ctx.b.dependency("stb", .{
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+    });
+    const wasm_cgltf_dep = ctx.b.dependency("cgltf", .{
         .target = wasm_target,
         .optimize = ctx.optimize,
     });
@@ -954,6 +1081,17 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .root = ctx.b.path("deps/stb_image"),
         .files = &.{"stb_image.c"},
     });
+    const wasm_cgltf = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("deps/cgltf/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .link_libc = true,
+    });
+    wasm_cgltf.addIncludePath(wasm_cgltf_dep.path(""));
+    wasm_cgltf.addCSourceFiles(.{
+        .root = ctx.b.path("deps/cgltf"),
+        .files = &.{"cgltf_impl.c"},
+    });
     const wasm_render = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/render/root.zig"),
         .target = wasm_target,
@@ -978,8 +1116,10 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .target = wasm_target,
         .optimize = ctx.optimize,
         .imports = &.{
+            .{ .name = "common", .module = wasm_common },
             .{ .name = "render", .module = wasm_render },
             .{ .name = "stb_image", .module = wasm_stb_image },
+            .{ .name = "cgltf", .module = wasm_cgltf },
         },
     });
     const wasm_audio = ctx.b.createModule(.{
@@ -1008,6 +1148,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "common", .module = wasm_common },
             .{ .name = "db", .module = wasm_db },
             .{ .name = "ecs", .module = wasm_ecs },
+            .{ .name = "physics", .module = wasm_physics },
             .{ .name = "gui", .module = wasm_gui },
             .{ .name = "assets", .module = wasm_assets },
             .{ .name = "audio", .module = wasm_audio },
@@ -1039,6 +1180,7 @@ fn addWebExamples(ctx: *const BuildContext) void {
             .{ .name = "ecs", .module = wasm_ecs },
             .{ .name = "graph", .module = wasm_graph },
             .{ .name = "metrics", .module = wasm_metrics },
+            .{ .name = "physics", .module = wasm_physics },
             .{ .name = "modules", .module = wasm_modules },
             .{ .name = "platform", .module = wasm_platform },
             .{ .name = "render", .module = wasm_render },
@@ -1053,9 +1195,13 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .{ .name = "cube", .root = "examples/cube/main.zig" },
         .{ .name = "triangle", .root = "examples/triangle/main.zig" },
         .{ .name = "warehouse", .root = "examples/warehouse/main.zig" },
+        .{ .name = "gltf", .root = "examples/gltf/main.zig" },
     };
 
-    const server_mod = ctx.module("lib/web/wasm_server.zig", &.{});
+    const server_mod = ctx.module("lib/web/wasm_server.zig", &.{.{
+        .name = "common",
+        .module = common,
+    }});
     const server_exe = ctx.b.addExecutable(.{
         .name = "wasm_server",
         .root_module = server_mod,

@@ -116,10 +116,12 @@ pub fn run(self: *Self) !u8 {
 pub fn start(self: *Self) !void {
     if (self.startup_run) return;
     const command_queue = try self.ensureCommandQueue();
+    log.debug("app startup begin", .{});
     try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.WindowCreate, command_queue);
     try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.AssetsLoad, command_queue);
     try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.Startup, command_queue);
     self.startup_run = true;
+    log.debug("app startup complete", .{});
 }
 
 pub fn step(self: *Self) !?u8 {
@@ -133,10 +135,12 @@ pub fn step(self: *Self) !?u8 {
     });
     if (self.world.getResource(resources.Exit)) |exit| {
         if (!self.shutdown_run) {
+            log.info("app shutdown requested with exit code {}", .{exit.code});
             try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.Shutdown, command_queue);
             try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.AssetsUnload, command_queue);
             try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.WindowDestroy, command_queue);
             self.shutdown_run = true;
+            log.debug("app shutdown complete", .{});
         }
         return exit.code;
     }
@@ -220,3 +224,4 @@ const Module = @import("Module.zig");
 const resources = @import("resources.zig");
 const Commands = @import("Commands.zig");
 const CommandBatch = @import("Commands.zig").CommandBatch;
+const log = std.log.scoped(.ecs_app);

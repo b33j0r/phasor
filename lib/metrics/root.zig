@@ -77,10 +77,7 @@ pub const Event = struct {
 };
 
 pub const Bus = struct {
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
-    queue: std.Io.Queue(Event),
-    buffer: []Event,
+    channel: common.Channel(Event),
     enabled: bool = true,
 
     pub const max_entries: usize = 16;
@@ -91,18 +88,14 @@ pub const Bus = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator, io: *const std.Io, config: Config) !Bus {
-        const buffer = try allocator.alloc(Event, config.capacity);
         return .{
-            .allocator = allocator,
-            .io = io,
-            .queue = std.Io.Queue(Event).init(buffer),
-            .buffer = buffer,
+            .channel = try common.Channel(Event).init(allocator, io, config.capacity),
             .enabled = config.enabled,
         };
     }
 
     pub fn deinit(self: *Bus) void {
-        self.allocator.free(self.buffer);
+        self.channel.deinit();
         self.* = undefined;
     }
 };
@@ -128,15 +121,15 @@ pub inline fn emitBus(comptime enabled: bool, bus: *Bus, payload: anytype) void 
 pub fn tryEmitBus(bus: *Bus, payload: anytype) !void {
     if (!bus.enabled) return;
     const metric_event = try buildEvent(payload);
-    try putMetric(bus.io.*, bus, metric_event);
+    try putMetric(bus.channel.io.*, bus, metric_event);
 }
 
 fn putMetric(io: std.Io, bus: *Bus, metric_event: Event) !void {
     if (builtin.target.cpu.arch.isWasm()) {
-        _ = try bus.queue.put(io, &.{metric_event}, 0);
+        _ = try bus.channel.put(io, &.{metric_event}, 0);
         return;
     }
-    try bus.queue.putOneUncancelable(io, metric_event);
+    try bus.channel.putOneUncancelable(io, metric_event);
 }
 
 fn buildEvent(payload: anytype) !Event {
@@ -260,3 +253,4 @@ fn addValues(a: MetricValue, b: MetricValue) MetricValue {
 // Imports
 const std = @import("std");
 const builtin = @import("builtin");
+const common = @import("common");

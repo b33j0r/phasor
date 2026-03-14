@@ -1,3 +1,58 @@
+pub const std_options = @import("common").logging.moduleStdOptions();
+
+pub const gltf = @import("gltf/root.zig");
+pub const scene = @import("scene.zig");
+pub const imported_scene = @import("imported_scene.zig");
+pub const SceneData = scene.SceneData;
+pub const ImportedScene = imported_scene.ImportedScene;
+pub const Scene = struct {
+    path: ?[:0]const u8 = null,
+    data: ?[]const u8 = null,
+    resolved_path: ?[]u8 = null,
+    scene_data: ?SceneData = null,
+
+    pub fn file(path: [:0]const u8) Scene {
+        return .{ .path = path };
+    }
+
+    pub fn embedded(bytes: []const u8) Scene {
+        return .{ .data = bytes };
+    }
+
+    pub fn load(self: *Scene, ctx: AssetsContext) !void {
+        if (self.scene_data != null) return;
+
+        if (self.data) |bytes| {
+            self.scene_data = try gltf.parseFromBytes(ctx.allocator, bytes);
+            log.debug("loaded embedded scene ({d} bytes)", .{bytes.len});
+            return;
+        }
+
+        const path = self.path orelse return error.MissingSceneSource;
+        const resolved = try resolveFileSearch(ctx.allocator, ctx.io, path);
+        errdefer ctx.allocator.free(resolved);
+        self.scene_data = try gltf.parseFromFile(ctx.allocator, resolved);
+        self.resolved_path = resolved[0..resolved.len];
+        log.debug("loaded scene {s}", .{self.resolved_path.?});
+    }
+
+    pub fn unload(self: *Scene, ctx: AssetsContext) !void {
+        if (self.scene_data) |*scene_data| {
+            scene_data.deinit();
+            self.scene_data = null;
+            if (self.resolved_path) |resolved_path| {
+                log.debug("unloaded scene {s}", .{resolved_path});
+            } else {
+                log.debug("unloaded embedded scene", .{});
+            }
+        }
+        if (self.resolved_path) |resolved_path| {
+            ctx.allocator.free(resolved_path.ptr[0..resolved_path.len + 1]);
+            self.resolved_path = null;
+        }
+    }
+};
+
 pub const AssetsContext = struct {
     allocator: std.mem.Allocator,
     io: *const std.Io,
@@ -122,6 +177,7 @@ pub const Texture = struct {
                 material_instance.alpha_mode = mode;
             }
             self.material = material_instance;
+            log.debug("loaded wasm texture {}x{}", .{ self.width, self.height });
             return;
         }
 
@@ -170,6 +226,11 @@ pub const Texture = struct {
             material_instance.alpha_mode = mode;
         }
         self.material = material_instance;
+        if (self.path) |path| {
+            log.debug("loaded texture {s} ({}x{})", .{ std.mem.sliceTo(path, 0), self.width, self.height });
+        } else {
+            log.debug("loaded embedded texture ({}x{})", .{ self.width, self.height });
+        }
     }
 
     pub fn unload(self: *Texture, ctx: AssetsContext) !void {
@@ -191,6 +252,11 @@ pub const Texture = struct {
             self.owned_sampler = null;
         }
         self.material = render.Material.default;
+        if (self.path) |path| {
+            log.debug("unloaded texture {s}", .{std.mem.sliceTo(path, 0)});
+        } else {
+            log.debug("unloaded embedded texture", .{});
+        }
     }
 };
 
@@ -216,10 +282,12 @@ pub const Mesh = struct {
 
         if (self.uv_vertices) |vertices| {
             self.handle = try library.addMesh(renderer, vertices, self.indices);
+            log.debug("loaded uv mesh: vertices={} indices={}", .{ vertices.len, self.indices.len });
             return;
         }
         if (self.pos3_color_vertices) |vertices| {
             self.handle = try library.addMeshPos3Color(renderer, vertices, self.indices);
+            log.debug("loaded pos3/color mesh: vertices={} indices={}", .{ vertices.len, self.indices.len });
             return;
         }
 
@@ -232,6 +300,7 @@ pub const Mesh = struct {
         const library = ctx.mesh_library orelse return;
         _ = library.destroyMesh(renderer, self.handle);
         self.handle = render.MeshHandle.invalid();
+        log.debug("unloaded mesh", .{});
     }
 };
 
@@ -252,6 +321,7 @@ pub const Shader = struct {
             .glsl_fragment = self.glsl_fragment_source,
         });
         self.handle = try library.addShader(shader);
+        log.debug("loaded shader", .{});
     }
 
     pub fn unload(self: *Shader, ctx: AssetsContext) !void {
@@ -260,6 +330,7 @@ pub const Shader = struct {
         const library = ctx.shader_library orelse return;
         _ = library.destroyShader(renderer, self.handle);
         self.handle = render.ShaderHandle.invalid();
+        log.debug("unloaded shader", .{});
     }
 };
 
@@ -283,6 +354,7 @@ pub const PostProcessShader = struct {
         }
         self.generated_wgsl = wgsl;
         self.handle = try library.addShader(shader);
+        log.debug("loaded post-process shader", .{});
     }
 
     pub fn unload(self: *PostProcessShader, ctx: AssetsContext) !void {
@@ -296,6 +368,7 @@ pub const PostProcessShader = struct {
             ctx.allocator.free(wgsl);
             self.generated_wgsl = null;
         }
+        log.debug("unloaded post-process shader", .{});
     }
 };
 
@@ -310,6 +383,7 @@ pub const Sound = struct {
         if (self.data != null or self.bytes != null) return;
         if (self.path) |path| {
             self.bytes = try readFileSearch(ctx.allocator, ctx.io, path);
+            log.debug("loaded sound bytes {s} ({d} bytes)", .{ std.mem.sliceTo(path, 0), self.bytes.?.len });
         }
     }
 
@@ -327,6 +401,11 @@ pub const Sound = struct {
                 wasmAudioUnload(id);
                 self.wasm_id = null;
             }
+        }
+        if (self.path) |path| {
+            log.debug("unloaded sound {s}", .{std.mem.sliceTo(path, 0)});
+        } else if (self.data != null) {
+            log.debug("unloaded embedded sound", .{});
         }
     }
 
@@ -400,6 +479,7 @@ pub const Font = struct {
         errdefer font.unload(ctx.allocator, renderer);
 
         self.handle = try font_library.addFont(font);
+        log.debug("loaded font {s}", .{self.name});
     }
 
     pub fn unload(self: *Font, ctx: AssetsContext) !void {
@@ -414,6 +494,7 @@ pub const Font = struct {
             ctx.allocator.free(bytes);
             self.bytes = null;
         }
+        log.debug("unloaded font {s}", .{self.name});
     }
 };
 
@@ -483,18 +564,24 @@ fn loadImage(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8
 }
 
 fn readFileSearch(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8) ![]u8 {
-    const rel_path = std.mem.sliceTo(path, 0);
     const max_bytes: usize = 32 * 1024 * 1024;
+    const resolved = try resolveFileSearch(allocator, io, path);
+    defer allocator.free(resolved);
+    return readFileAllocAbsolute(allocator, io, resolved, max_bytes);
+}
+
+fn resolveFileSearch(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8) ![:0]u8 {
+    const rel_path = std.mem.sliceTo(path, 0);
 
     if (std.fs.path.isAbsolute(rel_path)) {
-        if (readFileAllocAbsolute(allocator, io, rel_path, max_bytes)) |bytes| {
-            return bytes;
-        } else |_| {}
+        if (fileExistsAbsolute(io, rel_path)) {
+            return try allocator.dupeZ(u8, rel_path);
+        }
     }
 
-    if (std.Io.Dir.cwd().readFileAlloc(io.*, rel_path, allocator, std.Io.Limit.limited(max_bytes))) |bytes| {
-        return bytes;
-    } else |_| {}
+    if (fileExistsAbsolute(io, rel_path)) {
+        return try allocator.dupeZ(u8, rel_path);
+    }
 
     const cwd_path = std.Io.Dir.cwd().realPathFileAlloc(io.*, ".", allocator) catch null;
     defer if (cwd_path) |p| allocator.free(p);
@@ -506,9 +593,9 @@ fn readFileSearch(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]con
         const candidate = try std.fs.path.join(allocator, &.{ dir, rel_path });
         defer allocator.free(candidate);
 
-        if (readFileAllocAbsolute(allocator, io, candidate, max_bytes)) |bytes| {
-            return bytes;
-        } else |_| {}
+        if (fileExistsAbsolute(io, candidate)) {
+            return try allocator.dupeZ(u8, candidate);
+        }
 
         base = std.fs.path.dirname(dir);
     }
@@ -525,10 +612,23 @@ fn readFileAllocAbsolute(
     return std.Io.Dir.cwd().readFileAlloc(io.*, absolute_path, allocator, std.Io.Limit.limited(max_bytes));
 }
 
+fn fileExistsAbsolute(io: *const std.Io, absolute_path: []const u8) bool {
+    std.Io.Dir.cwd().access(io.*, absolute_path, .{}) catch return false;
+    return true;
+}
+
 extern "env" fn wasmAudioUnload(id: u32) void;
 
 // Imports
 const std = @import("std");
+const common = @import("common");
 const render = @import("render");
 const builtin = @import("builtin");
 const stb_image = @import("stb_image");
+const log = std.log.scoped(.assets);
+
+test "import tests" {
+    _ = gltf;
+    _ = common;
+    _ = Scene;
+}

@@ -3,6 +3,8 @@ const phasor = @import("phasor");
 const db = phasor.db;
 const fixtures = phasor.common.fixtures;
 
+pub const std_options = phasor.common.logging.stdOptions(.info);
+
 pub fn main() !void {
     const allocator = std.heap.c_allocator;
     var database = db.Database.init(allocator);
@@ -37,13 +39,13 @@ pub fn main() !void {
     const cached_per_query = @as(f64, @floatFromInt(cached_ns)) / @as(f64, @floatFromInt(iterations));
     const speedup = uncached_per_query / cached_per_query;
 
-    std.debug.print(
-        "ecs_query_cache_bench: tables={d} iterations={d} uncached_ns_per_query={d:.2} cached_ns_per_query={d:.2} speedup={d:.2}x checksum={d}\n",
+    std.log.info(
+        "ecs_query_cache_bench: tables={d} iterations={d} uncached_ns_per_query={d:.2} cached_ns_per_query={d:.2} speedup={d:.2}x checksum={d}",
         .{ database.tableCount(), iterations, uncached_per_query, cached_per_query, speedup, checksum },
     );
 
     if (speedup < 1.50) {
-        std.debug.print("ecs_query_cache_bench: FAIL speedup below required threshold (1.50x)\n", .{});
+        std.log.err("ecs_query_cache_bench: FAIL speedup below required threshold (1.50x)", .{});
         return error.BenchmarkRegression;
     }
 }
