@@ -369,6 +369,7 @@ test "schedule manager orders default frame schedules" {
     const order = try manager.executionOrderFrom(DefaultSchedule.BeforeFrame);
     const expected = [_][]const u8{
         DefaultSchedule.BeforeFrame,
+        DefaultSchedule.Layout,
         DefaultSchedule.Update,
         DefaultSchedule.Render,
         DefaultSchedule.AfterFrame,

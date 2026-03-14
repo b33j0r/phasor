@@ -121,7 +121,7 @@ pub inline fn emitBus(comptime enabled: bool, bus: *Bus, payload: anytype) void 
 pub fn tryEmitBus(bus: *Bus, payload: anytype) !void {
     if (!bus.enabled) return;
     const metric_event = try buildEvent(payload);
-    try putMetric(bus.io.*, bus, metric_event);
+    try putMetric(bus.channel.io.*, bus, metric_event);
 }
 
 fn putMetric(io: std.Io, bus: *Bus, metric_event: Event) !void {

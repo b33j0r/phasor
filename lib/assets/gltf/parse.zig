@@ -1,0 +1,491 @@
+const std = @import("std");
+const cgltf = @import("cgltf");
+const common = @import("common");
+const scene = @import("scene.zig");
+
+const c = cgltf.c;
+
+pub const Error = error{
+    ParseFailed,
+    LoadBuffersFailed,
+    ValidateFailed,
+    InvalidPrimitive,
+    UnsupportedAttributeName,
+};
+
+pub fn parseFromBytes(allocator: std.mem.Allocator, bytes: []const u8) !scene.SceneData {
+    var options: c.cgltf_options = std.mem.zeroes(c.cgltf_options);
+    var data: ?*c.cgltf_data = null;
+    const result = c.cgltf_parse(&options, bytes.ptr, bytes.len, &data);
+    if (result != c.cgltf_result_success or data == null) return Error.ParseFailed;
+    defer c.cgltf_free(data);
+
+    if (c.cgltf_validate(data) != c.cgltf_result_success) return Error.ValidateFailed;
+    return try buildSceneData(allocator, data.?);
+}
+
+pub fn parseFromFile(allocator: std.mem.Allocator, path: [:0]const u8) !scene.SceneData {
+    var options: c.cgltf_options = std.mem.zeroes(c.cgltf_options);
+    var data: ?*c.cgltf_data = null;
+    const result = c.cgltf_parse_file(&options, path, &data);
+    if (result != c.cgltf_result_success or data == null) return Error.ParseFailed;
+    defer c.cgltf_free(data);
+
+    if (c.cgltf_load_buffers(&options, data, path) != c.cgltf_result_success) return Error.LoadBuffersFailed;
+    if (c.cgltf_validate(data) != c.cgltf_result_success) return Error.ValidateFailed;
+    return try buildSceneData(allocator, data.?);
+}
+
+fn buildSceneData(allocator: std.mem.Allocator, data: *const c.cgltf_data) !scene.SceneData {
+    return .{
+        .allocator = allocator,
+        .scenes = try buildScenes(allocator, data),
+        .default_scene = ptrIndex(c.cgltf_scene, data.scene, data.scenes, data.scenes_count),
+        .nodes = try buildNodes(allocator, data),
+        .meshes = try buildMeshes(allocator, data),
+        .materials = try buildMaterials(allocator, data),
+        .textures = try buildTextures(allocator, data),
+        .images = try buildImages(allocator, data),
+        .buffer_views = try buildBufferViews(allocator, data),
+        .accessors = try buildAccessors(allocator, data),
+        .buffers = try buildBuffers(allocator, data),
+    };
+}
+
+fn buildScenes(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.SceneDef {
+    const count: usize = data.scenes_count;
+    const out = try allocator.alloc(scene.SceneDef, count);
+    errdefer allocator.free(out);
+
+    for (out, 0..) |*dst, i| {
+        const src = &data.scenes[i];
+        dst.* = .{
+            .name = try dupCString(allocator, src.name),
+            .root_nodes = try mapPointersToIndices(allocator, c.cgltf_node, src.nodes, src.nodes_count, data.nodes, data.nodes_count),
+        };
+    }
+    return out;
+}
+
+fn buildNodes(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.NodeData {
+    const count: usize = data.nodes_count;
+    const out = try allocator.alloc(scene.NodeData, count);
+    errdefer allocator.free(out);
+
+    for (out, 0..) |*dst, i| {
+        const src = &data.nodes[i];
+        dst.* = .{
+            .name = try dupCString(allocator, src.name),
+            .mesh_index = ptrIndex(c.cgltf_mesh, src.mesh, data.meshes, data.meshes_count),
+            .local_transform = nodeTransform(src),
+            .children = try mapPointersToIndices(allocator, c.cgltf_node, src.children, src.children_count, data.nodes, data.nodes_count),
+        };
+    }
+    return out;
+}
+
+fn buildMeshes(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.MeshData {
+    const count: usize = data.meshes_count;
+    const out = try allocator.alloc(scene.MeshData, count);
+    errdefer allocator.free(out);
+
+    for (out, 0..) |*dst, i| {
+        const src = &data.meshes[i];
+        const primitives = try allocator.alloc(scene.PrimitiveData, src.primitives_count);
+        errdefer allocator.free(primitives);
+        for (primitives, 0..) |*primitive, p_index| {
+            primitive.* = try buildPrimitive(data, &src.primitives[p_index]);
+        }
+        dst.* = .{
+            .name = try dupCString(allocator, src.name),
+            .primitives = primitives,
+        };
+    }
+    return out;
+}
+
+fn buildPrimitive(data: *const c.cgltf_data, primitive: *allowzero const c.cgltf_primitive) !scene.PrimitiveData {
+    var out = scene.PrimitiveData{
+        .topology = switch (primitive.type) {
+            c.cgltf_primitive_type_points => .Points,
+            c.cgltf_primitive_type_lines => .Lines,
+            c.cgltf_primitive_type_line_strip => .LineStrip,
+            c.cgltf_primitive_type_triangles => .Triangles,
+            c.cgltf_primitive_type_triangle_strip => .TriangleStrip,
+            c.cgltf_primitive_type_triangle_fan => .TriangleFan,
+            else => return Error.InvalidPrimitive,
+        },
+        .material_index = ptrIndex(c.cgltf_material, primitive.material, data.materials, data.materials_count),
+        .indices_accessor = accessorRef(data, primitive.indices),
+    };
+
+    var i: usize = 0;
+    while (i < primitive.attributes_count) : (i += 1) {
+        const attr = primitive.attributes[i];
+        const ref = accessorRef(data, attr.data) orelse continue;
+        switch (attr.type) {
+            c.cgltf_attribute_type_position => out.position_accessor = ref,
+            c.cgltf_attribute_type_normal => out.normal_accessor = ref,
+            c.cgltf_attribute_type_texcoord => {
+                if (attr.index == 0) out.uv0_accessor = ref;
+            },
+            else => {},
+        }
+    }
+
+    return out;
+}
+
+fn buildMaterials(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.MaterialData {
+    const count: usize = data.materials_count;
+    const out = try allocator.alloc(scene.MaterialData, count);
+    errdefer allocator.free(out);
+
+    for (out, 0..) |*dst, i| {
+        const src = &data.materials[i];
+        var base_color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 };
+        @memcpy(base_color[0..], src.pbr_metallic_roughness.base_color_factor[0..4]);
+        dst.* = .{
+            .name = try dupCString(allocator, src.name),
+            .base_color_factor = base_color,
+            .base_color_texture = textureRef(data, src.pbr_metallic_roughness.base_color_texture),
+            .alpha_mode = switch (src.alpha_mode) {
+                c.cgltf_alpha_mode_mask => .Mask,
+                c.cgltf_alpha_mode_blend => .Blend,
+                else => .Opaque,
+            },
+            .alpha_cutoff = src.alpha_cutoff,
+            .double_sided = src.double_sided != 0,
+        };
+    }
+    return out;
+}
+
+fn buildTextures(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.TextureData {
+    const count: usize = data.textures_count;
+    const out = try allocator.alloc(scene.TextureData, count);
+    errdefer allocator.free(out);
+
+    for (out, 0..) |*dst, i| {
+        const src = &data.textures[i];
+        dst.* = .{
+            .name = try dupCString(allocator, src.name),
+            .image_index = ptrIndex(c.cgltf_image, src.image, data.images, data.images_count),
+        };
+    }
+    return out;
+}
+
+fn buildImages(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.ImageData {
+    const count: usize = data.images_count;
+    const out = try allocator.alloc(scene.ImageData, count);
+    errdefer allocator.free(out);
+
+    for (out, 0..) |*dst, i| {
+        const src = &data.images[i];
+        dst.* = .{
+            .name = try dupCString(allocator, src.name),
+            .uri = try dupCString(allocator, src.uri),
+            .mime_type = try dupCString(allocator, src.mime_type),
+            .buffer_view_index = ptrIndex(c.cgltf_buffer_view, src.buffer_view, data.buffer_views, data.buffer_views_count),
+        };
+    }
+    return out;
+}
+
+fn buildBuffers(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.BufferData {
+    const count: usize = data.buffers_count;
+    const out = try allocator.alloc(scene.BufferData, count);
+    errdefer allocator.free(out);
+
+    for (out, 0..) |*dst, i| {
+        const src = &data.buffers[i];
+        const uri = try dupCString(allocator, src.uri);
+        dst.* = .{
+            .uri = uri,
+            .byte_length = src.size,
+            .source = if (uri) |value|
+                if (std.mem.startsWith(u8, value, "data:")) .DataUri else .ExternalUri
+            else if (src.data != null)
+                .GlbBinary
+            else
+                .None,
+            .bytes = if (src.data != null and src.size > 0) blk: {
+                const src_bytes: [*]const u8 = @ptrCast(src.data);
+                break :blk try allocator.dupe(u8, src_bytes[0..src.size]);
+            } else null,
+        };
+    }
+    return out;
+}
+
+fn buildBufferViews(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.BufferViewData {
+    const count: usize = data.buffer_views_count;
+    const out = try allocator.alloc(scene.BufferViewData, count);
+    errdefer allocator.free(out);
+
+    for (out, 0..) |*dst, i| {
+        const src = &data.buffer_views[i];
+        dst.* = .{
+            .buffer_index = ptrIndex(c.cgltf_buffer, src.buffer, data.buffers, data.buffers_count) orelse 0,
+            .byte_offset = src.offset,
+            .byte_length = src.size,
+            .byte_stride = src.stride,
+        };
+    }
+    return out;
+}
+
+fn buildAccessors(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.AccessorData {
+    const count: usize = data.accessors_count;
+    const out = try allocator.alloc(scene.AccessorData, count);
+    errdefer allocator.free(out);
+
+    for (out, 0..) |*dst, i| {
+        const src = &data.accessors[i];
+        const element_type = switch (src.type) {
+            c.cgltf_type_scalar => scene.AccessorRef.ElementType.Scalar,
+            c.cgltf_type_vec2 => .Vec2,
+            c.cgltf_type_vec3 => .Vec3,
+            c.cgltf_type_vec4 => .Vec4,
+            c.cgltf_type_mat2 => .Mat2,
+            c.cgltf_type_mat3 => .Mat3,
+            c.cgltf_type_mat4 => .Mat4,
+            else => .Scalar,
+        };
+        const component_size = c.cgltf_component_size(src.component_type);
+        const element_components = c.cgltf_num_components(src.type);
+        const element_size = component_size * element_components;
+        const stride = if (src.stride > 0) src.stride else element_size;
+        dst.* = .{
+            .buffer_view_index = ptrIndex(c.cgltf_buffer_view, src.buffer_view, data.buffer_views, data.buffer_views_count),
+            .count = src.count,
+            .component_type = @intCast(src.component_type),
+            .element_type = element_type,
+            .byte_offset = src.offset,
+            .byte_stride = stride,
+            .byte_length = stride * src.count,
+            .normalized = src.normalized != 0,
+        };
+    }
+    return out;
+}
+
+fn nodeTransform(node: *allowzero const c.cgltf_node) common.Transform {
+    var out = common.Transform{};
+    if (node.has_matrix != 0) {
+        out.translation = .{
+            .x = @floatCast(node.matrix[12]),
+            .y = @floatCast(node.matrix[13]),
+            .z = @floatCast(node.matrix[14]),
+        };
+        return out;
+    }
+    if (node.has_translation != 0) {
+        out.translation = .{
+            .x = @floatCast(node.translation[0]),
+            .y = @floatCast(node.translation[1]),
+            .z = @floatCast(node.translation[2]),
+        };
+    }
+    if (node.has_rotation != 0) {
+        out.rotation = .{
+            .x = @floatCast(node.rotation[0]),
+            .y = @floatCast(node.rotation[1]),
+            .z = @floatCast(node.rotation[2]),
+            .w = @floatCast(node.rotation[3]),
+        };
+    }
+    if (node.has_scale != 0) {
+        out.scale = .{
+            .x = @floatCast(node.scale[0]),
+            .y = @floatCast(node.scale[1]),
+            .z = @floatCast(node.scale[2]),
+        };
+    }
+    return out;
+}
+
+fn accessorRef(data: *const c.cgltf_data, accessor: ?*const c.cgltf_accessor) ?scene.AccessorRef {
+    const value = accessor orelse return null;
+    return .{
+        .accessor_index = ptrIndex(c.cgltf_accessor, value, data.accessors, data.accessors_count) orelse return null,
+        .count = value.count,
+        .component_type = @intCast(value.component_type),
+        .element_type = switch (value.type) {
+            c.cgltf_type_scalar => .Scalar,
+            c.cgltf_type_vec2 => .Vec2,
+            c.cgltf_type_vec3 => .Vec3,
+            c.cgltf_type_vec4 => .Vec4,
+            c.cgltf_type_mat2 => .Mat2,
+            c.cgltf_type_mat3 => .Mat3,
+            c.cgltf_type_mat4 => .Mat4,
+            else => .Scalar,
+        },
+        .byte_offset = value.offset,
+    };
+}
+
+fn textureRef(data: *const c.cgltf_data, texture_view: c.cgltf_texture_view) ?scene.TextureRef {
+    const texture = texture_view.texture orelse return null;
+    return .{
+        .texture_index = ptrIndex(c.cgltf_texture, texture, data.textures, data.textures_count) orelse return null,
+        .texcoord_set = @intCast(texture_view.texcoord),
+    };
+}
+
+fn mapPointersToIndices(
+    allocator: std.mem.Allocator,
+    comptime T: type,
+    ptrs: ?[*]const ?*const T,
+    count: usize,
+    base: ?[*]const T,
+    base_count: usize,
+) ![]u32 {
+    const out = try allocator.alloc(u32, count);
+    errdefer allocator.free(out);
+    for (out, 0..) |*dst, i| {
+        const ptr = ptrs.?[i] orelse return error.InvalidPointer;
+        dst.* = ptrIndex(T, ptr, base, base_count) orelse return error.InvalidPointer;
+    }
+    return out;
+}
+
+fn ptrIndex(comptime T: type, ptr: ?*const T, base: ?[*]const T, count: usize) ?u32 {
+    const value = ptr orelse return null;
+    const start = base orelse return null;
+    const start_addr = @intFromPtr(start);
+    const value_addr = @intFromPtr(value);
+    if (value_addr < start_addr) return null;
+    const size = @sizeOf(T);
+    const diff = value_addr - start_addr;
+    if (size == 0 or diff % size != 0) return null;
+    const index = diff / size;
+    if (index >= count) return null;
+    return @intCast(index);
+}
+
+fn dupCString(allocator: std.mem.Allocator, value: ?[*:0]const u8) !?[]u8 {
+    const src = value orelse return null;
+    return try allocator.dupe(u8, std.mem.span(src));
+}
+
+test "parse gltf metadata from bytes" {
+    const allocator = std.testing.allocator;
+    const bytes =
+        \\{
+        \\  "asset": {"version": "2.0"},
+        \\  "scene": 0,
+        \\  "scenes": [{"name": "MainScene", "nodes": [0]}],
+        \\  "nodes": [{
+        \\    "name": "Root",
+        \\    "mesh": 0,
+        \\    "translation": [1.0, 2.0, 3.0],
+        \\    "rotation": [0.0, 0.0, 0.0, 1.0],
+        \\    "scale": [2.0, 2.0, 2.0]
+        \\  }],
+        \\  "meshes": [{
+        \\    "name": "MeshA",
+        \\    "primitives": [{
+        \\      "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2},
+        \\      "indices": 3,
+        \\      "material": 0
+        \\    }]
+        \\  }],
+        \\  "materials": [{
+        \\    "name": "MatA",
+        \\    "pbrMetallicRoughness": {
+        \\      "baseColorTexture": { "index": 0, "texCoord": 0 },
+        \\      "baseColorFactor": [0.5, 0.6, 0.7, 1.0]
+        \\    },
+        \\    "alphaMode": "MASK",
+        \\    "alphaCutoff": 0.42,
+        \\    "doubleSided": true
+        \\  }],
+        \\  "textures": [{ "name": "TexA", "source": 0 }],
+        \\  "images": [{ "name": "ImgA", "uri": "albedo.png", "mimeType": "image/png" }],
+        \\  "buffers": [{ "byteLength": 128, "uri": "mesh.bin" }],
+        \\  "bufferViews": [{ "buffer": 0, "byteOffset": 0, "byteLength": 36 }],
+        \\  "accessors": [
+        \\    { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3" },
+        \\    { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3" },
+        \\    { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC2" },
+        \\    { "bufferView": 0, "componentType": 5123, "count": 3, "type": "SCALAR" }
+        \\  ]
+        \\}
+    ;
+
+    var parsed = try parseFromBytes(allocator, bytes);
+    defer parsed.deinit();
+
+    try std.testing.expectEqual(@as(?u32, 0), parsed.default_scene);
+    try std.testing.expectEqual(@as(usize, 1), parsed.scenes.len);
+    try std.testing.expectEqualStrings("MainScene", parsed.scenes[0].name.?);
+    try std.testing.expectEqual(@as(u32, 0), parsed.scenes[0].root_nodes[0]);
+
+    try std.testing.expectEqual(@as(usize, 1), parsed.nodes.len);
+    try std.testing.expectEqualStrings("Root", parsed.nodes[0].name.?);
+    try std.testing.expectEqual(@as(f32, 1.0), parsed.nodes[0].local_transform.translation.x);
+    try std.testing.expectEqual(@as(f32, 2.0), parsed.nodes[0].local_transform.scale.x);
+    try std.testing.expectEqual(@as(?u32, 0), parsed.nodes[0].mesh_index);
+
+    try std.testing.expectEqual(@as(usize, 1), parsed.meshes.len);
+    try std.testing.expectEqual(@as(usize, 1), parsed.meshes[0].primitives.len);
+    try std.testing.expectEqual(@as(?u32, 0), parsed.meshes[0].primitives[0].material_index);
+
+    try std.testing.expectEqual(@as(usize, 1), parsed.materials.len);
+    try std.testing.expectEqual(scene.AlphaMode.Mask, parsed.materials[0].alpha_mode);
+    try std.testing.expect(parsed.materials[0].double_sided);
+    try std.testing.expectEqual(@as(?u32, 0), parsed.materials[0].base_color_texture.?.texture_index);
+
+    try std.testing.expectEqual(@as(usize, 1), parsed.images.len);
+    try std.testing.expectEqualStrings("albedo.png", parsed.images[0].uri.?);
+
+    try std.testing.expectEqual(@as(usize, 1), parsed.buffers.len);
+    try std.testing.expectEqual(scene.BufferSource.ExternalUri, parsed.buffers[0].source);
+}
+
+test "parse gltf file resolves external buffer bytes" {
+    const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "mesh.bin",
+        .data = &[_]u8{
+            0, 0, 128, 63, 0, 0, 0, 64,
+            0, 0, 64, 64, 0, 0, 128, 64,
+        },
+    });
+
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "scene.gltf",
+        .data =
+            \\{
+            \\  "asset": {"version": "2.0"},
+            \\  "buffers": [{ "byteLength": 16, "uri": "mesh.bin" }],
+            \\  "bufferViews": [{ "buffer": 0, "byteOffset": 0, "byteLength": 16 }],
+            \\  "accessors": [{ "bufferView": 0, "componentType": 5126, "count": 2, "type": "VEC2" }]
+            \\}
+        ,
+    });
+
+    const scene_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/scene.gltf", .{tmp.sub_path});
+    defer allocator.free(scene_path);
+    const scene_path_z = try allocator.dupeZ(u8, scene_path);
+    defer allocator.free(scene_path_z);
+
+    var parsed = try parseFromFile(allocator, scene_path_z);
+    defer parsed.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), parsed.buffers.len);
+    try std.testing.expectEqual(@as(usize, 16), parsed.buffers[0].bytes.?.len);
+    try std.testing.expectEqual(@as(usize, 1), parsed.buffer_views.len);
+    try std.testing.expectEqual(@as(usize, 1), parsed.accessors.len);
+    const slice = parsed.accessorByteSlice(0).?;
+    try std.testing.expectEqual(@as(usize, 16), slice.len);
+    try std.testing.expectEqual(@as(u8, 63), slice[3]);
+}

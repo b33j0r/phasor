@@ -1,3 +1,6 @@
+pub const gltf = @import("gltf/root.zig");
+pub const SceneData = gltf.SceneData;
+
 pub const AssetsContext = struct {
     allocator: std.mem.Allocator,
     io: *const std.Io,
@@ -529,6 +532,12 @@ extern "env" fn wasmAudioUnload(id: u32) void;
 
 // Imports
 const std = @import("std");
+const common = @import("common");
 const render = @import("render");
 const builtin = @import("builtin");
 const stb_image = @import("stb_image");
+
+test "import tests" {
+    _ = gltf;
+    _ = common;
+}

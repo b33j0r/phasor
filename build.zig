@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
     const glfw = if (!is_wasm) GlfwModule.build(&ctx) else null;
     const stb = StbModule.build(&ctx);
     const stb_image = StbImageModule.build(&ctx);
+    const cgltf = CgltfModule.build(&ctx);
     const miniaudio = if (!is_wasm) MiniaudioModule.build(&ctx) else null;
     const fastnoise = FastNoiseModule.build(&ctx);
     const ecs = EcsModule.build(&ctx, .{
@@ -23,7 +24,9 @@ pub fn build(b: *std.Build) void {
         .common = common.module,
         .ecs = ecs.module,
     });
-    const metrics = MetricsModule.build(&ctx);
+    const metrics = MetricsModule.build(&ctx, .{
+        .common = common.module,
+    });
     const wasm_support = WasmSupportModule.build(&ctx);
     const renderer = RenderModule.build(&ctx, .{
         .common = common.module,
@@ -36,8 +39,10 @@ pub fn build(b: *std.Build) void {
         .render = renderer.module,
     });
     const assets = AssetsModule.build(&ctx, .{
+        .common = common.module,
         .render = renderer.module,
         .stb_image = stb_image.module,
+        .cgltf = cgltf.module,
     });
     const audio = AudioModule.build(&ctx, .{
         .assets = assets.module,
@@ -119,6 +124,7 @@ pub fn build(b: *std.Build) void {
             physics.tests,
             stb.tests,
             stb_image.tests,
+            cgltf.tests,
             fastnoise.tests,
             metrics.tests,
             audio.tests,
@@ -139,6 +145,7 @@ pub fn build(b: *std.Build) void {
             glfw.?.tests,
             stb.tests,
             stb_image.tests,
+            cgltf.tests,
             fastnoise.tests,
             metrics.tests,
             audio.tests,
@@ -405,19 +412,52 @@ const StbImageModule = struct {
     }
 };
 
+const CgltfModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    fn build(ctx: *const BuildContext) CgltfModule {
+        const cgltf_dep = ctx.b.dependency("cgltf", .{
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+        });
+
+        const cgltf_mod = ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("deps/cgltf/root.zig"),
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+            .link_libc = true,
+        });
+        cgltf_mod.addIncludePath(cgltf_dep.path(""));
+        cgltf_mod.addCSourceFiles(.{
+            .root = ctx.b.path("deps/cgltf"),
+            .files = &.{"cgltf_impl.c"},
+        });
+
+        return .{
+            .module = cgltf_mod,
+            .tests = ctx.b.addTest(.{ .root_module = cgltf_mod }),
+        };
+    }
+};
+
 const AssetsModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
 
     const Deps = struct {
+        common: *std.Build.Module,
         render: *std.Build.Module,
         stb_image: *std.Build.Module,
+        cgltf: *std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) AssetsModule {
         const bundle = ctx.moduleBundle("lib/assets/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
             .{ .name = "render", .module = deps.render },
             .{ .name = "stb_image", .module = deps.stb_image },
+            .{ .name = "cgltf", .module = deps.cgltf },
         });
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
@@ -485,8 +525,15 @@ const MetricsModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
 
-    fn build(ctx: *const BuildContext) MetricsModule {
-        const bundle = ctx.moduleBundle("lib/metrics/root.zig", &.{});
+    const Deps = struct {
+        common: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) MetricsModule {
+        const bundle = ctx.moduleBundle("lib/metrics/root.zig", &.{.{
+            .name = "common",
+            .module = deps.common,
+        }});
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -957,6 +1004,9 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .root_source_file = ctx.b.path("lib/metrics/root.zig"),
         .target = wasm_target,
         .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "common", .module = wasm_common },
+        },
     });
     const wasm_physics = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/physics/root.zig"),
@@ -968,6 +1018,10 @@ fn addWebExamples(ctx: *const BuildContext) void {
         },
     });
     const wasm_stb_dep = ctx.b.dependency("stb", .{
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+    });
+    const wasm_cgltf_dep = ctx.b.dependency("cgltf", .{
         .target = wasm_target,
         .optimize = ctx.optimize,
     });
@@ -993,6 +1047,17 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .root = ctx.b.path("deps/stb_image"),
         .files = &.{"stb_image.c"},
     });
+    const wasm_cgltf = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("deps/cgltf/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .link_libc = true,
+    });
+    wasm_cgltf.addIncludePath(wasm_cgltf_dep.path(""));
+    wasm_cgltf.addCSourceFiles(.{
+        .root = ctx.b.path("deps/cgltf"),
+        .files = &.{"cgltf_impl.c"},
+    });
     const wasm_render = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/render/root.zig"),
         .target = wasm_target,
@@ -1017,8 +1082,10 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .target = wasm_target,
         .optimize = ctx.optimize,
         .imports = &.{
+            .{ .name = "common", .module = wasm_common },
             .{ .name = "render", .module = wasm_render },
             .{ .name = "stb_image", .module = wasm_stb_image },
+            .{ .name = "cgltf", .module = wasm_cgltf },
         },
     });
     const wasm_audio = ctx.b.createModule(.{
