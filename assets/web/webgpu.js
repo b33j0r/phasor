@@ -552,6 +552,10 @@ function ensurePostProcessSlot(ctx, slotIndex) {
   return ctx.postProcessSlots[slotIndex];
 }
 
+function isSurfaceTargetSlot(slot) {
+  return slot === -1 || slot === 0xffffffff;
+}
+
 function endCurrentPass(ctx) {
   if (!ctx.pass) return;
   ctx.pass.end();
@@ -1217,21 +1221,21 @@ const imports = {
     webgpu_begin_scene_pass(ctxId, targetSlot, r, g, b, a) {
       const ctx = ctxs.get(ctxId);
       if (!ctx || !ctx.encoder) return;
-      const target = targetSlot === 0xffffffff ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
+      const target = isSurfaceTargetSlot(targetSlot) ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
       if (!target || !target.view) return;
       beginRenderPass(ctx, target.view, { r, g, b, a }, ctx.depthView);
     },
     webgpu_begin_scene_pass_load(ctxId, targetSlot) {
       const ctx = ctxs.get(ctxId);
       if (!ctx || !ctx.encoder) return;
-      const target = targetSlot === 0xffffffff ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
+      const target = isSurfaceTargetSlot(targetSlot) ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
       if (!target || !target.view) return;
       beginRenderPass(ctx, target.view, { r: 0, g: 0, b: 0, a: 0 }, ctx.depthView, true);
     },
     webgpu_begin_post_process_pass(ctxId, targetSlot, r, g, b, a) {
       const ctx = ctxs.get(ctxId);
       if (!ctx || !ctx.encoder) return;
-      const target = targetSlot === 0xffffffff ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
+      const target = isSurfaceTargetSlot(targetSlot) ? { view: ctx.surfaceView } : ensurePostProcessSlot(ctx, targetSlot);
       if (!target || !target.view) return;
       beginRenderPass(ctx, target.view, { r, g, b, a }, null);
     },

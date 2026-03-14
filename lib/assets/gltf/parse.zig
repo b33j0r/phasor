@@ -76,6 +76,7 @@ fn buildNodes(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.
         const src = &data.nodes[i];
         dst.* = .{
             .name = try dupCString(allocator, src.name),
+            .parent_index = ptrIndex(c.cgltf_node, src.parent, data.nodes, data.nodes_count),
             .mesh_index = ptrIndex(c.cgltf_mesh, src.mesh, data.meshes, data.meshes_count),
             .local_transform = nodeTransform(src),
             .children = try mapPointersToIndices(allocator, c.cgltf_node, src.children, src.children_count, data.nodes, data.nodes_count),
@@ -271,8 +272,8 @@ fn buildAccessors(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]sc
     return out;
 }
 
-fn nodeTransform(node: *allowzero const c.cgltf_node) common.Transform {
-    var out = common.Transform{};
+fn nodeTransform(node: *allowzero const c.cgltf_node) common.LocalTransform {
+    var out = common.LocalTransform{};
     if (node.has_matrix != 0) {
         out.translation = .{
             .x = @floatCast(node.matrix[12]),
@@ -377,13 +378,20 @@ test "parse gltf metadata from bytes" {
         \\  "asset": {"version": "2.0"},
         \\  "scene": 0,
         \\  "scenes": [{"name": "MainScene", "nodes": [0]}],
-        \\  "nodes": [{
-        \\    "name": "Root",
-        \\    "mesh": 0,
-        \\    "translation": [1.0, 2.0, 3.0],
-        \\    "rotation": [0.0, 0.0, 0.0, 1.0],
-        \\    "scale": [2.0, 2.0, 2.0]
-        \\  }],
+        \\  "nodes": [
+        \\    {
+        \\      "name": "Root",
+        \\      "mesh": 0,
+        \\      "translation": [1.0, 2.0, 3.0],
+        \\      "rotation": [0.0, 0.0, 0.0, 1.0],
+        \\      "scale": [2.0, 2.0, 2.0],
+        \\      "children": [1]
+        \\    },
+        \\    {
+        \\      "name": "Child",
+        \\      "translation": [4.0, 5.0, 6.0]
+        \\    }
+        \\  ],
         \\  "meshes": [{
         \\    "name": "MeshA",
         \\    "primitives": [{
@@ -423,11 +431,17 @@ test "parse gltf metadata from bytes" {
     try std.testing.expectEqualStrings("MainScene", parsed.scenes[0].name.?);
     try std.testing.expectEqual(@as(u32, 0), parsed.scenes[0].root_nodes[0]);
 
-    try std.testing.expectEqual(@as(usize, 1), parsed.nodes.len);
+    try std.testing.expectEqual(@as(usize, 2), parsed.nodes.len);
     try std.testing.expectEqualStrings("Root", parsed.nodes[0].name.?);
     try std.testing.expectEqual(@as(f32, 1.0), parsed.nodes[0].local_transform.translation.x);
     try std.testing.expectEqual(@as(f32, 2.0), parsed.nodes[0].local_transform.scale.x);
     try std.testing.expectEqual(@as(?u32, 0), parsed.nodes[0].mesh_index);
+    try std.testing.expect(parsed.nodes[0].isRoot());
+    try std.testing.expectEqual(@as(usize, 1), parsed.nodes[0].children.len);
+    try std.testing.expectEqual(@as(u32, 1), parsed.nodes[0].children[0]);
+    try std.testing.expectEqualStrings("Child", parsed.nodes[1].name.?);
+    try std.testing.expectEqual(@as(?u32, 0), parsed.nodes[1].parent_index);
+    try std.testing.expectEqual(@as(f32, 4.0), parsed.nodes[1].local_transform.translation.x);
 
     try std.testing.expectEqual(@as(usize, 1), parsed.meshes.len);
     try std.testing.expectEqual(@as(usize, 1), parsed.meshes[0].primitives.len);

@@ -1,5 +1,40 @@
 pub const gltf = @import("gltf/root.zig");
-pub const SceneData = gltf.SceneData;
+pub const scene = @import("scene.zig");
+pub const SceneData = scene.SceneData;
+pub const Scene = struct {
+    path: ?[:0]const u8 = null,
+    data: ?[]const u8 = null,
+    scene_data: ?SceneData = null,
+
+    pub fn file(path: [:0]const u8) Scene {
+        return .{ .path = path };
+    }
+
+    pub fn embedded(bytes: []const u8) Scene {
+        return .{ .data = bytes };
+    }
+
+    pub fn load(self: *Scene, ctx: AssetsContext) !void {
+        if (self.scene_data != null) return;
+
+        if (self.data) |bytes| {
+            self.scene_data = try gltf.parseFromBytes(ctx.allocator, bytes);
+            return;
+        }
+
+        const path = self.path orelse return error.MissingSceneSource;
+        const resolved = try resolveFileSearch(ctx.allocator, ctx.io, path);
+        defer ctx.allocator.free(resolved);
+        self.scene_data = try gltf.parseFromFile(ctx.allocator, resolved);
+    }
+
+    pub fn unload(self: *Scene, _: AssetsContext) !void {
+        if (self.scene_data) |*scene_data| {
+            scene_data.deinit();
+            self.scene_data = null;
+        }
+    }
+};
 
 pub const AssetsContext = struct {
     allocator: std.mem.Allocator,
@@ -486,18 +521,24 @@ fn loadImage(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8
 }
 
 fn readFileSearch(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8) ![]u8 {
-    const rel_path = std.mem.sliceTo(path, 0);
     const max_bytes: usize = 32 * 1024 * 1024;
+    const resolved = try resolveFileSearch(allocator, io, path);
+    defer allocator.free(resolved);
+    return readFileAllocAbsolute(allocator, io, resolved, max_bytes);
+}
+
+fn resolveFileSearch(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8) ![:0]u8 {
+    const rel_path = std.mem.sliceTo(path, 0);
 
     if (std.fs.path.isAbsolute(rel_path)) {
-        if (readFileAllocAbsolute(allocator, io, rel_path, max_bytes)) |bytes| {
-            return bytes;
-        } else |_| {}
+        if (fileExistsAbsolute(io, rel_path)) {
+            return try allocator.dupeZ(u8, rel_path);
+        }
     }
 
-    if (std.Io.Dir.cwd().readFileAlloc(io.*, rel_path, allocator, std.Io.Limit.limited(max_bytes))) |bytes| {
-        return bytes;
-    } else |_| {}
+    if (fileExistsAbsolute(io, rel_path)) {
+        return try allocator.dupeZ(u8, rel_path);
+    }
 
     const cwd_path = std.Io.Dir.cwd().realPathFileAlloc(io.*, ".", allocator) catch null;
     defer if (cwd_path) |p| allocator.free(p);
@@ -509,9 +550,9 @@ fn readFileSearch(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]con
         const candidate = try std.fs.path.join(allocator, &.{ dir, rel_path });
         defer allocator.free(candidate);
 
-        if (readFileAllocAbsolute(allocator, io, candidate, max_bytes)) |bytes| {
-            return bytes;
-        } else |_| {}
+        if (fileExistsAbsolute(io, candidate)) {
+            return try allocator.dupeZ(u8, candidate);
+        }
 
         base = std.fs.path.dirname(dir);
     }
@@ -528,6 +569,11 @@ fn readFileAllocAbsolute(
     return std.Io.Dir.cwd().readFileAlloc(io.*, absolute_path, allocator, std.Io.Limit.limited(max_bytes));
 }
 
+fn fileExistsAbsolute(io: *const std.Io, absolute_path: []const u8) bool {
+    std.Io.Dir.cwd().access(io.*, absolute_path, .{}) catch return false;
+    return true;
+}
+
 extern "env" fn wasmAudioUnload(id: u32) void;
 
 // Imports
@@ -540,4 +586,5 @@ const stb_image = @import("stb_image");
 test "import tests" {
     _ = gltf;
     _ = common;
+    _ = Scene;
 }
