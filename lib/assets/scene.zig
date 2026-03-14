@@ -201,11 +201,13 @@ pub const ImageData = struct {
     uri: ?[]u8 = null,
     mime_type: ?[]u8 = null,
     buffer_view_index: ?u32 = null,
+    bytes: ?[]u8 = null,
 
     fn deinit(self: *ImageData, allocator: std.mem.Allocator) void {
         if (self.name) |name| allocator.free(name);
         if (self.uri) |uri| allocator.free(uri);
         if (self.mime_type) |mime_type| allocator.free(mime_type);
+        if (self.bytes) |bytes| allocator.free(bytes);
     }
 };
 

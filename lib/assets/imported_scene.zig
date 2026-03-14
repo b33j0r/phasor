@@ -351,7 +351,9 @@ fn loadTextureMaterial(
     if (image_index >= scene_data.images.len) return null;
     const image = scene_data.images[image_index];
 
-    const bytes = if (image.buffer_view_index) |buffer_view_index|
+    const bytes = if (image.bytes) |embedded_bytes|
+        try allocator.dupe(u8, embedded_bytes)
+    else if (image.buffer_view_index) |buffer_view_index|
         try imageBytesFromBufferView(allocator, scene_data, buffer_view_index)
     else if (image.uri) |uri|
         try readExternalImage(allocator, io, source_path orelse return null, uri)

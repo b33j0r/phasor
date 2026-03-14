@@ -109,7 +109,15 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "bouncing-ball", "examples/bouncing-ball/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "cube", "examples/cube/main.zig", &.{});
-    _ = addExample(&ctx, phasor.module, "gltf", "examples/gltf/main.zig", &.{});
+    const gltf_embedded_assets = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("assets/gltf/embedded_assets.zig"),
+        .target = ctx.target,
+        .optimize = ctx.optimize,
+    });
+    _ = addExample(&ctx, phasor.module, "gltf", "examples/gltf/main.zig", &.{.{
+        .name = "gltf_embedded_assets",
+        .module = gltf_embedded_assets,
+    }});
     _ = addExample(&ctx, phasor.module, "warehouse", "examples/warehouse/main.zig", &.{});
     addEcsQueryCacheBenchmark(&ctx, phasor.module);
 
@@ -894,6 +902,13 @@ fn addWasmExample(
             .{ .name = "wasm", .module = wasm.support },
         },
     });
+    if (std.mem.eql(u8, ex.name, "gltf")) {
+        wasm_mod.addImport("gltf_embedded_assets", ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("assets/gltf/embedded_assets.zig"),
+            .target = wasm.target,
+            .optimize = ctx.optimize,
+        }));
+    }
 
     const exe_name = ctx.b.fmt("{s}_web", .{sanitizeName(ctx.b.allocator, ex.name)});
     const wasm_exe = ctx.b.addExecutable(.{
@@ -920,6 +935,14 @@ fn addWasmExample(
         ctx.b.path("lib/render/shaders/mesh_textured.wgsl"),
         ctx.b.fmt("{s}/shaders/mesh_textured.wgsl", .{web_dir}),
     );
+    const install_example_assets = if (std.mem.eql(u8, ex.name, "gltf"))
+        ctx.b.addInstallDirectory(.{
+            .source_dir = ctx.b.path("assets/gltf/FlightHelmet"),
+            .install_dir = .prefix,
+            .install_subdir = ctx.b.fmt("{s}/assets/gltf/FlightHelmet", .{web_dir}),
+        })
+    else
+        null;
 
     const web_step = ctx.b.step(ctx.b.fmt("web-{s}", .{ex.name}), ctx.b.fmt("Build the {s} web example", .{ex.name}));
     web_step.dependOn(&install_wasm.step);
@@ -929,6 +952,7 @@ fn addWasmExample(
     web_step.dependOn(&install_triangle_shader.step);
     web_step.dependOn(&install_quad_shader.step);
     web_step.dependOn(&install_mesh_textured_shader.step);
+    if (install_example_assets) |step| web_step.dependOn(&step.step);
 
     web_all.dependOn(web_step);
 
@@ -948,6 +972,7 @@ fn addWasmExample(
     run_server.step.dependOn(&install_triangle_shader.step);
     run_server.step.dependOn(&install_quad_shader.step);
     run_server.step.dependOn(&install_mesh_textured_shader.step);
+    if (install_example_assets) |step| run_server.step.dependOn(&step.step);
 
     const run_step = ctx.b.step(ctx.b.fmt("run-{s}-wasm", .{ex.name}), ctx.b.fmt("Run the {s} wasm example", .{ex.name}));
     run_step.dependOn(&run_server.step);
@@ -969,6 +994,7 @@ fn addWasmExample(
     run_server_https.step.dependOn(&install_triangle_shader.step);
     run_server_https.step.dependOn(&install_quad_shader.step);
     run_server_https.step.dependOn(&install_mesh_textured_shader.step);
+    if (install_example_assets) |step| run_server_https.step.dependOn(&step.step);
 
     const run_https_step = ctx.b.step(
         ctx.b.fmt("run-{s}-wasm-https", .{ex.name}),

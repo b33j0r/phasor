@@ -1,10 +1,13 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const phasor = @import("phasor");
+const embedded_assets = @import("gltf_embedded_assets");
 
 pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 const GltfPivot = struct {};
 const SceneReady = struct {};
+const SceneHydrated = struct {};
 const DebugReported = struct {};
 
 const App = struct {
@@ -39,10 +42,14 @@ fn setupScene(
     commands: *ecs.Commands,
     build_ctx: ResOpt(render.BuildContext),
     assets_ctx: ResOpt(assets.AssetsContext),
-    gltf_assets: Res(Assets),
+    gltf_assets: ResMut(Assets),
 ) !void {
     if (commands.hasResource(SceneReady)) return;
     const scene_asset = &gltf_assets.ptr.flight_helmet;
+    if (builtin.target.cpu.arch.isWasm() and !commands.hasResource(SceneHydrated)) {
+        try hydrateEmbeddedFlightHelmet(commands.allocator, scene_asset);
+        try commands.insertResource(SceneHydrated{});
+    }
     const build_ctx_res = build_ctx.ptr orelse return;
     const assets_ctx_res = assets_ctx.ptr orelse return;
     const scene_data = scene_asset.scene_data orelse return;
@@ -114,6 +121,7 @@ fn updatePivot(
 fn unloadImportedScene(commands: *ecs.Commands) void {
     _ = commands.removeResource(assets.ImportedScene);
     _ = commands.removeResource(SceneReady);
+    _ = commands.removeResource(SceneHydrated);
     _ = commands.removeResource(DebugReported);
 }
 
@@ -146,8 +154,48 @@ fn debugSceneStatus(
 }
 
 const Assets = struct {
-    flight_helmet: assets.Scene = .file("assets/gltf/FlightHelmet/glTF/FlightHelmet.gltf"),
+    flight_helmet: assets.Scene = if (builtin.target.cpu.arch.isWasm())
+        .embedded(embedded_assets.flight_helmet_gltf)
+    else
+        .file("assets/gltf/FlightHelmet/glTF/FlightHelmet.gltf"),
 };
+
+fn hydrateEmbeddedFlightHelmet(allocator: std.mem.Allocator, scene_asset: *assets.Scene) !void {
+    const scene_data = if (scene_asset.scene_data) |*data| data else return;
+
+    for (scene_data.buffers) |*buffer| {
+        if (buffer.bytes != null) continue;
+        const uri = buffer.uri orelse continue;
+        if (std.mem.eql(u8, uri, "FlightHelmet.bin")) {
+            buffer.bytes = try allocator.dupe(u8, embedded_assets.flight_helmet_bin);
+        }
+    }
+
+    for (scene_data.images) |*image| {
+        if (image.bytes != null) continue;
+        const uri = image.uri orelse continue;
+        image.bytes = try allocator.dupe(u8, embeddedFlightHelmetImage(uri) orelse continue);
+    }
+}
+
+fn embeddedFlightHelmetImage(uri: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, uri, "FlightHelmet_Materials_GlassPlasticMat_BaseColor.png")) {
+        return embedded_assets.glass_plastic_base_color;
+    }
+    if (std.mem.eql(u8, uri, "FlightHelmet_Materials_LeatherPartsMat_BaseColor.png")) {
+        return embedded_assets.leather_parts_base_color;
+    }
+    if (std.mem.eql(u8, uri, "FlightHelmet_Materials_LensesMat_BaseColor.png")) {
+        return embedded_assets.lenses_base_color;
+    }
+    if (std.mem.eql(u8, uri, "FlightHelmet_Materials_MetalPartsMat_BaseColor.png")) {
+        return embedded_assets.metal_parts_base_color;
+    }
+    if (std.mem.eql(u8, uri, "FlightHelmet_Materials_RubberWoodMat_BaseColor.png")) {
+        return embedded_assets.rubber_wood_base_color;
+    }
+    return null;
+}
 
 const ecs = phasor.ecs;
 const assets = phasor.assets;
@@ -158,6 +206,7 @@ const render = phasor.renderer;
 
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
+const ResMut = ecs.system_params.ResMut;
 const ResOpt = ecs.system_params.ResOpt;
 const ElapsedTime = modules.TimeModule.ElapsedTime;
 

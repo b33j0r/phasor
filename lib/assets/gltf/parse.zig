@@ -189,6 +189,7 @@ fn buildImages(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene
             .uri = try dupCString(allocator, src.uri),
             .mime_type = try dupCString(allocator, src.mime_type),
             .buffer_view_index = ptrIndex(c.cgltf_buffer_view, src.buffer_view, data.buffer_views, data.buffer_views_count),
+            .bytes = null,
         };
     }
     return out;
