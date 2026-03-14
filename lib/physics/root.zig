@@ -2,12 +2,16 @@ test "import tests" {
     _ = components;
     _ = resources;
     _ = events;
+    _ = queries;
+    _ = backend;
     _ = module;
 }
 
 pub const components = @import("components.zig");
 pub const resources = @import("resources.zig");
 pub const events = @import("events.zig");
+pub const queries = @import("queries.zig");
+pub const backend = @import("backend.zig");
 pub const module = @import("module.zig");
 
 pub const Body = components.Body;
@@ -35,6 +39,11 @@ pub const ContactBegan = events.ContactBegan;
 pub const ContactEnded = events.ContactEnded;
 pub const TriggerEntered = events.TriggerEntered;
 pub const TriggerExited = events.TriggerExited;
+pub const RayCast = queries.RayCast;
+pub const RayHit = queries.RayHit;
+pub const ShapeCast = queries.ShapeCast;
+pub const ShapeHit = queries.ShapeHit;
+pub const BackendWorld = backend.World;
 
 pub const PhysicsModule = module.PhysicsModule;
 pub const PhysicsSchedules = module.PhysicsSchedules;
