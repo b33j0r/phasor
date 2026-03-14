@@ -164,6 +164,30 @@ pub const MeshLibrary = struct {
         return .{ .index = index, .generation = 1 };
     }
 
+    pub fn addMeshPos3Uv(
+        self: *MeshLibrary,
+        renderer: *backend.Renderer,
+        vertices: []const backend.VertexPos3Uv,
+        indices: []const u16,
+    ) !MeshHandle {
+        const mesh = try renderer.createMeshPos3Uv(vertices, indices);
+        if (self.free_list.items.len > 0) {
+            const index = self.free_list.pop() orelse unreachable;
+            var slot = &self.slots.items[@intCast(index)];
+            slot.mesh = mesh;
+            slot.alive = true;
+            return .{ .index = index, .generation = slot.generation };
+        }
+
+        const index: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(self.allocator, .{
+            .mesh = mesh,
+            .generation = 1,
+            .alive = true,
+        });
+        return .{ .index = index, .generation = 1 };
+    }
+
     pub fn addMeshPos3Color(
         self: *MeshLibrary,
         renderer: *backend.Renderer,
@@ -211,6 +235,18 @@ pub const MeshLibrary = struct {
     ) !bool {
         const slot = self.slotPtr(handle) orelse return false;
         try renderer.updateMeshUv(&slot.mesh, vertices, indices);
+        return true;
+    }
+
+    pub fn updateMeshPos3Uv(
+        self: *MeshLibrary,
+        renderer: *backend.Renderer,
+        handle: MeshHandle,
+        vertices: []const backend.VertexPos3Uv,
+        indices: []const u16,
+    ) !bool {
+        const slot = self.slotPtr(handle) orelse return false;
+        try renderer.updateMeshPos3Uv(&slot.mesh, vertices, indices);
         return true;
     }
 

@@ -109,6 +109,7 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "bouncing-ball", "examples/bouncing-ball/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "cube", "examples/cube/main.zig", &.{});
+    _ = addExample(&ctx, phasor.module, "gltf", "examples/gltf/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "warehouse", "examples/warehouse/main.zig", &.{});
     addEcsQueryCacheBenchmark(&ctx, phasor.module);
 
@@ -915,6 +916,10 @@ fn addWasmExample(
         ctx.b.path("lib/render/shaders/quad.wgsl"),
         ctx.b.fmt("{s}/shaders/quad.wgsl", .{web_dir}),
     );
+    const install_mesh_textured_shader = ctx.b.addInstallFile(
+        ctx.b.path("lib/render/shaders/mesh_textured.wgsl"),
+        ctx.b.fmt("{s}/shaders/mesh_textured.wgsl", .{web_dir}),
+    );
 
     const web_step = ctx.b.step(ctx.b.fmt("web-{s}", .{ex.name}), ctx.b.fmt("Build the {s} web example", .{ex.name}));
     web_step.dependOn(&install_wasm.step);
@@ -923,6 +928,7 @@ fn addWasmExample(
     web_step.dependOn(&install_favicon.step);
     web_step.dependOn(&install_triangle_shader.step);
     web_step.dependOn(&install_quad_shader.step);
+    web_step.dependOn(&install_mesh_textured_shader.step);
 
     web_all.dependOn(web_step);
 
@@ -941,6 +947,7 @@ fn addWasmExample(
     run_server.step.dependOn(&install_favicon.step);
     run_server.step.dependOn(&install_triangle_shader.step);
     run_server.step.dependOn(&install_quad_shader.step);
+    run_server.step.dependOn(&install_mesh_textured_shader.step);
 
     const run_step = ctx.b.step(ctx.b.fmt("run-{s}-wasm", .{ex.name}), ctx.b.fmt("Run the {s} wasm example", .{ex.name}));
     run_step.dependOn(&run_server.step);
@@ -961,6 +968,7 @@ fn addWasmExample(
     run_server_https.step.dependOn(&install_favicon.step);
     run_server_https.step.dependOn(&install_triangle_shader.step);
     run_server_https.step.dependOn(&install_quad_shader.step);
+    run_server_https.step.dependOn(&install_mesh_textured_shader.step);
 
     const run_https_step = ctx.b.step(
         ctx.b.fmt("run-{s}-wasm-https", .{ex.name}),

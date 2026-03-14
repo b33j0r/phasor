@@ -93,7 +93,8 @@ pub const ShaderSource = struct {
 
 pub const MeshVertexLayout = enum(u32) {
     uv2 = 1,
-    pos3_color4 = 2,
+    pos3_uv2 = 2,
+    pos3_color4 = 3,
 };
 
 pub const Mesh = struct {
@@ -127,6 +128,11 @@ pub const VertexColor = extern struct {
 
 pub const VertexUv = extern struct {
     position: [2]f32,
+    uv: [2]f32,
+};
+
+pub const VertexPos3Uv = extern struct {
+    position: [3]f32,
     uv: [2]f32,
 };
 
@@ -283,6 +289,21 @@ pub const Renderer = struct {
         webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
     }
 
+    pub fn createMeshPos3Uv(self: *Renderer, vertices: []const VertexPos3Uv, indices: []const u16) !Mesh {
+        const vbytes = std.mem.sliceAsBytes(vertices);
+        const ibytes = std.mem.sliceAsBytes(indices);
+        const handle = webgpu_create_mesh(self.ctx, @intFromEnum(MeshVertexLayout.pos3_uv2), vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        return Mesh{ .handle = handle, .vertex_layout = .pos3_uv2 };
+    }
+
+    pub fn updateMeshPos3Uv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3Uv, indices: []const u16) !void {
+        if (mesh.vertex_layout != .pos3_uv2) return error.InvalidMeshLayout;
+        if (mesh.handle == 0) return;
+        const vbytes = std.mem.sliceAsBytes(vertices);
+        const ibytes = std.mem.sliceAsBytes(indices);
+        webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+    }
+
     pub fn createMeshPos3Color(self: *Renderer, vertices: []const VertexPos3Color, indices: []const u16) !Mesh {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
@@ -377,7 +398,10 @@ pub const Frame = struct {
     }
 
     pub fn drawTexturedQuads(self: *Frame, mesh: Mesh, material: Material, instances: []const MeshInstance, blend: bool) void {
-        if (mesh.vertex_layout != .uv2) return;
+        switch (mesh.vertex_layout) {
+            .uv2, .pos3_uv2 => {},
+            else => return,
+        }
         if (instances.len == 0) return;
         const blend_flag: u32 = if (blend) 1 else 0;
         webgpu_draw_textured_quads(

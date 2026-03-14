@@ -1,0 +1,140 @@
+const GltfPivot = struct {};
+const SceneReady = struct {};
+
+const App = struct {
+    pub const options = platform.Options{
+        .window = .{
+            .title = "Phasor Lite - glTF",
+            .width = 1280,
+            .height = 900,
+        },
+    };
+
+    pub fn configure(app: *ecs.App) !void {
+        try platform.installDefaultModules(app);
+        try app.installModule(modules.ParentModule);
+        try app.installModule(modules.AssetsModule(Assets));
+        try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
+            .font_size = 28.0,
+            .text_color = Color.WHITE,
+        });
+
+        try app.addSystemTo("BeforeFrame", setupScene);
+        try app.addSystemTo("Update", updatePivot);
+        try app.addSystemTo("Shutdown", unloadImportedScene);
+    }
+};
+
+pub const main = platform.main(App);
+
+fn setupScene(
+    commands: *ecs.Commands,
+    build_ctx: ResOpt(render.BuildContext),
+    assets_ctx: ResOpt(assets.AssetsContext),
+    gltf_assets: Res(Assets),
+) !void {
+    if (commands.hasResource(SceneReady)) return;
+    const build_ctx_res = build_ctx.ptr orelse return;
+    const assets_ctx_res = assets_ctx.ptr orelse return;
+
+    const scene_asset = &gltf_assets.ptr.flight_helmet;
+    const scene_data = scene_asset.scene_data orelse return error.SceneMissing;
+
+    try commands.insertResource(ClearColor{ .color = Color.rgb(10, 12, 18) });
+
+    const pivot = try commands.createEntity(.{
+        Transform{},
+        GltfPivot{},
+        render.Layer(0){},
+    });
+
+    const imported = try assets.ImportedScene.instantiate(
+        commands.allocator,
+        assets_ctx_res.io,
+        commands,
+        build_ctx_res,
+        scene_asset.resolved_path,
+        &scene_data,
+        .{
+            .parent = pivot,
+        },
+    );
+    try commands.insertResource(imported);
+    try commands.insertResource(SceneReady{});
+
+    _ = try commands.createEntity(.{
+        Transform{
+            .translation = .{ .x = 0.0, .y = 0.15, .z = 2.9 },
+            .rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, std.math.pi),
+        },
+        Camera3d{ .Perspective = .{
+            .fov = std.math.pi / 3.0,
+            .near = 0.05,
+            .far = 100.0,
+        } },
+        CameraLayer(0){},
+    });
+
+    _ = try commands.createEntity(.{
+        Transform{},
+        Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+        CameraLayer(1000){},
+    });
+}
+
+fn updatePivot(
+    elapsed: Res(ElapsedTime),
+    imported: ResOpt(assets.ImportedScene),
+    query: Query(.{ Transform, GltfPivot }),
+) void {
+    const imported_scene = imported.ptr orelse return;
+    const bounds = imported_scene.bounds;
+    const center = bounds.center();
+    const max_dim = @max(bounds.maxDimension(), 0.001);
+    const scale = 1.8 / max_dim;
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
+
+    var it = query.iterator();
+    while (it.next()) |row| {
+        const transform = row.get(Transform) orelse continue;
+        transform.translation = .{
+            .x = -center.x * scale,
+            .y = -center.y * scale,
+            .z = -1.4,
+        };
+        transform.scale = Vec3.splat(scale);
+        transform.rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, t * 0.6);
+    }
+}
+
+fn unloadImportedScene(commands: *ecs.Commands) void {
+    _ = commands.removeResource(assets.ImportedScene);
+    _ = commands.removeResource(SceneReady);
+}
+
+const Assets = struct {
+    flight_helmet: assets.Scene = .file("../vendor/glTF-Sample-Assets/Models/FlightHelmet/glTF/FlightHelmet.gltf"),
+};
+
+const std = @import("std");
+const phasor = @import("phasor");
+
+const ecs = phasor.ecs;
+const assets = phasor.assets;
+const common = phasor.common;
+const modules = phasor.modules;
+const platform = phasor.platform;
+const render = phasor.renderer;
+
+const Query = ecs.system_params.Query;
+const Res = ecs.system_params.Res;
+const ResOpt = ecs.system_params.ResOpt;
+const ElapsedTime = modules.TimeModule.ElapsedTime;
+
+const Camera3d = common.Camera3d;
+const ClearColor = common.ClearColor;
+const Color = common.Color;
+const Quat = common.Quat;
+const Transform = common.Transform;
+const Vec3 = common.Vec3;
+const CameraLayer = render.CameraLayer;

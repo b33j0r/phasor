@@ -1,9 +1,12 @@
 pub const gltf = @import("gltf/root.zig");
 pub const scene = @import("scene.zig");
+pub const imported_scene = @import("imported_scene.zig");
 pub const SceneData = scene.SceneData;
+pub const ImportedScene = imported_scene.ImportedScene;
 pub const Scene = struct {
     path: ?[:0]const u8 = null,
     data: ?[]const u8 = null,
+    resolved_path: ?[]u8 = null,
     scene_data: ?SceneData = null,
 
     pub fn file(path: [:0]const u8) Scene {
@@ -24,14 +27,19 @@ pub const Scene = struct {
 
         const path = self.path orelse return error.MissingSceneSource;
         const resolved = try resolveFileSearch(ctx.allocator, ctx.io, path);
-        defer ctx.allocator.free(resolved);
+        errdefer ctx.allocator.free(resolved);
         self.scene_data = try gltf.parseFromFile(ctx.allocator, resolved);
+        self.resolved_path = resolved[0 .. resolved.len - 1];
     }
 
-    pub fn unload(self: *Scene, _: AssetsContext) !void {
+    pub fn unload(self: *Scene, ctx: AssetsContext) !void {
         if (self.scene_data) |*scene_data| {
             scene_data.deinit();
             self.scene_data = null;
+        }
+        if (self.resolved_path) |resolved_path| {
+            ctx.allocator.free(resolved_path.ptr[0..resolved_path.len + 1]);
+            self.resolved_path = null;
         }
     }
 };

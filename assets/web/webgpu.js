@@ -11,6 +11,7 @@ if (phasorDebug.lifecycleLogs) {
 const wasmUrl = new URL("app.wasm", import.meta.url);
 const triangleShaderUrl = new URL("shaders/triangle.wgsl", import.meta.url);
 const quadShaderUrl = new URL("shaders/quad.wgsl", import.meta.url);
+const meshTexturedShaderUrl = new URL("shaders/mesh_textured.wgsl", import.meta.url);
 
 const ctxs = new Map();
 let nextCtxId = 1;
@@ -224,11 +225,16 @@ function createDepthTexture(ctx, width, height) {
 
 async function loadShaders() {
   if (shaderSources) return shaderSources;
-  const [triangleShader, quadShader] = await Promise.all([
+  const [triangleShader, quadShader, meshTexturedShader] = await Promise.all([
     fetch(triangleShaderUrl).then((resp) => resp.text()),
     fetch(quadShaderUrl).then((resp) => resp.text()),
+    fetch(meshTexturedShaderUrl).then((resp) => resp.text()),
   ]);
-  shaderSources = { triangleShader, quadShader };
+  shaderSources = {
+    triangleShader,
+    quadShader,
+    meshTexturedShader,
+  };
   return shaderSources;
 }
 
@@ -238,6 +244,7 @@ function createPipelines(ctx) {
   }
   const triangleShader = shaderSources.triangleShader;
   const quadShader = shaderSources.quadShader;
+  const meshTexturedShader = shaderSources.meshTexturedShader;
   const depthState = {
     format: "depth24plus",
     depthWriteEnabled: true,
@@ -251,7 +258,8 @@ function createPipelines(ctx) {
 
   const triangleModule = ctx.device.createShaderModule({ code: triangleShader });
   const quadModule = ctx.device.createShaderModule({ code: quadShader });
-  webgpuCreates.pipelines += 2;
+  const meshTexturedModule = ctx.device.createShaderModule({ code: meshTexturedShader });
+  webgpuCreates.pipelines += 4;
 
   ctx.trianglePipeline = ctx.device.createRenderPipeline({
     layout: "auto",
@@ -350,6 +358,82 @@ function createPipelines(ctx) {
     },
     fragment: {
       module: quadModule,
+      entryPoint: "fs_main",
+      targets: [{
+        format: ctx.format,
+        blend: {
+          color: { operation: "add", srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
+          alpha: { operation: "add", srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+        },
+      }],
+    },
+    depthStencil: depthStateBlend,
+    primitive: { topology: "triangle-list" },
+  });
+
+  ctx.meshTexturedPipelineOpaque = ctx.device.createRenderPipeline({
+    layout: quadPipelineLayout,
+    vertex: {
+      module: meshTexturedModule,
+      entryPoint: "vs_main",
+      buffers: [
+        {
+          arrayStride: 20,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x2" },
+          ],
+        },
+        {
+          arrayStride: 80,
+          stepMode: "instance",
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: "float32x4" },
+            { shaderLocation: 3, offset: 16, format: "float32x4" },
+            { shaderLocation: 4, offset: 32, format: "float32x4" },
+            { shaderLocation: 5, offset: 48, format: "float32x4" },
+            { shaderLocation: 6, offset: 64, format: "float32x4" },
+          ],
+        },
+      ],
+    },
+    fragment: {
+      module: meshTexturedModule,
+      entryPoint: "fs_main",
+      targets: [{ format: ctx.format }],
+    },
+    depthStencil: depthState,
+    primitive: { topology: "triangle-list" },
+  });
+
+  ctx.meshTexturedPipelineBlend = ctx.device.createRenderPipeline({
+    layout: quadPipelineLayout,
+    vertex: {
+      module: meshTexturedModule,
+      entryPoint: "vs_main",
+      buffers: [
+        {
+          arrayStride: 20,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x2" },
+          ],
+        },
+        {
+          arrayStride: 80,
+          stepMode: "instance",
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: "float32x4" },
+            { shaderLocation: 3, offset: 16, format: "float32x4" },
+            { shaderLocation: 4, offset: 32, format: "float32x4" },
+            { shaderLocation: 5, offset: 48, format: "float32x4" },
+            { shaderLocation: 6, offset: 64, format: "float32x4" },
+          ],
+        },
+      ],
+    },
+    fragment: {
+      module: meshTexturedModule,
       entryPoint: "fs_main",
       targets: [{
         format: ctx.format,
@@ -1274,7 +1358,12 @@ const imports = {
       const mesh = ctx.meshes[meshHandle];
       const material = ctx.materials[materialHandle];
       if (!mesh || !material) return;
-      if (mesh.vertexLayout !== 1) return;
+      const pipeline = mesh.vertexLayout === 1
+        ? (blend ? ctx.quadPipelineBlend : ctx.quadPipelineOpaque)
+        : mesh.vertexLayout === 2
+          ? (blend ? ctx.meshTexturedPipelineBlend : ctx.meshTexturedPipelineOpaque)
+          : null;
+      if (!pipeline) return;
       const instanceData = new Float32Array(memory.buffer, instancePtr, 20);
       const stride = 80;
       const alignment = 256;
@@ -1285,7 +1374,6 @@ const imports = {
       ctx.instanceOffset = offset + stride;
       ctx.queue.writeBuffer(ctx.instanceBuffer, offset, instanceData);
 
-      const pipeline = blend ? ctx.quadPipelineBlend : ctx.quadPipelineOpaque;
       ctx.pass.setPipeline(pipeline);
       ctx.pass.setBindGroup(0, material.bindGroup);
       ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
@@ -1299,7 +1387,12 @@ const imports = {
       const mesh = ctx.meshes[meshHandle];
       const material = ctx.materials[materialHandle];
       if (!mesh || !material) return;
-      if (mesh.vertexLayout !== 1) return;
+      const pipeline = mesh.vertexLayout === 1
+        ? (blend ? ctx.quadPipelineBlend : ctx.quadPipelineOpaque)
+        : mesh.vertexLayout === 2
+          ? (blend ? ctx.meshTexturedPipelineBlend : ctx.meshTexturedPipelineOpaque)
+          : null;
+      if (!pipeline) return;
       if (!instanceCount) return;
       const stride = 80;
       const alignment = 256;
@@ -1319,7 +1412,6 @@ const imports = {
       ctx.instanceOffset = offset + byteLength;
       ctx.queue.writeBuffer(ctx.instanceBuffer, offset, scratch);
 
-      const pipeline = blend ? ctx.quadPipelineBlend : ctx.quadPipelineOpaque;
       ctx.pass.setPipeline(pipeline);
       ctx.pass.setBindGroup(0, material.bindGroup);
       ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
@@ -1333,7 +1425,7 @@ const imports = {
       const mesh = ctx.meshes[meshHandle];
       const shader = ctx.shaders[shaderHandle];
       if (!mesh || !shader) return;
-      if (mesh.vertexLayout !== 2) return;
+      if (mesh.vertexLayout !== 3) return;
       if (!instanceCount) return;
       const stride = 80;
       const alignment = 256;
