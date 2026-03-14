@@ -1,6 +1,7 @@
-const std_options = std.Options{
-    .log_level = std.log.Level.debug,
-};
+const std = @import("std");
+const phasor = @import("phasor");
+
+pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 const Position = struct { x: f32, y: f32 };
 const Velocity = struct {
@@ -129,8 +130,6 @@ pub fn main(init: std.process.Init) !u8 {
 }
 
 // Imports
-const std = @import("std");
-const phasor = @import("phasor");
 const ecs = phasor.ecs;
 const resources = ecs.resources;
 const modules = phasor.modules;

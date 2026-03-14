@@ -4,6 +4,7 @@ test "import tests" {
     _ = mat4;
     _ = quat;
     _ = channel;
+    _ = logging;
     _ = camera;
     _ = layout;
     _ = transform;
@@ -18,6 +19,7 @@ pub const vec = @import("vec.zig");
 pub const mat4 = @import("mat4.zig");
 pub const quat = @import("quat.zig");
 pub const channel = @import("channel.zig");
+pub const logging = @import("logging.zig");
 pub const camera = @import("camera.zig");
 pub const layout = @import("layout.zig");
 pub const transform = @import("transform.zig");

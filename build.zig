@@ -113,7 +113,7 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "warehouse", "examples/warehouse/main.zig", &.{});
     addEcsQueryCacheBenchmark(&ctx, phasor.module);
 
-    addWebExamples(&ctx);
+    addWebExamples(&ctx, common.module);
 
     const test_step = b.step("test", "Run tests");
     if (is_wasm) {
@@ -977,7 +977,7 @@ fn addWasmExample(
     run_https_step.dependOn(&run_server_https.step);
 }
 
-fn addWebExamples(ctx: *const BuildContext) void {
+fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module) void {
     const wasm_target = ctx.b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
@@ -1169,9 +1169,13 @@ fn addWebExamples(ctx: *const BuildContext) void {
         .{ .name = "cube", .root = "examples/cube/main.zig" },
         .{ .name = "triangle", .root = "examples/triangle/main.zig" },
         .{ .name = "warehouse", .root = "examples/warehouse/main.zig" },
+        .{ .name = "gltf", .root = "examples/gltf/main.zig" },
     };
 
-    const server_mod = ctx.module("lib/web/wasm_server.zig", &.{});
+    const server_mod = ctx.module("lib/web/wasm_server.zig", &.{.{
+        .name = "common",
+        .module = common,
+    }});
     const server_exe = ctx.b.addExecutable(.{
         .name = "wasm_server",
         .root_module = server_mod,

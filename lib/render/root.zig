@@ -1,3 +1,5 @@
+pub const std_options = @import("common").logging.moduleStdOptions();
+
 test "import tests" {
     _ = utils;
 }

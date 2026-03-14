@@ -1,3 +1,8 @@
+const std = @import("std");
+const phasor = @import("phasor");
+
+pub const std_options = phasor.common.logging.stdOptions(.debug);
+
 const GltfPivot = struct {};
 const SceneReady = struct {};
 const DebugReported = struct {};
@@ -128,8 +133,8 @@ fn debugSceneStatus(
     }
 
     const imported_scene = imported.ptr orelse return;
-    std.debug.print(
-        "debugSceneStatus: mesh_entities={} queue_items={} imported_meshes={} imported_materials={}\n",
+    std.log.debug(
+        "scene ready: mesh_entities={} queue_items={} imported_meshes={} imported_materials={}",
         .{
             mesh_count,
             queue.ptr.items.items.len,
@@ -143,9 +148,6 @@ fn debugSceneStatus(
 const Assets = struct {
     flight_helmet: assets.Scene = .file("../vendor/glTF-Sample-Assets/Models/FlightHelmet/glTF/FlightHelmet.gltf"),
 };
-
-const std = @import("std");
-const phasor = @import("phasor");
 
 const ecs = phasor.ecs;
 const assets = phasor.assets;
