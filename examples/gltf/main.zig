@@ -146,7 +146,7 @@ fn debugSceneStatus(
 }
 
 const Assets = struct {
-    flight_helmet: assets.Scene = .file("../vendor/glTF-Sample-Assets/Models/FlightHelmet/glTF/FlightHelmet.gltf"),
+    flight_helmet: assets.Scene = .file("assets/gltf/FlightHelmet/glTF/FlightHelmet.gltf"),
 };
 
 const ecs = phasor.ecs;

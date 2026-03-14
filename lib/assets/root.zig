@@ -32,7 +32,7 @@ pub const Scene = struct {
         const resolved = try resolveFileSearch(ctx.allocator, ctx.io, path);
         errdefer ctx.allocator.free(resolved);
         self.scene_data = try gltf.parseFromFile(ctx.allocator, resolved);
-        self.resolved_path = resolved[0 .. resolved.len - 1];
+        self.resolved_path = resolved[0..resolved.len];
         log.debug("loaded scene {s}", .{self.resolved_path.?});
     }
 
