@@ -144,8 +144,12 @@ fn buildMaterials(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]sc
 
     for (out, 0..) |*dst, i| {
         const src = &data.materials[i];
-        var base_color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 };
-        @memcpy(base_color[0..], src.pbr_metallic_roughness.base_color_factor[0..4]);
+        const base_color = common.Color.F32{
+            .r = @floatCast(src.pbr_metallic_roughness.base_color_factor[0]),
+            .g = @floatCast(src.pbr_metallic_roughness.base_color_factor[1]),
+            .b = @floatCast(src.pbr_metallic_roughness.base_color_factor[2]),
+            .a = @floatCast(src.pbr_metallic_roughness.base_color_factor[3]),
+        };
         dst.* = .{
             .name = try dupCString(allocator, src.name),
             .base_color_factor = base_color,
@@ -483,20 +487,20 @@ test "parse gltf file resolves external buffer bytes" {
     try tmp.dir.writeFile(io, .{
         .sub_path = "mesh.bin",
         .data = &[_]u8{
-            0, 0, 128, 63, 0, 0, 0, 64,
-            0, 0, 64, 64, 0, 0, 128, 64,
+            0, 0, 128, 63, 0, 0, 0,   64,
+            0, 0, 64,  64, 0, 0, 128, 64,
         },
     });
 
     try tmp.dir.writeFile(io, .{
         .sub_path = "scene.gltf",
         .data =
-            \\{
-            \\  "asset": {"version": "2.0"},
-            \\  "buffers": [{ "byteLength": 16, "uri": "mesh.bin" }],
-            \\  "bufferViews": [{ "buffer": 0, "byteOffset": 0, "byteLength": 16 }],
-            \\  "accessors": [{ "bufferView": 0, "componentType": 5126, "count": 2, "type": "VEC2" }]
-            \\}
+        \\{
+        \\  "asset": {"version": "2.0"},
+        \\  "buffers": [{ "byteLength": 16, "uri": "mesh.bin" }],
+        \\  "bufferViews": [{ "buffer": 0, "byteOffset": 0, "byteLength": 16 }],
+        \\  "accessors": [{ "bufferView": 0, "componentType": 5126, "count": 2, "type": "VEC2" }]
+        \\}
         ,
     });
 

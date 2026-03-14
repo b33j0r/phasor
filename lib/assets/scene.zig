@@ -171,7 +171,7 @@ pub const AccessorData = struct {
 
 pub const MaterialData = struct {
     name: ?[]u8 = null,
-    base_color_factor: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+    base_color_factor: common.Color.F32 = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
     base_color_texture: ?TextureRef = null,
     alpha_mode: AlphaMode = .Opaque,
     alpha_cutoff: f32 = 0.5,

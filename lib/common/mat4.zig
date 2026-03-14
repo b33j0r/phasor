@@ -136,7 +136,7 @@ pub const Mat4 = extern struct {
         return .{ .x = x, .y = y, .z = z };
     }
 
-    pub fn rotate2DPoint(x: f32, y: f32, angle: f32) struct { x: f32, y: f32 } {
+    pub fn rotate2DPoint(x: f32, y: f32, angle: f32) Vec2 {
         const c = @cos(angle);
         const s = @sin(angle);
         return .{

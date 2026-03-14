@@ -237,13 +237,8 @@ fn transformFromLocal(local: common.LocalTransform) common.Transform {
     };
 }
 
-fn colorFromFactor(factor: [4]f32) common.Color {
-    return common.Color.rgba(
-        @intFromFloat(std.math.clamp(factor[0] * 255.0, 0.0, 255.0)),
-        @intFromFloat(std.math.clamp(factor[1] * 255.0, 0.0, 255.0)),
-        @intFromFloat(std.math.clamp(factor[2] * 255.0, 0.0, 255.0)),
-        @intFromFloat(std.math.clamp(factor[3] * 255.0, 0.0, 255.0)),
-    );
+fn colorFromFactor(factor: common.Color.F32) common.Color {
+    return common.Color.fromColor(factor);
 }
 
 fn collectRootNodes(allocator: std.mem.Allocator, scene_data: *const scene_mod.SceneData) ![]u32 {
@@ -291,14 +286,14 @@ fn buildPrimitiveMesh(
 
     for (0..vertex_count) |i| {
         const pos = readVec3(position_bytes, position_meta.byte_stride, i);
-        bounds.include(.{ .x = pos[0], .y = pos[1], .z = pos[2] });
+        bounds.include(pos);
         const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
             readVec2(uv_bytes.?, uv_meta.?.byte_stride, i)
         else
-            [2]f32{ 0.0, 0.0 };
+            common.Vec2{};
         vertices[i] = .{
-            .position = pos,
-            .uv = uv,
+            .position = .{ pos.x, pos.y, pos.z },
+            .uv = .{ uv.x, uv.y },
         };
     }
 
@@ -418,20 +413,20 @@ fn readExternalImage(allocator: std.mem.Allocator, io: *const std.Io, source_pat
     return std.Io.Dir.cwd().readFileAlloc(io.*, absolute_path, allocator, std.Io.Limit.limited(32 * 1024 * 1024));
 }
 
-fn readVec3(bytes: []const u8, stride: usize, index: usize) [3]f32 {
+fn readVec3(bytes: []const u8, stride: usize, index: usize) common.Vec3 {
     const base = index * stride;
     return .{
-        readF32(bytes, base + 0),
-        readF32(bytes, base + 4),
-        readF32(bytes, base + 8),
+        .x = readF32(bytes, base + 0),
+        .y = readF32(bytes, base + 4),
+        .z = readF32(bytes, base + 8),
     };
 }
 
-fn readVec2(bytes: []const u8, stride: usize, index: usize) [2]f32 {
+fn readVec2(bytes: []const u8, stride: usize, index: usize) common.Vec2 {
     const base = index * stride;
     return .{
-        readF32(bytes, base + 0),
-        readF32(bytes, base + 4),
+        .x = readF32(bytes, base + 0),
+        .y = readF32(bytes, base + 4),
     };
 }
 
