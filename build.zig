@@ -1,4 +1,5 @@
 const std = @import("std");
+const jolt_sources = @import("deps/jolt_sources.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -109,6 +110,7 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "bouncing-ball", "examples/bouncing-ball/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "cube", "examples/cube/main.zig", &.{});
+    _ = addExample(&ctx, phasor.module, "physics-cubes", "examples/physics-cubes/main.zig", &.{});
     const gltf_embedded_assets = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("assets/gltf/embedded_assets.zig"),
         .target = ctx.target,
@@ -561,6 +563,10 @@ const PhysicsModuleLib = struct {
             .{ .name = "common", .module = deps.common },
             .{ .name = "ecs", .module = deps.ecs },
         });
+
+        if (!ctx.target.result.cpu.arch.isWasm()) {
+            addJoltSources(ctx, bundle.module);
+        }
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -584,6 +590,36 @@ const GuiModuleLib = struct {
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
+
+fn addJoltSources(ctx: *const BuildContext, module: *std.Build.Module) void {
+    module.addIncludePath(ctx.b.path("deps/jolt"));
+    module.addIncludePath(ctx.b.path("deps/physics_jolt_c"));
+    module.linkSystemLibrary("c++", .{});
+    module.addCSourceFiles(.{
+        .root = ctx.b.path(""),
+        .files = jolt_sources.files,
+        .flags = &.{
+            "-std=c++17",
+            "-DJPH_OBJECT_LAYER_BITS=32",
+            "-DJPH_USE_STD_VECTOR",
+            "-DCPP_EXCEPTIONS_ENABLED=0",
+            "-DCPP_RTTI_ENABLED=0",
+        },
+        .language = .cpp,
+    });
+    module.addCSourceFiles(.{
+        .root = ctx.b.path(""),
+        .files = &.{"deps/physics_jolt_c/physics_jolt_c.cpp"},
+        .flags = &.{
+            "-std=c++17",
+            "-DJPH_OBJECT_LAYER_BITS=32",
+            "-DJPH_USE_STD_VECTOR",
+            "-DCPP_EXCEPTIONS_ENABLED=0",
+            "-DCPP_RTTI_ENABLED=0",
+        },
+        .language = .cpp,
+    });
+}
 
 const ModulesModule = struct {
     module: *std.Build.Module,

@@ -29,9 +29,15 @@ pub const PhysicsModule = struct {
         if (!commands.hasResource(resources.StepState)) {
             try commands.insertResource(resources.StepState{});
         }
+        if (!commands.hasResource(resources.CollisionMeshStore)) {
+            try commands.insertResource(resources.CollisionMeshStore.init(commands.allocator));
+        }
+        if (!commands.hasResource(resources.HeightFieldStore)) {
+            try commands.insertResource(resources.HeightFieldStore.init(commands.allocator));
+        }
         if (!commands.hasResource(backend.World)) {
             var world = try backend.World.init(commands.allocator, self.config);
-            errdefer world.deinit(commands.allocator);
+            errdefer world.deinit();
             try commands.insertResource(world);
         }
 
@@ -52,8 +58,16 @@ pub const PhysicsModule = struct {
         app.removeSystem(eventsSystem);
         app.removeSystem(syncOutSystem);
         if (commands.getResourceMut(backend.World)) |world| {
-            world.deinit(commands.allocator);
+            world.deinit();
             _ = commands.removeResource(backend.World);
+        }
+        if (commands.getResourceMut(resources.HeightFieldStore)) |store| {
+            store.deinit();
+            _ = commands.removeResource(resources.HeightFieldStore);
+        }
+        if (commands.getResourceMut(resources.CollisionMeshStore)) |store| {
+            store.deinit();
+            _ = commands.removeResource(resources.CollisionMeshStore);
         }
         _ = commands.removeResource(resources.StepState);
         _ = commands.removeResource(resources.Stats);
@@ -73,8 +87,13 @@ fn ensureScheduleBetween(
     };
 }
 
-fn syncInSystem(world: ecs.system_params.ResMut(backend.World), step_state: ecs.system_params.ResMut(resources.StepState)) void {
-    world.ptr.syncIn(step_state.ptr);
+fn syncInSystem(
+    world: ecs.system_params.ResMut(backend.World),
+    config: ecs.system_params.Res(resources.Config),
+    step_state: ecs.system_params.ResMut(resources.StepState),
+    commands: *ecs.Commands,
+) void {
+    world.ptr.syncIn(commands, config.ptr.*, step_state.ptr);
 }
 
 fn stepSystem(
@@ -97,10 +116,10 @@ fn eventsSystem(
 
 fn syncOutSystem(
     world: ecs.system_params.ResMut(backend.World),
-    _: *ecs.Commands,
+    commands: *ecs.Commands,
     _: ecs.system_params.Res(resources.Config),
     _: ecs.system_params.Res(resources.StepState),
-    _: ecs.system_params.Query(.{ common.Transform }),
+    _: ecs.system_params.Query(.{common.Transform}),
 ) void {
-    world.ptr.syncOut();
+    world.ptr.syncOut(commands);
 }

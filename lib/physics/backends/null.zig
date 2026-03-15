@@ -3,15 +3,18 @@ const resources = @import("../resources.zig");
 const queries = @import("../queries.zig");
 
 pub const State = struct {
+    allocator: std.mem.Allocator,
     simulated_time: f32 = 0.0,
 
-    pub fn init(_: std.mem.Allocator, _: resources.Config) !State {
-        return .{};
+    pub fn init(allocator: std.mem.Allocator, _: resources.Config) !State {
+        return .{ .allocator = allocator };
     }
 
-    pub fn deinit(_: *State, _: std.mem.Allocator) void {}
+    pub fn deinit(self: *State) void {
+        self.* = undefined;
+    }
 
-    pub fn syncIn(_: *State, step_state: *resources.StepState) void {
+    pub fn syncIn(_: *State, _: resources.Config, step_state: *resources.StepState) void {
         step_state.steps_last_frame = 0;
     }
 

@@ -1,14 +1,16 @@
 const std = @import("std");
+const ecs = @import("ecs");
 const resources = @import("resources.zig");
 const queries = @import("queries.zig");
 const null_backend = @import("backends/null.zig");
+const jolt_backend = @import("backends/jolt.zig");
 
 pub const Error = error{
     BackendUnavailable,
 };
 
 pub const World = union(resources.Config.Backend) {
-    Jolt: UnavailableBackend,
+    Jolt: jolt_backend.State,
     Null: null_backend.State,
     Simple: null_backend.State,
 
@@ -16,23 +18,23 @@ pub const World = union(resources.Config.Backend) {
         return switch (config.backend) {
             .Null => .{ .Null = try null_backend.State.init(allocator, config) },
             .Simple => .{ .Simple = try null_backend.State.init(allocator, config) },
-            .Jolt => Error.BackendUnavailable,
+            .Jolt => .{ .Jolt = try jolt_backend.State.init(allocator, config) },
         };
     }
 
-    pub fn deinit(self: *World, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *World) void {
         switch (self.*) {
-            .Null => |*state| state.deinit(allocator),
-            .Simple => |*state| state.deinit(allocator),
-            .Jolt => {},
+            .Null => |*state| state.deinit(),
+            .Simple => |*state| state.deinit(),
+            .Jolt => |*state| state.deinit(),
         }
     }
 
-    pub fn syncIn(self: *World, step_state: *resources.StepState) void {
+    pub fn syncIn(self: *World, commands: *ecs.Commands, config: resources.Config, step_state: *resources.StepState) void {
         switch (self.*) {
-            .Null => |*state| state.syncIn(step_state),
-            .Simple => |*state| state.syncIn(step_state),
-            .Jolt => {},
+            .Null => |*state| state.syncIn(config, step_state),
+            .Simple => |*state| state.syncIn(config, step_state),
+            .Jolt => |*state| state.syncIn(commands, config, step_state),
         }
     }
 
@@ -40,7 +42,7 @@ pub const World = union(resources.Config.Backend) {
         switch (self.*) {
             .Null => |*state| state.step(config, step_state, stats),
             .Simple => |*state| state.step(config, step_state, stats),
-            .Jolt => {},
+            .Jolt => |*state| state.step(config, step_state, stats),
         }
     }
 
@@ -48,15 +50,15 @@ pub const World = union(resources.Config.Backend) {
         switch (self.*) {
             .Null => |*state| state.collectEvents(),
             .Simple => |*state| state.collectEvents(),
-            .Jolt => {},
+            .Jolt => |*state| state.collectEvents(),
         }
     }
 
-    pub fn syncOut(self: *World) void {
+    pub fn syncOut(self: *World, commands: *ecs.Commands) void {
         switch (self.*) {
             .Null => |*state| state.syncOut(),
             .Simple => |*state| state.syncOut(),
-            .Jolt => {},
+            .Jolt => |*state| state.syncOut(commands),
         }
     }
 
@@ -64,7 +66,7 @@ pub const World = union(resources.Config.Backend) {
         return switch (self.*) {
             .Null => |*state| state.castRay(ray),
             .Simple => |*state| state.castRay(ray),
-            .Jolt => null,
+            .Jolt => |*state| state.castRay(ray),
         };
     }
 
@@ -81,11 +83,5 @@ pub const UnavailableBackend = struct {};
 
 test "null backend initializes" {
     var world = try World.init(std.testing.allocator, .{ .backend = .Null });
-    defer world.deinit(std.testing.allocator);
-}
-
-test "unavailable backend is explicit" {
-    try std.testing.expectError(Error.BackendUnavailable, World.init(std.testing.allocator, .{
-        .backend = .Jolt,
-    }));
+    defer world.deinit();
 }

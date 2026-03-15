@@ -15,6 +15,11 @@ pub const CollisionMeshHandle = enum(u32) {
     _,
 };
 
+pub const HeightFieldHandle = enum(u32) {
+    invalid = 0,
+    _,
+};
+
 pub const CompoundShapeHandle = enum(u32) {
     invalid = 0,
     _,
@@ -26,6 +31,7 @@ pub const Shape = union(enum) {
     Box: struct { half_extents: common.Vec3 },
     Cylinder: struct { radius: f32, half_height: f32 },
     TriangleMesh: CollisionMeshHandle,
+    HeightField: HeightFieldHandle,
     Compound: CompoundShapeHandle,
 };
 
