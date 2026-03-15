@@ -23,6 +23,8 @@ pub const Pipeline = backend.Pipeline;
 pub const Shader = backend.Shader;
 pub const BackendMaterial = backend.Material;
 pub const Material = mesh.Material;
+pub const SceneMaterial = mesh.SceneMaterial;
+pub const SceneTexture = mesh.SceneTexture;
 pub const MaterialInstance = struct {
     material: BackendMaterial,
 

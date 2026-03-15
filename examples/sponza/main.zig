@@ -8,6 +8,7 @@ const PlayerCamera = struct {};
 const SceneReady = struct {};
 const SceneRoot = struct {};
 const StatusTextTag = struct {};
+const LightingReady = struct {};
 const SceneSpawnPlan = struct {
     scene_size: Vec3,
 };
@@ -30,6 +31,17 @@ const SceneBake = struct {
 const SpawnChoice = struct {
     position: Vec3,
     yaw: f32,
+};
+
+const AnimatedLight = struct {
+    center: Vec3,
+    orbit_radius: f32 = 0.0,
+    angular_speed: f32 = 0.0,
+    phase: f32 = 0.0,
+    base_height: f32,
+    pulse_base: f32,
+    pulse_amplitude: f32 = 0.0,
+    pulse_speed: f32 = 0.0,
 };
 
 const SceneBounds = struct {
@@ -84,6 +96,7 @@ const App = struct {
     pub fn configure(app: *ecs.App) !void {
         try platform.installDefaultModules(app);
         try app.installModule(modules.ParentModule);
+        try app.installModule(modules.LightingModule);
         try app.installModule(physics.PhysicsModule{
             .config = .{
                 .backend = .Jolt,
@@ -103,9 +116,12 @@ const App = struct {
         try app.addSystemTo("BeforeFrame", ensureStatusOverlay);
         try app.addSystemTo("Startup", setupScene);
         try app.addSystemTo("BeforeFrame", setupScene);
+        try app.addSystemTo("Startup", setupLighting);
+        try app.addSystemTo("BeforeFrame", setupLighting);
         try app.addSystemTo("Update", spawnPlayerFromCollision);
         try app.addSystemTo("Update", updateMouseCaptureToggle);
         try app.addSystemTo("Update", updatePlayerCamera);
+        try app.addSystemTo("Update", animateLights);
         try app.addSystemTo("Update", updateStatusOverlay);
         try app.addSystemTo("Shutdown", unloadImportedScene);
     }
@@ -327,6 +343,7 @@ fn updateStatusOverlay(
     spawn_plan: ResOpt(SceneSpawnPlan),
     scene_metrics: ResOpt(SceneMetrics),
     imported: ResOpt(assets.ImportedScene),
+    lighting_stats: ResOpt(lighting.AuthoringStats),
     overlay: ResMut(StatusOverlay),
     texts: Query(.{ render.Text, Transform, StatusTextTag }),
 ) void {
@@ -362,9 +379,10 @@ fn updateStatusOverlay(
     else blk: {
         const imported_scene = imported.ptr orelse break :blk "Sponza: ready";
         const scene_size = if (scene_metrics.ptr) |metrics| metrics.scene_size else imported_scene.bounds.size();
+        const light_stats = if (lighting_stats.ptr) |stats| stats.* else lighting.AuthoringStats{};
         break :blk std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nWASD move, mouse look, Space jump\n{s}\nScene: {d} meshes  {d:.1}m x {d:.1}m x {d:.1}m",
+            "Sponza {c}  stage {s}\nWASD move, mouse look, Space jump\n{s}\nScene: {d} meshes  {d:.1}m x {d:.1}m x {d:.1}m\nLights: {d} total  {d} dynamic  {d} point  {d} spot",
             .{
                 spinner,
                 phase,
@@ -373,6 +391,10 @@ fn updateStatusOverlay(
                 scene_size.x,
                 scene_size.y,
                 scene_size.z,
+                light_stats.total_lights,
+                light_stats.dynamic_lights,
+                light_stats.point_lights,
+                light_stats.spot_lights,
             },
         ) catch "Sponza: ready";
     };
@@ -396,7 +418,176 @@ fn unloadImportedScene(commands: *ecs.Commands) void {
     _ = commands.removeResource(SceneReady);
     _ = commands.removeResource(SceneSpawnPlan);
     _ = commands.removeResource(SceneMetrics);
+    _ = commands.removeResource(LightingReady);
     _ = commands.removeResource(StatusOverlay);
+}
+
+fn setupLighting(
+    commands: *ecs.Commands,
+    scene_ready: ResOpt(SceneReady),
+    scene_metrics: ResOpt(SceneMetrics),
+) !void {
+    if (commands.hasResource(LightingReady)) return;
+    if (scene_ready.ptr == null) return;
+
+    const scene_size = if (scene_metrics.ptr) |metrics|
+        metrics.scene_size
+    else
+        Vec3{ .x = 40.0, .y = 20.0, .z = 40.0 };
+
+    try commands.insertResource(lighting.AmbientLight{
+        .color = .{ .r = 0.65, .g = 0.68, .b = 0.74, .a = 1.0 },
+        .intensity = 0.025,
+    });
+
+    _ = try commands.createEntity(.{
+        Transform{
+            .translation = .{
+                .x = 0.0,
+                .y = scene_size.y * 0.65,
+                .z = 0.0,
+            },
+            .rotation = quatFromEuler(-0.95, 0.65, 0.0),
+        },
+        lighting.Light{ .directional = .{
+            .color = .{ .r = 1.0, .g = 0.95, .b = 0.86, .a = 1.0 },
+            .illuminance_lux = 16000.0,
+        } },
+        lighting.LightVisibility{
+            .enabled = true,
+            .casts_shadows = false,
+            .is_static = true,
+        },
+    });
+
+    const point_positions = [_]struct {
+        pos: Vec3,
+        color: Color.F32,
+        intensity: f32,
+        range: f32,
+        dynamic: bool,
+    }{
+        .{ .pos = .{ .x = -scene_size.x * 0.18, .y = 2.8, .z = scene_size.z * 0.18 }, .color = .{ .r = 1.0, .g = 0.42, .b = 0.28, .a = 1.0 }, .intensity = 1400.0, .range = 10.0, .dynamic = false },
+        .{ .pos = .{ .x = scene_size.x * 0.18, .y = 2.8, .z = scene_size.z * 0.18 }, .color = .{ .r = 0.22, .g = 0.75, .b = 1.0, .a = 1.0 }, .intensity = 1250.0, .range = 10.5, .dynamic = false },
+        .{ .pos = .{ .x = -scene_size.x * 0.2, .y = 3.2, .z = -scene_size.z * 0.16 }, .color = .{ .r = 0.82, .g = 0.34, .b = 1.0, .a = 1.0 }, .intensity = 1600.0, .range = 11.5, .dynamic = true },
+        .{ .pos = .{ .x = scene_size.x * 0.2, .y = 3.2, .z = -scene_size.z * 0.16 }, .color = .{ .r = 0.24, .g = 1.0, .b = 0.66, .a = 1.0 }, .intensity = 1500.0, .range = 11.5, .dynamic = true },
+        .{ .pos = .{ .x = 0.0, .y = 4.4, .z = 0.0 }, .color = .{ .r = 1.0, .g = 0.8, .b = 0.3, .a = 1.0 }, .intensity = 1900.0, .range = 13.0, .dynamic = false },
+        .{ .pos = .{ .x = 0.0, .y = 2.6, .z = -scene_size.z * 0.26 }, .color = .{ .r = 0.3, .g = 0.55, .b = 1.0, .a = 1.0 }, .intensity = 1350.0, .range = 9.5, .dynamic = false },
+    };
+
+    for (point_positions, 0..) |spec, i| {
+        const entity = try commands.createEntity(.{
+            Transform{
+                .translation = spec.pos,
+            },
+            lighting.Light{ .point = .{
+                .color = spec.color,
+                .intensity_candela = spec.intensity,
+                .range = spec.range,
+                .radius = 0.1,
+            } },
+            lighting.LightVisibility{
+                .enabled = true,
+                .casts_shadows = false,
+                .is_static = !spec.dynamic,
+            },
+        });
+
+        if (!spec.dynamic) continue;
+        try commands.addComponent(entity, AnimatedLight{
+            .center = spec.pos,
+            .orbit_radius = 0.8 + @as(f32, @floatFromInt(i)) * 0.15,
+            .angular_speed = 0.22 + @as(f32, @floatFromInt(i)) * 0.04,
+            .phase = @as(f32, @floatFromInt(i)) * 0.9,
+            .base_height = spec.pos.y,
+            .pulse_base = spec.intensity,
+            .pulse_amplitude = spec.intensity * 0.3,
+            .pulse_speed = 1.2 + @as(f32, @floatFromInt(i)) * 0.15,
+        });
+    }
+
+    _ = try commands.createEntity(.{
+        Transform{
+            .translation = .{ .x = -scene_size.x * 0.12, .y = 5.8, .z = scene_size.z * 0.04 },
+            .rotation = quatFromEuler(-0.55, 0.8, 0.0),
+        },
+        lighting.Light{ .spot = .{
+            .color = .{ .r = 1.0, .g = 0.88, .b = 0.7, .a = 1.0 },
+            .intensity_candela = 2400.0,
+            .range = 22.0,
+            .inner_angle_rad = 0.24,
+            .outer_angle_rad = 0.42,
+            .radius = 0.08,
+        } },
+        lighting.LightVisibility{
+            .enabled = true,
+            .casts_shadows = false,
+            .is_static = true,
+        },
+    });
+
+    const moving_spot = try commands.createEntity(.{
+        Transform{
+            .translation = .{ .x = scene_size.x * 0.14, .y = 5.0, .z = -scene_size.z * 0.02 },
+            .rotation = quatFromEuler(-0.5, -0.9, 0.0),
+        },
+        lighting.Light{ .spot = .{
+            .color = .{ .r = 0.55, .g = 0.8, .b = 1.0, .a = 1.0 },
+            .intensity_candela = 2100.0,
+            .range = 20.0,
+            .inner_angle_rad = 0.22,
+            .outer_angle_rad = 0.38,
+            .radius = 0.08,
+        } },
+        lighting.LightVisibility{
+            .enabled = true,
+            .casts_shadows = false,
+            .is_static = false,
+        },
+    });
+    try commands.addComponent(moving_spot, AnimatedLight{
+        .center = .{ .x = scene_size.x * 0.14, .y = 5.0, .z = -scene_size.z * 0.02 },
+        .orbit_radius = 1.2,
+        .angular_speed = -0.18,
+        .phase = 0.4,
+        .base_height = 5.0,
+        .pulse_base = 2100.0,
+        .pulse_amplitude = 320.0,
+        .pulse_speed = 0.9,
+    });
+
+    try commands.insertResource(LightingReady{});
+}
+
+fn animateLights(
+    elapsed: Res(ElapsedTime),
+    animated_lights: Query(.{ Transform, lighting.Light, AnimatedLight }),
+) void {
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
+
+    var it = animated_lights.iterator();
+    while (it.next()) |row| {
+        const transform = row.get(Transform) orelse continue;
+        const light = row.get(lighting.Light) orelse continue;
+        const motion = row.get(AnimatedLight) orelse continue;
+
+        const orbit_phase = t * motion.angular_speed + motion.phase;
+        transform.translation = .{
+            .x = motion.center.x + std.math.cos(orbit_phase) * motion.orbit_radius,
+            .y = motion.base_height + std.math.sin(orbit_phase * 0.7) * 0.35,
+            .z = motion.center.z + std.math.sin(orbit_phase) * motion.orbit_radius,
+        };
+
+        const pulse = motion.pulse_base + motion.pulse_amplitude * (0.5 + 0.5 * std.math.sin(t * motion.pulse_speed + motion.phase));
+        switch (light.*) {
+            .point => |*point| point.intensity_candela = pulse,
+            .spot => |*spot| {
+                spot.intensity_candela = pulse;
+                transform.rotation = quatFromEuler(-0.45, -orbit_phase - std.math.pi * 0.5, 0.0);
+            },
+            .directional => {},
+        }
+    }
 }
 
 fn findSpawnPoint(world: *physics.BackendWorld, scene_size: Vec3, controller: FpsController) ?SpawnChoice {
@@ -848,6 +1039,7 @@ const Assets = struct {
 const ecs = phasor.ecs;
 const assets = phasor.assets;
 const common = phasor.common;
+const lighting = phasor.lighting;
 const modules = phasor.modules;
 const physics = phasor.physics;
 const platform = phasor.platform;

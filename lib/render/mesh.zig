@@ -54,12 +54,44 @@ pub const MeshInstance = struct {
     mesh_handle: MeshHandle = MeshHandle.invalid(),
     color: common.Color = common.Color.WHITE,
     material: Material = Material.default,
+    scene_material: SceneMaterial = .{},
 
     pub const default: MeshInstance = .{
         .mesh_handle = MeshHandle.invalid(),
         .color = common.Color.WHITE,
         .material = Material.default,
+        .scene_material = .{},
     };
+};
+
+pub const SceneTexture = struct {
+    texture_handle: TextureHandle = TextureHandle.invalid(),
+    texcoord_set: u32 = 0,
+
+    pub const default: SceneTexture = .{};
+
+    pub fn isValid(self: SceneTexture) bool {
+        return self.texture_handle.isValid();
+    }
+};
+
+pub const SceneMaterial = struct {
+    base_color_factor: common.Color.F32 = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+    emissive_factor: common.Color.F32 = .{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 },
+    metallic_factor: f32 = 1.0,
+    roughness_factor: f32 = 1.0,
+    normal_scale: f32 = 1.0,
+    occlusion_strength: f32 = 1.0,
+    alpha_cutoff: f32 = 0.5,
+    alpha_mode: Material.AlphaMode = .Opaque,
+    double_sided: bool = false,
+    base_color_texture: SceneTexture = .{},
+    metallic_roughness_texture: SceneTexture = .{},
+    normal_texture: SceneTexture = .{},
+    occlusion_texture: SceneTexture = .{},
+    emissive_texture: SceneTexture = .{},
+
+    pub const default: SceneMaterial = .{};
 };
 
 pub const Material = struct {

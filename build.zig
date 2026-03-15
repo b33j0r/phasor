@@ -25,6 +25,9 @@ pub fn build(b: *std.Build) void {
         .common = common.module,
         .ecs = ecs.module,
     });
+    const lighting = LightingModuleLib.build(&ctx, .{
+        .common = common.module,
+    });
     const metrics = MetricsModule.build(&ctx, .{
         .common = common.module,
     });
@@ -58,6 +61,7 @@ pub fn build(b: *std.Build) void {
         .db = db.module,
         .ecs = ecs.module,
         .physics = physics.module,
+        .lighting = lighting.module,
         .gui = gui.module,
         .assets = assets.module,
         .audio = audio.module,
@@ -84,6 +88,7 @@ pub fn build(b: *std.Build) void {
         .graph = graph.module,
         .metrics = metrics.module,
         .physics = physics.module,
+        .lighting = lighting.module,
         .modules = modules.module,
         .platform = platform.module,
         .renderer = renderer.module,
@@ -137,6 +142,7 @@ pub fn build(b: *std.Build) void {
             ecs.tests,
             graph.tests,
             physics.tests,
+            lighting.tests,
             stb.tests,
             stb_image.tests,
             cgltf.tests,
@@ -157,6 +163,7 @@ pub fn build(b: *std.Build) void {
             ecs.tests,
             graph.tests,
             physics.tests,
+            lighting.tests,
             glfw.?.tests,
             stb.tests,
             stb_image.tests,
@@ -634,6 +641,7 @@ const ModulesModule = struct {
         db: *std.Build.Module,
         ecs: *std.Build.Module,
         physics: *std.Build.Module,
+        lighting: *std.Build.Module,
         gui: *std.Build.Module,
         assets: *std.Build.Module,
         audio: *std.Build.Module,
@@ -653,6 +661,7 @@ const ModulesModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "physics", .module = deps.physics }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "lighting", .module = deps.lighting }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "gui", .module = deps.gui }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
@@ -688,6 +697,7 @@ const PhasorModule = struct {
         graph: *std.Build.Module,
         metrics: *std.Build.Module,
         physics: *std.Build.Module,
+        lighting: *std.Build.Module,
         modules: *std.Build.Module,
         platform: *std.Build.Module,
         renderer: *std.Build.Module,
@@ -709,6 +719,7 @@ const PhasorModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "graph", .module = deps.graph }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "physics", .module = deps.physics }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "lighting", .module = deps.lighting }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "platform", .module = deps.platform }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
@@ -768,6 +779,22 @@ const RenderModule = struct {
             bundle.module.linkFramework("Metal", .{});
         }
 
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
+const LightingModuleLib = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    const Deps = struct {
+        common: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) LightingModuleLib {
+        const bundle = ctx.moduleBundle("lib/lighting/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
+        });
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -1135,6 +1162,14 @@ fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module) void {
             .{ .name = "common", .module = wasm_common },
         },
     });
+    const wasm_lighting = ctx.b.createModule(.{
+        .root_source_file = ctx.b.path("lib/lighting/root.zig"),
+        .target = wasm_target,
+        .optimize = ctx.optimize,
+        .imports = &.{
+            .{ .name = "common", .module = wasm_common },
+        },
+    });
     const wasm_physics = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("lib/physics/root.zig"),
         .target = wasm_target,
@@ -1242,6 +1277,7 @@ fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module) void {
             .{ .name = "db", .module = wasm_db },
             .{ .name = "ecs", .module = wasm_ecs },
             .{ .name = "physics", .module = wasm_physics },
+            .{ .name = "lighting", .module = wasm_lighting },
             .{ .name = "gui", .module = wasm_gui },
             .{ .name = "assets", .module = wasm_assets },
             .{ .name = "audio", .module = wasm_audio },
@@ -1274,6 +1310,7 @@ fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module) void {
             .{ .name = "graph", .module = wasm_graph },
             .{ .name = "metrics", .module = wasm_metrics },
             .{ .name = "physics", .module = wasm_physics },
+            .{ .name = "lighting", .module = wasm_lighting },
             .{ .name = "modules", .module = wasm_modules },
             .{ .name = "platform", .module = wasm_platform },
             .{ .name = "render", .module = wasm_render },

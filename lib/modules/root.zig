@@ -6,6 +6,8 @@ test "import tests" {
     _ = TimeModule;
     _ = TimerModule;
     _ = RenderModule;
+    _ = lighting;
+    _ = LightingModule;
     _ = LayoutModule;
     _ = ParentModule;
     _ = GuiModule;
@@ -41,6 +43,8 @@ pub const withSort = @import("MetricsModule.zig").withSort;
 pub const TimeModule = @import("TimeModule.zig");
 pub const TimerModule = @import("TimerModule.zig");
 pub const RenderModule = @import("RenderModule.zig");
+pub const lighting = @import("lighting");
+pub const LightingModule = @import("LightingModule.zig");
 pub const LayoutModule = @import("LayoutModule.zig");
 pub const ParentModule = @import("ParentModule.zig");
 pub const GuiModule = @import("GuiModule.zig");
