@@ -109,6 +109,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), r
             .kind = .Dynamic,
             .linear_damping = 0.0,
             .angular_damping = 0.0,
+            .allow_sleep = false,
         },
         physics.Collider{
             .shape = .{ .Capsule = .{
@@ -116,6 +117,10 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), r
                 .half_height = FpsPhysics.capsuleHalfHeight(.{}),
             } },
             .material = .{ .friction = 0.0, .restitution = 0.0 },
+            .collision = .{
+                .layer = 1,
+                .mask = 1 << 0,
+            },
             .density = 65.0,
         },
         physics.Velocity{},
@@ -547,6 +552,10 @@ fn addStaticCollider(commands: *ecs.Commands, center: Vec3, half: Vec3) !void {
         physics.Collider{
             .shape = .{ .Box = .{ .half_extents = half } },
             .material = .{ .friction = 0.85, .restitution = 0.0 },
+            .collision = .{
+                .layer = 0,
+                .mask = 0xffff_ffff,
+            },
         },
     });
 }

@@ -70,7 +70,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             mouse_opt: ResOpt(InputModule.Mouse),
             settings: Res(FpsPhysicsSettings),
             world: ResMut(physics.BackendWorld),
-            query: Query(.{ common.Transform, FpsController, physics.Velocity, ControlledTag }),
+            query: Query(.{ common.Transform, FpsController, physics.Velocity, physics.Collider, ControlledTag }),
         ) void {
             const keyboard = keyboard_opt.ptr;
             const mouse = mouse_opt.ptr;
@@ -83,6 +83,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                 const transform = row.get(common.Transform) orelse continue;
                 const controller = row.get(FpsController) orelse continue;
                 const velocity = row.get(physics.Velocity) orelse continue;
+                const collider = row.get(physics.Collider) orelse continue;
 
                 var yaw_delta: f32 = 0.0;
                 var pitch_delta: f32 = 0.0;
@@ -125,11 +126,17 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                     velocity.linear.z = 0.0;
                 }
 
-                const ground_distance = controller.radius + capsuleHalfHeight(controller.*) + controller.ground_probe_distance;
+                const feet_origin = transform.translation.add(.{
+                    .x = 0.0,
+                    .y = -capsuleHalfHeight(controller.*),
+                    .z = 0.0,
+                });
+                const ground_distance = controller.radius + controller.ground_probe_distance;
                 const ray = physics.RayCast{
-                    .origin = transform.translation,
+                    .origin = feet_origin,
                     .direction = .{ .x = 0.0, .y = -1.0, .z = 0.0 },
                     .max_distance = ground_distance,
+                    .collision = collider.collision,
                 };
                 const ground_hit = world.ptr.castRay(ray);
                 controller.grounded = if (ground_hit) |hit|
