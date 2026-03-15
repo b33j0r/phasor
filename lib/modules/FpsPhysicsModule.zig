@@ -125,7 +125,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                     velocity.linear.z = 0.0;
                 }
 
-                const ground_distance = controller.radius + capsuleHalfHeight(controller) + controller.ground_probe_distance;
+                const ground_distance = controller.radius + capsuleHalfHeight(controller.*) + controller.ground_probe_distance;
                 const ray = physics.RayCast{
                     .origin = transform.translation,
                     .direction = .{ .x = 0.0, .y = -1.0, .z = 0.0 },
