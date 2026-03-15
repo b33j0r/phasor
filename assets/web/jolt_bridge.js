@@ -359,14 +359,9 @@ export function createJoltEnv(getMemoryView) {
     return world;
   }
 
-  function setCollisionMask(world, objectLayer, mask) {
-    if (objectLayer >= kMaxLayers) return;
-    for (let other = 0; other < kMaxLayers; other += 1) {
-      if ((mask & (1 << other)) !== 0) {
-        world.objectLayerPairFilter.EnableCollision(objectLayer, other);
-        world.objectLayerPairFilter.EnableCollision(other, objectLayer);
-      }
-    }
+  function encodeObjectLayer(world, objectLayer, mask) {
+    const group = 1 << (objectLayer & 31);
+    return world.objectLayerPairFilter.sGetObjectLayer(group >>> 0, mask >>> 0);
   }
 
   function destroyWorld(world) {
@@ -412,23 +407,16 @@ export function createJoltEnv(getMemoryView) {
       const maxContactConstraints = readU32(configPtr + 20);
       const maxJobs = readU32(configPtr + 28);
 
-      const broadPhaseLayerInterface = new Jolt.BroadPhaseLayerInterfaceTable(kMaxLayers, kMaxLayers);
-      for (let i = 0; i < kMaxLayers; i += 1) {
-        const layer = new Jolt.BroadPhaseLayer(i);
-        try {
-          broadPhaseLayerInterface.MapObjectToBroadPhaseLayer(i, layer);
-        } finally {
-          Jolt.destroy(layer);
-        }
+      const broadPhaseLayerInterface = new Jolt.BroadPhaseLayerInterfaceMask(1);
+      const broadPhaseLayer = new Jolt.BroadPhaseLayer(0);
+      try {
+        broadPhaseLayerInterface.ConfigureLayer(broadPhaseLayer, 0xffff_ffff, 0);
+      } finally {
+        Jolt.destroy(broadPhaseLayer);
       }
 
-      const objectLayerPairFilter = new Jolt.ObjectLayerPairFilterTable(kMaxLayers);
-      const objectVsBroadPhaseLayerFilter = new Jolt.ObjectVsBroadPhaseLayerFilterTable(
-        broadPhaseLayerInterface,
-        kMaxLayers,
-        objectLayerPairFilter,
-        kMaxLayers,
-      );
+      const objectLayerPairFilter = new Jolt.ObjectLayerPairFilterMask();
+      const objectVsBroadPhaseLayerFilter = new Jolt.ObjectVsBroadPhaseLayerFilterMask(broadPhaseLayerInterface);
       const settings = new Jolt.JoltSettings();
       settings.mMaxBodies = maxBodies > 0 ? maxBodies : 65536;
       settings.mMaxBodyPairs = maxBodyPairs > 0 ? maxBodyPairs : 65536;
@@ -525,12 +513,13 @@ export function createJoltEnv(getMemoryView) {
       const angularVelocity = joltVec3(desc.angular_velocity);
 
       try {
+        const objectLayer = encodeObjectLayer(world, desc.object_layer, desc.collision_mask);
         const settings = new Jolt.BodyCreationSettings(
           shape,
           position,
           rotation,
           motionType,
-          desc.object_layer,
+          objectLayer,
         );
         try {
           settings.mLinearVelocity = linearVelocity;
@@ -565,9 +554,6 @@ export function createJoltEnv(getMemoryView) {
           ) {
             return 0;
           }
-
-          setCollisionMask(world, desc.object_layer, desc.collision_mask);
-
           const activation =
             motionType === Jolt.EMotionType_Static ? Jolt.EActivation_DontActivate : Jolt.EActivation_Activate;
           const bodyId = world.bodyInterface.CreateAndAddBody(settings, activation);
@@ -707,21 +693,15 @@ export function createJoltEnv(getMemoryView) {
       const ray = new Jolt.RRayCast(origin, direction);
       const settings = new Jolt.RayCastSettings();
       const collector = new Jolt.CastRayClosestHitCollisionCollector();
+      const sourceObjectLayer = encodeObjectLayer(world, sourceLayer >>> 0, collisionMask >>> 0);
       const broadPhaseFilter = new Jolt.DefaultBroadPhaseLayerFilter(
         world.objectVsBroadPhaseLayerFilter,
-        sourceLayer >>> 0,
+        sourceObjectLayer,
       );
-      class MaskObjectLayerFilter extends Jolt.ObjectLayerFilterJS {
-        constructor(mask) {
-          super();
-          this.mask = mask >>> 0;
-        }
-        ShouldCollide(layer) {
-          if (layer >= 32) return false;
-          return (this.mask & (1 << layer)) !== 0;
-        }
-      }
-      const objectLayerFilter = new MaskObjectLayerFilter(collisionMask >>> 0);
+      const objectLayerFilter = new Jolt.DefaultObjectLayerFilter(
+        world.objectLayerPairFilter,
+        sourceObjectLayer,
+      );
       const bodyFilter = new Jolt.BodyFilter();
       const shapeFilter = new Jolt.ShapeFilter();
       let didHit = false;
