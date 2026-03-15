@@ -1,3 +1,5 @@
+import { createJoltEnv } from "./jolt_bridge.js";
+
 const debugParams = new URLSearchParams(window.location.search);
 const phasorDebug = {
   lifecycleLogs: debugParams.has("phasor_debug_lifecycle"),
@@ -85,6 +87,7 @@ const soundBuffers = new Map();
 const activeSounds = new Map();
 let nextSoundId = 1;
 let nextSoundHandle = 1;
+const joltEnv = createJoltEnv(() => getMemoryView());
 
 const textDecoder = new TextDecoder("utf-8");
 
@@ -1208,6 +1211,7 @@ const wasi = new Proxy(wasiBase, {
 const imports = {
   wasi_snapshot_preview1: wasi,
   env: {
+    ...joltEnv.imports,
     wasm_memory_bytes() {
       if (!memory) return 0;
       return memory.buffer.byteLength;
@@ -1866,6 +1870,14 @@ async function start() {
   const result = await WebAssembly.instantiate(bytes, imports);
   wasm = result.instance;
   memory = wasm.exports.memory;
+
+  try {
+    await joltEnv.init();
+  } catch (err) {
+    document.querySelector(".hint").textContent = "WebGPU: Jolt init failed";
+    console.error("[phasor] jolt init failed", err);
+    return;
+  }
 
   if (phasorDebug.lifecycleLogs) {
     console.log("[phasor] exports", Object.keys(wasm.exports));

@@ -958,6 +958,12 @@ fn addWasmExample(
     const install_wasm = ctx.b.addInstallFile(wasm_exe.getEmittedBin(), ctx.b.fmt("{s}/app.wasm", .{web_dir}));
     const install_html = ctx.b.addInstallFile(ctx.b.path("assets/web/index.html"), ctx.b.fmt("{s}/index.html", .{web_dir}));
     const install_js = ctx.b.addInstallFile(ctx.b.path("assets/web/webgpu.js"), ctx.b.fmt("{s}/webgpu.js", .{web_dir}));
+    const install_jolt_bridge = ctx.b.addInstallFile(ctx.b.path("assets/web/jolt_bridge.js"), ctx.b.fmt("{s}/jolt_bridge.js", .{web_dir}));
+    const install_vendor = ctx.b.addInstallDirectory(.{
+        .source_dir = ctx.b.path("assets/web/vendor"),
+        .install_dir = .prefix,
+        .install_subdir = ctx.b.fmt("{s}/vendor", .{web_dir}),
+    });
     const install_favicon = ctx.b.addInstallFile(ctx.b.path("assets/web/favicon.svg"), ctx.b.fmt("{s}/favicon.svg", .{web_dir}));
     const install_triangle_shader = ctx.b.addInstallFile(
         ctx.b.path("lib/render/shaders/triangle.wgsl"),
@@ -984,6 +990,8 @@ fn addWasmExample(
     web_step.dependOn(&install_wasm.step);
     web_step.dependOn(&install_html.step);
     web_step.dependOn(&install_js.step);
+    web_step.dependOn(&install_jolt_bridge.step);
+    web_step.dependOn(&install_vendor.step);
     web_step.dependOn(&install_favicon.step);
     web_step.dependOn(&install_triangle_shader.step);
     web_step.dependOn(&install_quad_shader.step);
@@ -1004,6 +1012,8 @@ fn addWasmExample(
     run_server.step.dependOn(&install_wasm.step);
     run_server.step.dependOn(&install_html.step);
     run_server.step.dependOn(&install_js.step);
+    run_server.step.dependOn(&install_jolt_bridge.step);
+    run_server.step.dependOn(&install_vendor.step);
     run_server.step.dependOn(&install_favicon.step);
     run_server.step.dependOn(&install_triangle_shader.step);
     run_server.step.dependOn(&install_quad_shader.step);
@@ -1026,6 +1036,8 @@ fn addWasmExample(
     run_server_https.step.dependOn(&install_wasm.step);
     run_server_https.step.dependOn(&install_html.step);
     run_server_https.step.dependOn(&install_js.step);
+    run_server_https.step.dependOn(&install_jolt_bridge.step);
+    run_server_https.step.dependOn(&install_vendor.step);
     run_server_https.step.dependOn(&install_favicon.step);
     run_server_https.step.dependOn(&install_triangle_shader.step);
     run_server_https.step.dependOn(&install_quad_shader.step);

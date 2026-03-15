@@ -15,12 +15,6 @@ const SpawnState = struct {
     }
 };
 
-const WasmBody = struct {
-    linear_velocity: Vec3,
-    angular_axis: Vec3,
-    angular_speed: f32,
-};
-
 const App = struct {
     pub const options = platform.Options{
         .window = .{
@@ -36,7 +30,7 @@ const App = struct {
         try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(physics.PhysicsModule{
             .config = .{
-                .backend = if (is_wasm) .Null else .Jolt,
+                .backend = .Jolt,
                 .fixed_dt = 1.0 / 60.0,
                 .max_substeps = 8,
                 .gravity = .{ .x = 0.0, .y = -9.81, .z = 0.0 },
@@ -49,9 +43,6 @@ const App = struct {
 
         try app.addSystemTo("Startup", setupScene);
         try app.addSystemTo("Update", spawnCubes);
-        if (is_wasm) {
-            try app.addSystemTo("Update", simulateWasmBodies);
-        }
     }
 };
 
@@ -78,9 +69,8 @@ fn setupScene(commands: *ecs.Commands, demo_assets: Res(Assets)) !void {
     try commands.insertResource(ClearColor{ .color = Color.rgb(18, 24, 34) });
 
     std.log.info(
-        "physics cubes demo: backend={s} count={d} rate={d:.2} cubes/s gravity={d:.2} m/s^2",
+        "physics cubes demo: backend=jolt count={d} rate={d:.2} cubes/s gravity={d:.2} m/s^2",
         .{
-            if (is_wasm) "wasm-fallback" else "jolt",
             g_demo_config.cube_count,
             g_demo_config.cubes_per_second,
             9.81,
@@ -153,19 +143,9 @@ fn spawnCube(commands: *ecs.Commands, spawn_state: *SpawnState, demo_assets: *co
         .y = layer_y,
         .z = (rand.float(f32) - 0.5) * 3.5,
     };
-    const angular_axis = (Vec3{
-        .x = rand.float(f32) * 2.0 - 1.0,
-        .y = rand.float(f32) * 2.0 - 1.0,
-        .z = rand.float(f32) * 2.0 - 1.0,
-    }).normalize();
-    const linear_velocity = Vec3{
-        .x = (rand.float(f32) - 0.5) * 1.6,
-        .y = 0.0,
-        .z = (rand.float(f32) - 0.5) * 1.6,
-    };
     const color = cube_palette[@intCast(spawn_state.spawned % cube_palette.len)];
 
-    const base = .{
+    _ = try commands.createEntity(.{
         Transform{
             .translation = spawn_position,
             .scale = Vec3.splat(0.5),
@@ -191,50 +171,9 @@ fn spawnCube(commands: *ecs.Commands, spawn_state: *SpawnState, demo_assets: *co
             .mode = .Explicit,
             .mass = 12.0,
         },
-    };
-
-    if (is_wasm) {
-        _ = try commands.createEntity(base ++ .{WasmBody{
-            .linear_velocity = linear_velocity,
-            .angular_axis = angular_axis,
-            .angular_speed = 1.2 + rand.float(f32) * 1.8,
-        }});
-    } else {
-        _ = try commands.createEntity(base);
-    }
+    });
 
     spawn_state.spawned += 1;
-}
-
-fn simulateWasmBodies(dt: Res(DeltaTime), query: Query(.{ Transform, WasmBody })) void {
-    const step: f32 = @floatCast(dt.deref().seconds);
-    const gravity = physics.units.MetersPerSecondSquared.from(9.81).value;
-    const floor_y = physics.units.Meters.from(0.5).value;
-    var it = query.iterator();
-    while (it.next()) |row| {
-        const transform = row.get(Transform) orelse continue;
-        const body = row.get(WasmBody) orelse continue;
-
-        body.linear_velocity.y -= gravity * step;
-        transform.translation.x += body.linear_velocity.x * step;
-        transform.translation.y += body.linear_velocity.y * step;
-        transform.translation.z += body.linear_velocity.z * step;
-
-        if (transform.translation.y < floor_y) {
-            transform.translation.y = floor_y;
-            body.linear_velocity.x *= 0.985;
-            body.linear_velocity.z *= 0.985;
-            if (@abs(body.linear_velocity.y) < 0.35) {
-                body.linear_velocity.y = 0.0;
-            } else {
-                body.linear_velocity.y *= -0.28;
-            }
-        }
-
-        const angle = body.angular_speed * step;
-        const spin = Quat.fromAxisAngle(body.angular_axis, angle);
-        transform.rotation = spin.mul(transform.rotation).normalize();
-    }
 }
 
 fn parseArgs(init: std.process.Init, out: *DemoConfig) !bool {
@@ -354,7 +293,6 @@ const platform = phasor.platform;
 
 const DeltaTime = modules.TimeModule.DeltaTime;
 const system_params = ecs.system_params;
-const Query = system_params.Query;
 const Res = system_params.Res;
 const ResMut = system_params.ResMut;
 
