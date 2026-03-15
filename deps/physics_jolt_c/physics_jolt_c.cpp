@@ -24,6 +24,7 @@
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/BackFaceMode.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
@@ -244,6 +245,9 @@ bool make_shape(
             IndexedTriangleList triangles;
             triangles.reserve(mesh_index_count / 3);
             for (uint32_t i = 0; i + 2 < mesh_index_count; i += 3) {
+                if (mesh_indices[i] >= mesh_vertex_count || mesh_indices[i + 1] >= mesh_vertex_count || mesh_indices[i + 2] >= mesh_vertex_count) {
+                    return false;
+                }
                 triangles.emplace_back(mesh_indices[i], mesh_indices[i + 1], mesh_indices[i + 2], 0);
             }
 
@@ -270,6 +274,7 @@ bool make_shape(
             );
             Shape::ShapeResult result = settings.Create();
             if (result.HasError()) {
+                std::printf("jolt heightfield shape create failed: %s\n", result.GetError().c_str());
                 return false;
             }
             out_shape = result.Get();
@@ -522,14 +527,20 @@ extern "C" bool pj_world_cast_ray(
 
     const Vec3 dir = to_vec3(direction);
     const RRayCast ray(to_rvec3(origin), dir.Normalized() * max_distance);
-    RayCastResult hit;
+    ClosestHitCollisionCollector<CastRayCollector> collector;
+    RayCastSettings settings;
+    settings.mBackFaceModeTriangles = EBackFaceMode::CollideWithBackFaces;
+    settings.mBackFaceModeConvex = EBackFaceMode::CollideWithBackFaces;
     MaskObjectLayerFilter object_filter(collision_mask);
-    const bool did_hit = world->physics_system.GetNarrowPhaseQuery().CastRay(ray, hit, {}, object_filter);
+    world->physics_system.GetNarrowPhaseQuery().CastRay(ray, settings, collector, {}, object_filter);
+    const bool did_hit = collector.HadHit();
 
     out_hit->hit = did_hit;
     if (!did_hit) {
         return true;
     }
+
+    const RayCastResult &hit = collector.mHit;
 
     const BodyLockRead lock(world->physics_system.GetBodyLockInterface(), hit.mBodyID);
     if (!lock.Succeeded()) {
@@ -571,6 +582,8 @@ extern "C" bool pj_world_cast_shape(
     const RShapeCast shape_cast = RShapeCast::sFromWorldTransform(shape.GetPtr(), Vec3::sReplicate(1.0f), start, to_vec3(translation));
     ShapeCastSettings settings;
     settings.mReturnDeepestPoint = true;
+    settings.mBackFaceModeTriangles = EBackFaceMode::CollideWithBackFaces;
+    settings.mBackFaceModeConvex = EBackFaceMode::CollideWithBackFaces;
 
     ClosestHitCollisionCollector<CastShapeCollector> collector;
     MaskBroadPhaseLayerFilter broad_phase_filter(collision_mask);

@@ -38,7 +38,10 @@ pub const Builder = struct {
             self.vertices.appendAssumeCapacity(.{ .position = position });
         }
 
-        try self.indices.appendSlice(self.allocator, triangle_indices);
+        try self.indices.ensureUnusedCapacity(self.allocator, triangle_indices.len);
+        for (triangle_indices) |index| {
+            self.indices.appendAssumeCapacity(first_vertex + index);
+        }
         try self.meshes.append(self.allocator, .{
             .first_vertex = first_vertex,
             .vertex_count = @intCast(positions.len),

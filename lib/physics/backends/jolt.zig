@@ -269,6 +269,9 @@ pub const State = struct {
         var mesh_vertices: ?[]const f32 = null;
         var mesh_indices: ?[]const u32 = null;
         var height_samples: ?[]const f32 = null;
+        var mesh_file: ?bake.mesh_formats.File = null;
+        defer if (mesh_file) |*file| file.deinit(self.allocator);
+        defer if (mesh_vertices) |value| self.allocator.free(value);
 
         switch (collider.shape) {
             .Sphere => |shape| {
@@ -294,11 +297,10 @@ pub const State = struct {
                 const store = commands.getResource(resources.CollisionMeshStore) orelse return null;
                 const asset = store.get(handle) orelse return null;
                 if (asset.blob.format != .PhysicsMeshV1) return null;
-                var file = bake.mesh_formats.parseAlloc(self.allocator, asset.blob.bytes) catch return null;
-                defer file.deinit(self.allocator);
+                mesh_file = bake.mesh_formats.parseAlloc(self.allocator, asset.blob.bytes) catch return null;
+                const file = &mesh_file.?;
 
                 var vertices = self.allocator.alloc(f32, file.vertices.len * 3) catch return null;
-                defer self.allocator.free(vertices);
                 for (file.vertices, 0..) |vertex, i| {
                     vertices[i * 3 + 0] = vertex.position.x;
                     vertices[i * 3 + 1] = vertex.position.y;
@@ -331,6 +333,26 @@ pub const State = struct {
             if (height_samples) |value| @intCast(value.len) else 0,
             &body_id,
         )) {
+            std.log.warn(
+                "jolt body create failed: entity={} shape={s} motion={s}",
+                .{
+                    entity_id,
+                    switch (collider.shape) {
+                        .Sphere => "sphere",
+                        .Capsule => "capsule",
+                        .Box => "box",
+                        .Cylinder => "cylinder",
+                        .TriangleMesh => "triangle_mesh",
+                        .HeightField => "height_field",
+                        .Compound => "compound",
+                    },
+                    switch (body.kind) {
+                        .Static => "static",
+                        .Dynamic => "dynamic",
+                        .Kinematic => "kinematic",
+                    },
+                },
+            );
             return null;
         }
         return body_id;
