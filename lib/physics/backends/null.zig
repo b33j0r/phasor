@@ -24,6 +24,7 @@ pub const State = struct {
         step_state.steps_last_frame = 0;
         stats.body_count = 0;
         stats.active_body_count = 0;
+        stats.character_count = 0;
         stats.contact_count = 0;
         stats.broadphase_pairs = 0;
         stats.step_ms = 0.0;

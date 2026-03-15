@@ -1,4 +1,5 @@
 const common = @import("common");
+const ecs = @import("ecs");
 
 pub const Material = struct {
     friction: f32 = 0.5,
@@ -100,7 +101,7 @@ pub const CharacterState = struct {
     ground_normal: common.Vec3 = .{},
     ground_velocity: common.Vec3 = .{},
     ground_body: ?BodyHandle = null,
-    ground_entity: ?u64 = null,
+    ground_entity: ?ecs.Entity.Id = null,
     max_hits_exceeded: bool = false,
 
     pub fn isSupported(self: @This()) bool {

@@ -5,7 +5,6 @@ pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 const Player = struct {};
 const PlayerCamera = struct {};
-const OverviewCamera = struct {};
 const SceneReady = struct {};
 const SceneRoot = struct {};
 const StatusTextTag = struct {};
@@ -15,11 +14,6 @@ const SceneSpawnPlan = struct {
 const SceneMetrics = struct {
     scene_size: Vec3,
 };
-const ActiveCameraMode = enum {
-    Overview,
-    Fps,
-};
-
 const FpsPhysics = modules.FpsPhysicsModule(Player);
 const FpsController = FpsPhysics.FpsController;
 
@@ -111,7 +105,6 @@ const App = struct {
         try app.addSystemTo("BeforeFrame", setupScene);
         try app.addSystemTo("Update", spawnPlayerFromCollision);
         try app.addSystemTo("Update", updateMouseCaptureToggle);
-        try app.addSystemTo("Update", updateCameraModeToggle);
         try app.addSystemTo("Update", updatePlayerCamera);
         try app.addSystemTo("Update", updateStatusOverlay);
         try app.addSystemTo("Shutdown", unloadImportedScene);
@@ -171,7 +164,6 @@ fn setupScene(
     const scene_size = bounds.size();
     try commands.insertResource(ClearColor{ .color = Color.rgb(8, 10, 14) });
     try commands.insertResource(MouseCapture{ .enabled = true });
-    try commands.insertResource(ActiveCameraMode.Fps);
 
     const root = try commands.createEntity(.{
         Transform{
@@ -206,24 +198,6 @@ fn setupScene(
     try commands.insertResource(SceneReady{});
 
     _ = try commands.createEntity(.{
-        OverviewCamera{},
-        Transform{
-            .translation = .{
-                .x = 0.0,
-                .y = 9.5,
-                .z = 18.0,
-            },
-            .rotation = Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, -0.42),
-        },
-        Camera3d{ .Perspective = .{
-            .fov = std.math.pi / 3.0,
-            .near = 0.05,
-            .far = 250.0,
-        } },
-        CameraLayer(1){},
-    });
-
-    _ = try commands.createEntity(.{
         Transform{},
         Camera3d{ .Viewport = .{ .mode = .TopLeft } },
         CameraLayer(1000){},
@@ -255,7 +229,7 @@ fn spawnPlayerFromCollision(
     const body_facing = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, spawn_choice.yaw);
     const camera_facing = quatFromEuler(controller.pitch, controller.yaw, 0.0);
 
-    std.log.info(
+    std.log.debug(
         "sponza spawn: pos=({d:.2}, {d:.2}, {d:.2}) yaw={d:.2} rad",
         .{ spawn.x, spawn.y, spawn.z, spawn_choice.yaw },
     );
@@ -318,41 +292,6 @@ fn updateMouseCaptureToggle(
     }
 }
 
-fn updateCameraModeToggle(
-    commands: *ecs.Commands,
-    keyboard_opt: ResOpt(Keyboard),
-    mode_opt: ResOpt(ActiveCameraMode),
-    overview_cameras: Query(.{ OverviewCamera }),
-    player_cameras: Query(.{ PlayerCamera }),
-) !void {
-    const keyboard = keyboard_opt.ptr orelse return;
-    if (!keyboard.isKeyPressed(.tab)) return;
-
-    const current = if (mode_opt.ptr) |mode| mode.* else ActiveCameraMode.Overview;
-    const next_mode: ActiveCameraMode = switch (current) {
-        .Overview => .Fps,
-        .Fps => .Overview,
-    };
-
-    var overview_it = overview_cameras.iterator();
-    while (overview_it.next()) |row| {
-        switch (next_mode) {
-            .Overview => commands.addComponent(row.entity_id, CameraLayer(0){}) catch {},
-            .Fps => commands.removeComponent(row.entity_id, CameraLayer(0)) catch {},
-        }
-    }
-
-    var player_it = player_cameras.iterator();
-    while (player_it.next()) |row| {
-        switch (next_mode) {
-            .Overview => commands.removeComponent(row.entity_id, CameraLayer(0)) catch {},
-            .Fps => commands.addComponent(row.entity_id, CameraLayer(0){}) catch {},
-        }
-    }
-
-    try commands.insertResource(next_mode);
-}
-
 fn updatePlayerCamera(
     players: Query(.{ Transform, FpsController, Player }),
     cameras: Query(.{ Transform, PlayerCamera }),
@@ -388,7 +327,6 @@ fn updateStatusOverlay(
     spawn_plan: ResOpt(SceneSpawnPlan),
     scene_metrics: ResOpt(SceneMetrics),
     imported: ResOpt(assets.ImportedScene),
-    camera_mode: ResOpt(ActiveCameraMode),
     overlay: ResMut(StatusOverlay),
     texts: Query(.{ render.Text, Transform, StatusTextTag }),
 ) void {
@@ -408,34 +346,29 @@ fn updateStatusOverlay(
             "mouse look: off (Enter captures)"
     else
         "mouse look: unavailable";
-    const camera_state = if (camera_mode.ptr) |mode| switch (mode.*) {
-        .Overview => "camera: overview (Tab switches to FPS)",
-        .Fps => "camera: fps (Tab switches to overview)",
-    } else "camera: overview (Tab switches to FPS)";
 
     const message = if (scene_ready.ptr == null)
         std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nPreparing scene and collision\n{s}\n{s}",
-            .{ spinner, phase, mouse_state, camera_state },
+            "Sponza {c}  stage {s}\nPreparing scene and collision\n{s}",
+            .{ spinner, phase, mouse_state },
         ) catch "Sponza: loading..."
     else if (spawn_plan.ptr != null)
         std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nProbing runtime spawn point\n{s}\n{s}",
-            .{ spinner, phase, mouse_state, camera_state },
+            "Sponza {c}  stage {s}\nProbing runtime spawn point\n{s}",
+            .{ spinner, phase, mouse_state },
         ) catch "Sponza: spawning..."
     else blk: {
         const imported_scene = imported.ptr orelse break :blk "Sponza: ready";
         const scene_size = if (scene_metrics.ptr) |metrics| metrics.scene_size else imported_scene.bounds.size();
         break :blk std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nWASD move, mouse look, Space jump\n{s}\n{s}\nScene: {d} meshes  {d:.1}m x {d:.1}m x {d:.1}m",
+            "Sponza {c}  stage {s}\nWASD move, mouse look, Space jump\n{s}\nScene: {d} meshes  {d:.1}m x {d:.1}m x {d:.1}m",
             .{
                 spinner,
                 phase,
                 mouse_state,
-                camera_state,
                 imported_scene.mesh_handles.len,
                 scene_size.x,
                 scene_size.y,
@@ -464,7 +397,6 @@ fn unloadImportedScene(commands: *ecs.Commands) void {
     _ = commands.removeResource(SceneSpawnPlan);
     _ = commands.removeResource(SceneMetrics);
     _ = commands.removeResource(StatusOverlay);
-    _ = commands.removeResource(ActiveCameraMode);
 }
 
 fn findSpawnPoint(world: *physics.BackendWorld, scene_size: Vec3, controller: FpsController) ?SpawnChoice {
@@ -513,7 +445,7 @@ fn findSpawnPoint(world: *physics.BackendWorld, scene_size: Vec3, controller: Fp
         }
     }
     if (best) |choice| return choice;
-    std.log.warn(
+    std.log.debug(
         "sponza spawn probe fell back: scene_size=({d:.2}, {d:.2}, {d:.2})",
         .{ scene_size.x, scene_size.y, scene_size.z },
     );
@@ -610,7 +542,7 @@ fn logCollisionBakeStats(allocator: std.mem.Allocator, baked: SceneBake) !void {
         max_index = @max(max_index, index);
     }
 
-    std.log.info(
+    std.log.debug(
         "sponza collision bake: meshes={} vertices={} indices={} max_index={} bounds=({d:.2}, {d:.2}, {d:.2})",
         .{
             parsed.meshes.len,

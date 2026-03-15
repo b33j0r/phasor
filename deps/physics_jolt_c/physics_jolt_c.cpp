@@ -317,6 +317,7 @@ struct pj_world {
     PhysicsSystem physics_system;
     TempAllocatorImpl *temp_allocator = nullptr;
     JobSystemThreadPool *job_system = nullptr;
+    uint32_t next_character_id = 1;
     std::vector<CharacterRecord> characters;
 
     pj_world() : object_vs_broad_phase_filter(object_layer_pair_filter) {}
@@ -600,7 +601,7 @@ extern "C" bool pj_character_create(pj_world *world, const pj_character_desc *de
     world->character_vs_character_collision.Add(character);
 
     pj_world::CharacterRecord record;
-    record.id = static_cast<uint32_t>(world->characters.size() + 1);
+    record.id = world->next_character_id++;
     record.character = character;
     record.collision_mask = desc->collision_mask;
     record.update_settings.mStickToFloorStepDown = Vec3(0.0f, -desc->stick_to_floor_distance, 0.0f);
@@ -615,14 +616,19 @@ extern "C" bool pj_character_create(pj_world *world, const pj_character_desc *de
 }
 
 extern "C" bool pj_character_remove_destroy(pj_world *world, uint32_t character_id) {
-    pj_world::CharacterRecord *record = find_character_record(world, character_id);
-    if (record == nullptr || record->character == nullptr) {
+    if (world == nullptr) {
         return false;
     }
-    world->character_vs_character_collision.Remove(record->character);
-    delete record->character;
-    record->character = nullptr;
-    return true;
+    for (auto it = world->characters.begin(); it != world->characters.end(); ++it) {
+        if (it->id != character_id || it->character == nullptr) {
+            continue;
+        }
+        world->character_vs_character_collision.Remove(it->character);
+        delete it->character;
+        world->characters.erase(it);
+        return true;
+    }
+    return false;
 }
 
 extern "C" bool pj_character_set_transform(pj_world *world, uint32_t character_id, const float position[3], const float rotation[4]) {

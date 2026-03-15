@@ -9,8 +9,6 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             radius: f32 = 0.35,
             height: f32 = 1.8,
             eye_offset_y: f32 = 0.5,
-            ground_probe_distance: f32 = 0.08,
-            max_ground_slope_cos: f32 = 0.55,
             grounded: bool = false,
             coyote_time: f32 = 0.1,
             coyote_timer: f32 = 0.0,

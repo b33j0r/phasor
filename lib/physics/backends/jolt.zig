@@ -231,6 +231,7 @@ pub const State = struct {
         step_state.alpha = 0.0;
         stats.body_count = body_count;
         stats.active_body_count = active_body_count;
+        stats.character_count = @intCast(self.characters.count());
         stats.contact_count = 0;
         stats.broadphase_pairs = 0;
         stats.step_ms = step_ms;
@@ -291,7 +292,7 @@ pub const State = struct {
                 value.ground_normal = arrayToVec3(character_state.ground_normal);
                 value.ground_velocity = arrayToVec3(character_state.ground_velocity);
                 value.ground_body = if (character_state.ground_body_id == 0) null else .{ .value = character_state.ground_body_id };
-                value.ground_entity = if (character_state.ground_user_data == 0) null else character_state.ground_user_data;
+                value.ground_entity = if (character_state.ground_user_data == 0) null else @intCast(character_state.ground_user_data);
                 value.max_hits_exceeded = character_state.max_hits_exceeded;
             }
         }
