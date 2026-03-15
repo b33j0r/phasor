@@ -186,22 +186,22 @@ export function createJoltEnv(getMemoryView) {
   function makeShape(desc, meshVerticesPtr, meshVertexCount, meshIndicesPtr, meshIndexCount, heightSamplesPtr, heightSampleCount) {
     switch (desc.shape_kind) {
       case pjShapeKind.sphere:
-        return new Jolt.SphereShapeSettings(desc.radius);
+        return new Jolt.SphereShape(desc.radius);
 
       case pjShapeKind.capsule:
-        return new Jolt.CapsuleShapeSettings(desc.half_height, desc.radius);
+        return new Jolt.CapsuleShape(desc.half_height, desc.radius);
 
       case pjShapeKind.box: {
         const halfExtents = joltVec3(desc.half_extents);
         try {
-          return new Jolt.BoxShapeSettings(halfExtents);
+          return new Jolt.BoxShape(halfExtents);
         } finally {
           Jolt.destroy(halfExtents);
         }
       }
 
       case pjShapeKind.cylinder:
-        return new Jolt.CylinderShapeSettings(desc.half_height, desc.radius, 0.05);
+        return new Jolt.CylinderShape(desc.half_height, desc.radius, 0.05);
 
       case pjShapeKind.triangle_mesh: {
         if (!meshVerticesPtr || !meshIndicesPtr || meshVertexCount === 0 || meshIndexCount < 3) {
@@ -244,10 +244,22 @@ export function createJoltEnv(getMemoryView) {
           }
 
           const settings = new Jolt.MeshShapeSettings();
-          settings.mTriangleVertices = vertices;
-          settings.mIndexedTriangles = triangles;
-          settings.mBuildQuality = Jolt.MeshShapeSettings_EBuildQuality_FavorRuntimePerformance;
-          return settings;
+          try {
+            settings.mTriangleVertices = vertices;
+            settings.mIndexedTriangles = triangles;
+            settings.mBuildQuality = Jolt.MeshShapeSettings_EBuildQuality_FavorRuntimePerformance;
+            const result = settings.Create();
+            try {
+              if (result.HasError()) {
+                return null;
+              }
+              return result.Get();
+            } finally {
+              Jolt.destroy(result);
+            }
+          } finally {
+            Jolt.destroy(settings);
+          }
         } finally {
           Jolt.destroy(vertices);
           Jolt.destroy(triangles);
@@ -284,8 +296,17 @@ export function createJoltEnv(getMemoryView) {
           settings.mMinHeightValue = minValue;
           settings.mMaxHeightValue = maxValue;
           settings.mHeightSamples = samples;
-          return settings;
+          const result = settings.Create();
+          try {
+            if (result.HasError()) {
+              return null;
+            }
+            return result.Get();
+          } finally {
+            Jolt.destroy(result);
+          }
         } finally {
+          Jolt.destroy(settings);
           Jolt.destroy(offset);
           Jolt.destroy(scale);
           Jolt.destroy(samples);
@@ -364,6 +385,14 @@ export function createJoltEnv(getMemoryView) {
       } catch (_) {}
     }
     world.bodies.clear();
+    if (world.shapes) {
+      for (const shape of world.shapes) {
+        try {
+          Jolt.destroy(shape);
+        } catch (_) {}
+      }
+      world.shapes.length = 0;
+    }
     Jolt.destroy(world.joltInterface);
     Jolt.destroy(world.settings);
     Jolt.destroy(world.objectVsBroadPhaseLayerFilter);
@@ -429,6 +458,7 @@ export function createJoltEnv(getMemoryView) {
         objectLayerPairFilter,
         objectVsBroadPhaseLayerFilter,
         bodies: new Map(),
+        shapes: [],
       });
       writeU32(outWorldPtr, handle);
       return 1;
@@ -477,7 +507,7 @@ export function createJoltEnv(getMemoryView) {
 
       const world = getWorld(worldHandle);
       const desc = readBodyDesc(descPtr);
-      const shapeSettings = makeShape(
+      const shape = makeShape(
         desc,
         meshVerticesPtr,
         meshVertexCount,
@@ -486,7 +516,7 @@ export function createJoltEnv(getMemoryView) {
         heightSamplesPtr,
         heightSampleCount,
       );
-      if (!shapeSettings) return 0;
+      if (!shape) return 0;
 
       const motionType = motionTypeFromDesc(desc.motion_type);
       const position = joltRVec3(desc.position);
@@ -495,16 +525,17 @@ export function createJoltEnv(getMemoryView) {
       const angularVelocity = joltVec3(desc.angular_velocity);
 
       try {
-        const settings = new Jolt.BodyCreationSettings();
+        const settings = new Jolt.BodyCreationSettings(
+          shape,
+          position,
+          rotation,
+          motionType,
+          desc.object_layer,
+        );
         try {
-          settings.SetShapeSettings(shapeSettings);
-          settings.mPosition = position;
-          settings.mRotation = rotation;
           settings.mLinearVelocity = linearVelocity;
           settings.mAngularVelocity = angularVelocity;
           settings.mUserData = desc.user_data;
-          settings.mObjectLayer = desc.object_layer;
-          settings.mMotionType = motionType;
           settings.mAllowedDOFs = allowedDofsFromMask(desc.allowed_dofs_mask);
           settings.mIsSensor = desc.is_sensor;
           settings.mAllowSleeping = desc.allow_sleep;
@@ -542,6 +573,7 @@ export function createJoltEnv(getMemoryView) {
           const bodyId = world.bodyInterface.CreateAndAddBody(settings, activation);
           const bodyValue = bodyId.GetIndexAndSequenceNumber();
           world.bodies.set(bodyValue, bodyValue);
+          world.shapes.push(shape);
           writeU32(outBodyIdPtr, bodyValue);
           Jolt.destroy(bodyId);
           return 1;
@@ -549,7 +581,6 @@ export function createJoltEnv(getMemoryView) {
           Jolt.destroy(settings);
         }
       } finally {
-        Jolt.destroy(shapeSettings);
         Jolt.destroy(position);
         Jolt.destroy(rotation);
         Jolt.destroy(linearVelocity);
@@ -635,10 +666,13 @@ export function createJoltEnv(getMemoryView) {
       let linearVelocity = null;
       let angularVelocity = null;
       try {
-        position = world.bodyInterface.GetPosition(bodyId);
-        rotation = world.bodyInterface.GetRotation(bodyId);
-        linearVelocity = world.bodyInterface.GetLinearVelocity(bodyId);
-        angularVelocity = world.bodyInterface.GetAngularVelocity(bodyId);
+        position = new Jolt.RVec3();
+        rotation = new Jolt.Quat();
+        linearVelocity = new Jolt.Vec3();
+        angularVelocity = new Jolt.Vec3();
+
+        world.bodyInterface.GetPositionAndRotation(bodyId, position, rotation);
+        world.bodyInterface.GetLinearAndAngularVelocity(bodyId, linearVelocity, angularVelocity);
 
         writeVec3(outStatePtr + 0, vec3FromJolt(position));
         writeQuat(outStatePtr + 12, quatFromJolt(rotation));
