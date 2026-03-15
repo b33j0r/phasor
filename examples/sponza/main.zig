@@ -267,30 +267,19 @@ fn spawnPlayerFromCollision(
             .translation = spawn,
             .rotation = body_facing,
         },
-        physics.Body{
-            .kind = .Dynamic,
-            .linear_damping = 0.0,
-            .angular_damping = 0.0,
-            .allow_sleep = false,
-        },
+        physics.Character{},
         physics.Collider{
             .shape = .{ .Capsule = .{
                 .radius = controller.radius,
                 .half_height = FpsPhysics.capsuleHalfHeight(controller),
             } },
-            .material = .{ .friction = 0.0, .restitution = 0.0 },
             .collision = .{
                 .layer = 1,
                 .mask = 1 << 0,
             },
-            .density = 65.0,
         },
-        physics.Velocity{},
-        physics.LockAxes{
-            .rotation_x = true,
-            .rotation_y = true,
-            .rotation_z = true,
-        },
+        physics.CharacterVelocity{},
+        physics.CharacterState{},
     });
 
     _ = try commands.createEntity(.{

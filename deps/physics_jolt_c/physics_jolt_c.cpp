@@ -17,6 +17,7 @@
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
@@ -109,6 +110,20 @@ void from_quat(QuatArg src, float out[4]) {
     out[1] = src.GetY();
     out[2] = src.GetZ();
     out[3] = src.GetW();
+}
+
+pj_character_ground_state ground_state_to_c(CharacterBase::EGroundState state) {
+    switch (state) {
+        case CharacterBase::EGroundState::OnGround:
+            return PJ_CHARACTER_GROUND_ON_GROUND;
+        case CharacterBase::EGroundState::OnSteepGround:
+            return PJ_CHARACTER_GROUND_ON_STEEP_GROUND;
+        case CharacterBase::EGroundState::NotSupported:
+            return PJ_CHARACTER_GROUND_NOT_SUPPORTED;
+        case CharacterBase::EGroundState::InAir:
+        default:
+            return PJ_CHARACTER_GROUND_IN_AIR;
+    }
 }
 
 EAllowedDOFs allowed_dofs_from_mask(uint32_t mask) {
@@ -288,15 +303,40 @@ bool make_shape(
 } // namespace
 
 struct pj_world {
+    struct CharacterRecord {
+        uint32_t id = 0;
+        CharacterVirtual *character = nullptr;
+        uint32_t collision_mask = 0;
+        CharacterVirtual::ExtendedUpdateSettings update_settings;
+    };
+
     BroadPhaseInterface broad_phase_interface;
     LayerPairFilter object_layer_pair_filter;
     LayerVsBroadPhaseFilter object_vs_broad_phase_filter;
+    CharacterVsCharacterCollisionSimple character_vs_character_collision;
     PhysicsSystem physics_system;
     TempAllocatorImpl *temp_allocator = nullptr;
     JobSystemThreadPool *job_system = nullptr;
+    std::vector<CharacterRecord> characters;
 
     pj_world() : object_vs_broad_phase_filter(object_layer_pair_filter) {}
 };
+
+namespace {
+
+pj_world::CharacterRecord *find_character_record(pj_world *world, uint32_t character_id) {
+    if (world == nullptr) {
+        return nullptr;
+    }
+    for (pj_world::CharacterRecord &record : world->characters) {
+        if (record.character != nullptr && record.id == character_id) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
 
 extern "C" bool pj_world_create(const pj_world_config *config, pj_world **out_world) {
     if (config == nullptr || out_world == nullptr) {
@@ -352,6 +392,13 @@ extern "C" bool pj_world_create(const pj_world_config *config, pj_world **out_wo
 extern "C" void pj_world_destroy(pj_world *world) {
     if (world == nullptr) {
         return;
+    }
+    for (pj_world::CharacterRecord &record : world->characters) {
+        if (record.character != nullptr) {
+            world->character_vs_character_collision.Remove(record.character);
+            delete record.character;
+            record.character = nullptr;
+        }
     }
     delete world->job_system;
     delete world->temp_allocator;
@@ -509,6 +556,133 @@ extern "C" bool pj_body_get_state(pj_world *world, uint32_t body_id_value, pj_bo
     from_vec3(linear_velocity, out_state->linear_velocity);
     from_vec3(angular_velocity, out_state->angular_velocity);
     out_state->user_data = body_interface.GetUserData(body_id);
+    return true;
+}
+
+extern "C" bool pj_character_create(pj_world *world, const pj_character_desc *desc, uint32_t *out_character_id) {
+    if (world == nullptr || desc == nullptr || out_character_id == nullptr) {
+        return false;
+    }
+
+    pj_body_desc shape_desc = {};
+    shape_desc.shape_kind = desc->shape_kind;
+    std::copy(desc->half_extents, desc->half_extents + 3, shape_desc.half_extents);
+    shape_desc.radius = desc->radius;
+    shape_desc.half_height = desc->half_height;
+
+    RefConst<Shape> shape;
+    if (!make_shape(shape_desc, nullptr, 0, nullptr, 0, nullptr, 0, shape)) {
+        return false;
+    }
+
+    CharacterVirtualSettings settings;
+    settings.mShape = shape;
+    settings.mMass = desc->mass;
+    settings.mMaxStrength = desc->max_strength;
+    settings.mMaxSlopeAngle = desc->max_slope_angle_radians;
+    settings.mCharacterPadding = desc->padding;
+    settings.mPenetrationRecoverySpeed = desc->penetration_recovery_speed;
+    settings.mPredictiveContactDistance = desc->predictive_contact_distance;
+    settings.mMaxCollisionIterations = desc->max_collision_iterations;
+    settings.mMaxConstraintIterations = desc->max_constraint_iterations;
+    settings.mMinTimeRemaining = desc->min_time_remaining;
+    settings.mCollisionTolerance = desc->collision_tolerance;
+    settings.mMaxNumHits = desc->max_hits;
+    settings.mHitReductionCosMaxAngle = desc->hit_reduction_cos_max_angle;
+    settings.mEnhancedInternalEdgeRemoval = desc->enhanced_internal_edge_removal;
+
+    CharacterVirtual *character = new CharacterVirtual(&settings, to_rvec3(desc->position), to_quat(desc->rotation), desc->user_data, &world->physics_system);
+    if (character == nullptr) {
+        return false;
+    }
+    character->SetLinearVelocity(to_vec3(desc->linear_velocity));
+    character->SetCharacterVsCharacterCollision(&world->character_vs_character_collision);
+    world->character_vs_character_collision.Add(character);
+
+    pj_world::CharacterRecord record;
+    record.id = static_cast<uint32_t>(world->characters.size() + 1);
+    record.character = character;
+    record.collision_mask = desc->collision_mask;
+    record.update_settings.mStickToFloorStepDown = Vec3(0.0f, -desc->stick_to_floor_distance, 0.0f);
+    record.update_settings.mWalkStairsStepUp = Vec3(0.0f, desc->step_up_height, 0.0f);
+    record.update_settings.mWalkStairsMinStepForward = desc->step_forward_min_distance;
+    record.update_settings.mWalkStairsStepForwardTest = desc->step_forward_test_distance;
+    record.update_settings.mWalkStairsStepDownExtra = Vec3(0.0f, -desc->step_down_extra_distance, 0.0f);
+    world->characters.push_back(record);
+
+    *out_character_id = record.id;
+    return true;
+}
+
+extern "C" bool pj_character_remove_destroy(pj_world *world, uint32_t character_id) {
+    pj_world::CharacterRecord *record = find_character_record(world, character_id);
+    if (record == nullptr || record->character == nullptr) {
+        return false;
+    }
+    world->character_vs_character_collision.Remove(record->character);
+    delete record->character;
+    record->character = nullptr;
+    return true;
+}
+
+extern "C" bool pj_character_set_transform(pj_world *world, uint32_t character_id, const float position[3], const float rotation[4]) {
+    pj_world::CharacterRecord *record = find_character_record(world, character_id);
+    if (record == nullptr || record->character == nullptr || position == nullptr || rotation == nullptr) {
+        return false;
+    }
+    record->character->SetPosition(to_rvec3(position));
+    record->character->SetRotation(to_quat(rotation));
+    return true;
+}
+
+extern "C" bool pj_character_set_linear_velocity(pj_world *world, uint32_t character_id, const float linear_velocity[3]) {
+    pj_world::CharacterRecord *record = find_character_record(world, character_id);
+    if (record == nullptr || record->character == nullptr || linear_velocity == nullptr) {
+        return false;
+    }
+    record->character->SetLinearVelocity(to_vec3(linear_velocity));
+    return true;
+}
+
+extern "C" bool pj_character_extended_update(pj_world *world, uint32_t character_id, float dt, const float gravity[3]) {
+    pj_world::CharacterRecord *record = find_character_record(world, character_id);
+    if (record == nullptr || record->character == nullptr || gravity == nullptr) {
+        return false;
+    }
+    MaskBroadPhaseLayerFilter broad_phase_filter(record->collision_mask);
+    MaskObjectLayerFilter object_layer_filter(record->collision_mask);
+    BodyFilter body_filter;
+    ShapeFilter shape_filter;
+    const Vec3 velocity = record->character->CancelVelocityTowardsSteepSlopes(record->character->GetLinearVelocity());
+    record->character->SetLinearVelocity(velocity);
+    record->character->ExtendedUpdate(
+        dt,
+        to_vec3(gravity),
+        record->update_settings,
+        broad_phase_filter,
+        object_layer_filter,
+        body_filter,
+        shape_filter,
+        *world->temp_allocator
+    );
+    return true;
+}
+
+extern "C" bool pj_character_get_state(pj_world *world, uint32_t character_id, pj_character_state *out_state) {
+    pj_world::CharacterRecord *record = find_character_record(world, character_id);
+    if (record == nullptr || record->character == nullptr || out_state == nullptr) {
+        return false;
+    }
+
+    from_rvec3(record->character->GetPosition(), out_state->position);
+    from_quat(record->character->GetRotation(), out_state->rotation);
+    from_vec3(record->character->GetLinearVelocity(), out_state->linear_velocity);
+    out_state->ground_state = ground_state_to_c(record->character->GetGroundState());
+    from_vec3(record->character->GetGroundNormal(), out_state->ground_normal);
+    from_vec3(record->character->GetGroundVelocity(), out_state->ground_velocity);
+    out_state->ground_body_id = record->character->GetGroundBodyID().IsInvalid() ? 0 : record->character->GetGroundBodyID().GetIndexAndSequenceNumber();
+    out_state->ground_user_data = record->character->GetGroundUserData();
+    out_state->max_hits_exceeded = record->character->GetMaxHitsExceeded();
     return true;
 }
 
