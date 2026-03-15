@@ -21,6 +21,7 @@ const worldConfigSize = 36;
 const bodyDescSize = 168;
 const bodyStateSize = 64;
 const raycastHitSize = 48;
+const shapecastHitSize = 48;
 
 export function createJoltEnv(getMemoryView) {
   let Jolt = null;
@@ -158,6 +159,16 @@ export function createJoltEnv(getMemoryView) {
       z: value.GetZ(),
       w: value.GetW(),
     };
+  }
+
+  function writeShapeCastHit(ptr, didHit, bodyValue, userData, position, normal, fraction) {
+    writeBool(ptr + 0, didHit);
+    if (!didHit) return;
+    writeU32(ptr + 4, bodyValue >>> 0);
+    writeU64(ptr + 8, userData);
+    writeVec3(ptr + 16, position);
+    writeVec3(ptr + 28, normal);
+    writeF32(ptr + 40, fraction);
   }
 
   function motionTypeFromDesc(motionType) {
@@ -748,6 +759,95 @@ export function createJoltEnv(getMemoryView) {
         Jolt.destroy(objectLayerFilter);
         Jolt.destroy(bodyFilter);
         Jolt.destroy(shapeFilter);
+      }
+    },
+
+    pj_world_cast_shape(worldHandle, descPtr, translationPtr, sourceLayer, collisionMask, outHitPtr) {
+      assertReady();
+      if (!descPtr || !translationPtr || !outHitPtr) return 0;
+      if (descPtr + bodyDescSize > view().byteLength) return 0;
+      if (outHitPtr + shapecastHitSize > view().byteLength) return 0;
+
+      const world = getWorld(worldHandle);
+      const desc = readBodyDesc(descPtr);
+      const shape = makeShape(desc, 0, 0, 0, 0, 0, 0);
+      if (!shape) return 0;
+
+      const rotation = joltQuat(desc.rotation);
+      const position = joltRVec3(desc.position);
+      const direction = joltVec3(readVec3(translationPtr));
+      const unitScale = new Jolt.Vec3(1.0, 1.0, 1.0);
+      const start = new Jolt.RMat44().sRotationTranslation(rotation, position);
+      const settings = new Jolt.ShapeCastSettings();
+      settings.mReturnDeepestPoint = true;
+      const collector = new Jolt.CastShapeClosestHitCollisionCollector();
+      const sourceObjectLayer = encodeObjectLayer(world, sourceLayer >>> 0, collisionMask >>> 0);
+      const broadPhaseFilter = new Jolt.DefaultBroadPhaseLayerFilter(
+        world.objectVsBroadPhaseLayerFilter,
+        sourceObjectLayer,
+      );
+      const objectLayerFilter = new Jolt.DefaultObjectLayerFilter(
+        world.objectLayerPairFilter,
+        sourceObjectLayer,
+      );
+      const bodyFilter = new Jolt.BodyFilter();
+      const shapeFilter = new Jolt.ShapeFilter();
+      const shapeCast = new Jolt.RShapeCast(shape, unitScale, start, direction);
+      const baseOffset = new Jolt.RVec3().sZero();
+      let didHit = false;
+      try {
+        world.physicsSystem.GetNarrowPhaseQuery().CastShape(
+          shapeCast,
+          settings,
+          baseOffset,
+          collector,
+          broadPhaseFilter,
+          objectLayerFilter,
+          bodyFilter,
+          shapeFilter,
+        );
+
+        didHit = collector.HadHit();
+        if (!didHit) {
+          writeShapeCastHit(outHitPtr, false, 0, 0, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 0);
+          return 1;
+        }
+
+        const hit = collector.mHit;
+        const hitBody = hit.mBodyID2;
+        const bodyValue = hitBody.GetIndexAndSequenceNumber();
+        const userData = world.bodyInterface.GetUserData(hitBody);
+        const hitPosition = hit.mContactPointOn2;
+        const hitNormal = hit.mPenetrationAxis.NormalizedOr(new Jolt.Vec3().sAxisY());
+        try {
+          writeShapeCastHit(
+            outHitPtr,
+            true,
+            bodyValue,
+            userData,
+            vec3FromJolt(hitPosition),
+            vec3FromJolt(hitNormal),
+            hit.mFraction,
+          );
+        } finally {
+          Jolt.destroy(hitNormal);
+        }
+        return 1;
+      } finally {
+        Jolt.destroy(shape);
+        Jolt.destroy(rotation);
+        Jolt.destroy(position);
+        Jolt.destroy(direction);
+        Jolt.destroy(unitScale);
+        Jolt.destroy(start);
+        Jolt.destroy(settings);
+        Jolt.destroy(collector);
+        Jolt.destroy(broadPhaseFilter);
+        Jolt.destroy(objectLayerFilter);
+        Jolt.destroy(bodyFilter);
+        Jolt.destroy(shapeFilter);
+        Jolt.destroy(shapeCast);
+        Jolt.destroy(baseOffset);
       }
     },
   };

@@ -74,7 +74,7 @@ pub const World = union(resources.Config.Backend) {
         return switch (self.*) {
             .Null => |*state| state.castShape(cast),
             .Simple => |*state| state.castShape(cast),
-            .Jolt => null,
+            .Jolt => |*state| state.castShape(cast),
         };
     }
 };

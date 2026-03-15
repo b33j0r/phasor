@@ -84,6 +84,15 @@ typedef struct pj_raycast_hit {
     float distance;
 } pj_raycast_hit;
 
+typedef struct pj_shapecast_hit {
+    bool hit;
+    uint32_t body_id;
+    uint64_t user_data;
+    float position[3];
+    float normal[3];
+    float fraction;
+} pj_shapecast_hit;
+
 bool pj_world_create(const pj_world_config *config, pj_world **out_world);
 void pj_world_destroy(pj_world *world);
 bool pj_world_step(pj_world *world, float dt, int collision_steps, float *out_step_ms, uint32_t *out_body_count, uint32_t *out_active_body_count);
@@ -112,6 +121,14 @@ bool pj_world_cast_ray(
     uint32_t source_layer,
     uint32_t collision_mask,
     pj_raycast_hit *out_hit
+);
+bool pj_world_cast_shape(
+    pj_world *world,
+    const pj_body_desc *desc,
+    const float translation[3],
+    uint32_t source_layer,
+    uint32_t collision_mask,
+    pj_shapecast_hit *out_hit
 );
 
 #ifdef __cplusplus

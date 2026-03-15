@@ -195,8 +195,26 @@ pub const State = struct {
         };
     }
 
-    pub fn castShape(_: *State, _: queries.ShapeCast) ?queries.ShapeHit {
-        return null;
+    pub fn castShape(self: *State, cast: queries.ShapeCast) ?queries.ShapeHit {
+        var desc = shapeCastDesc(cast) orelse return null;
+        var hit: PjShapeCastHit = .{};
+        if (!pj_world_cast_shape(
+            self.native,
+            &desc,
+            &vec3ToArray(cast.translation),
+            cast.collision.layer,
+            cast.collision.mask,
+            &hit,
+        )) return null;
+        if (!hit.hit) return null;
+
+        return .{
+            .entity = if (hit.user_data == 0) null else hit.user_data,
+            .body = .{ .value = hit.body_id },
+            .position = arrayToVec3(hit.position),
+            .normal = arrayToVec3(hit.normal),
+            .fraction = hit.fraction,
+        };
     }
 
     fn destroyBody(self: *State, entity_id: ecs.Entity.Id, body_id: u32) void {
@@ -355,6 +373,64 @@ fn lockAxesMask(lock_axes: ?*components.LockAxes) u32 {
     return if (mask == 0) 0b11_1111 else mask;
 }
 
+fn shapeCastDesc(cast: queries.ShapeCast) ?PjBodyDesc {
+    var desc = PjBodyDesc{
+        .user_data = 0,
+        .motion_type = .dynamic,
+        .shape_kind = undefined,
+        .object_layer = cast.collision.layer,
+        .collision_mask = cast.collision.mask,
+        .allowed_dofs_mask = 0b11_1111,
+        .is_sensor = false,
+        .allow_sleep = true,
+        .use_ccd = false,
+        .collide_kinematic_vs_non_dynamic = false,
+        .use_enhanced_internal_edge_removal = true,
+        .override_mass = false,
+        .friction = 0.0,
+        .restitution = 0.0,
+        .linear_damping = 0.0,
+        .angular_damping = 0.0,
+        .gravity_scale = 1.0,
+        .density = 1.0,
+        .mass = 1.0,
+        .position = vec3ToArray(cast.start.translation),
+        .rotation = quatToArray(cast.start.rotation),
+        .linear_velocity = .{ 0.0, 0.0, 0.0 },
+        .angular_velocity = .{ 0.0, 0.0, 0.0 },
+        .half_extents = .{ 0.0, 0.0, 0.0 },
+        .radius = 0.0,
+        .half_height = 0.0,
+        .heightfield_offset = .{ 0.0, 0.0, 0.0 },
+        .heightfield_scale = .{ 1.0, 1.0, 1.0 },
+        .heightfield_sample_count = 0,
+    };
+
+    switch (cast.shape) {
+        .Sphere => |shape| {
+            desc.shape_kind = .sphere;
+            desc.radius = shape.radius;
+        },
+        .Capsule => |shape| {
+            desc.shape_kind = .capsule;
+            desc.radius = shape.radius;
+            desc.half_height = shape.half_height;
+        },
+        .Box => |shape| {
+            desc.shape_kind = .box;
+            desc.half_extents = vec3ToArray(shape.half_extents);
+        },
+        .Cylinder => |shape| {
+            desc.shape_kind = .cylinder;
+            desc.radius = shape.radius;
+            desc.half_height = shape.half_height;
+        },
+        .TriangleMesh, .HeightField, .Compound => return null,
+    }
+
+    return desc;
+}
+
 const NativeWorld = opaque {};
 
 const PjMotionType = enum(c_int) {
@@ -431,6 +507,15 @@ const PjRayCastHit = extern struct {
     distance: f32 = 0.0,
 };
 
+const PjShapeCastHit = extern struct {
+    hit: bool = false,
+    body_id: u32 = 0,
+    user_data: u64 = 0,
+    position: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    normal: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    fraction: f32 = 0.0,
+};
+
 extern fn pj_world_create(config: *const PjWorldConfig, out_world: *?*NativeWorld) bool;
 extern fn pj_world_destroy(world: *NativeWorld) void;
 extern fn pj_world_step(world: *NativeWorld, dt: f32, collision_steps: c_int, out_step_ms: *f32, out_body_count: *u32, out_active_body_count: *u32) bool;
@@ -451,3 +536,4 @@ extern fn pj_body_set_velocities(world: *NativeWorld, body_id: u32, linear_veloc
 extern fn pj_body_move_kinematic(world: *NativeWorld, body_id: u32, position: *const [3]f32, rotation: *const [4]f32, dt: f32) bool;
 extern fn pj_body_get_state(world: *NativeWorld, body_id: u32, out_state: *PjBodyState) bool;
 extern fn pj_world_cast_ray(world: *NativeWorld, origin: *const [3]f32, direction: *const [3]f32, max_distance: f32, source_layer: u32, collision_mask: u32, out_hit: *PjRayCastHit) bool;
+extern fn pj_world_cast_shape(world: *NativeWorld, desc: *const PjBodyDesc, translation: *const [3]f32, source_layer: u32, collision_mask: u32, out_hit: *PjShapeCastHit) bool;

@@ -23,6 +23,7 @@
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
@@ -181,6 +182,20 @@ public:
     bool ShouldCollide(ObjectLayer layer) const override {
         if (layer >= 32) return false;
         return (mMask & (1u << layer)) != 0;
+    }
+
+private:
+    uint32_t mMask;
+};
+
+class MaskBroadPhaseLayerFilter final : public BroadPhaseLayerFilter {
+public:
+    explicit MaskBroadPhaseLayerFilter(uint32_t mask) : mMask(mask) {}
+
+    bool ShouldCollide(BroadPhaseLayer layer) const override {
+        const uint32_t value = layer.GetValue();
+        if (value >= 32) return false;
+        return (mMask & (1u << value)) != 0;
     }
 
 private:
@@ -531,6 +546,69 @@ extern "C" bool pj_world_cast_ray(
     from_rvec3(point, out_hit->position);
     from_vec3(normal, out_hit->normal);
     out_hit->distance = hit.mFraction * max_distance;
+    (void)source_layer;
+    return true;
+}
+
+extern "C" bool pj_world_cast_shape(
+    pj_world *world,
+    const pj_body_desc *desc,
+    const float translation[3],
+    uint32_t source_layer,
+    uint32_t collision_mask,
+    pj_shapecast_hit *out_hit
+) {
+    if (world == nullptr || desc == nullptr || translation == nullptr || out_hit == nullptr) {
+        return false;
+    }
+
+    RefConst<Shape> shape;
+    if (!make_shape(*desc, nullptr, 0, nullptr, 0, nullptr, 0, shape)) {
+        return false;
+    }
+
+    const RMat44 start = RMat44::sRotationTranslation(to_quat(desc->rotation), to_rvec3(desc->position));
+    const RShapeCast shape_cast = RShapeCast::sFromWorldTransform(shape.GetPtr(), Vec3::sReplicate(1.0f), start, to_vec3(translation));
+    ShapeCastSettings settings;
+    settings.mReturnDeepestPoint = true;
+
+    ClosestHitCollisionCollector<CastShapeCollector> collector;
+    MaskBroadPhaseLayerFilter broad_phase_filter(collision_mask);
+    MaskObjectLayerFilter object_layer_filter(collision_mask);
+    BodyFilter body_filter;
+    ShapeFilter shape_filter;
+
+    world->physics_system.GetNarrowPhaseQuery().CastShape(
+        shape_cast,
+        settings,
+        RVec3::sZero(),
+        collector,
+        broad_phase_filter,
+        object_layer_filter,
+        body_filter,
+        shape_filter
+    );
+
+    out_hit->hit = collector.HadHit();
+    if (!out_hit->hit) {
+        return true;
+    }
+
+    const ShapeCastResult &hit = collector.mHit;
+    const BodyID body_id = hit.mBodyID2;
+    const BodyLockRead lock(world->physics_system.GetBodyLockInterface(), body_id);
+    if (!lock.Succeeded()) {
+        out_hit->hit = false;
+        return false;
+    }
+
+    const Body &body = lock.GetBody();
+    const Vec3 normal = hit.mPenetrationAxis.NormalizedOr(Vec3::sAxisY());
+    out_hit->body_id = body_id.GetIndexAndSequenceNumber();
+    out_hit->user_data = body.GetUserData();
+    from_vec3(hit.mContactPointOn2, out_hit->position);
+    from_vec3(normal, out_hit->normal);
+    out_hit->fraction = hit.mFraction;
     (void)source_layer;
     return true;
 }
