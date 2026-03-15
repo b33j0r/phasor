@@ -9,8 +9,6 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             radius: f32 = 0.35,
             height: f32 = 1.8,
             eye_offset_y: f32 = 0.5,
-            ground_probe_distance: f32 = 0.08,
-            max_ground_slope_cos: f32 = 0.55,
             grounded: bool = false,
             coyote_time: f32 = 0.1,
             coyote_timer: f32 = 0.0,
@@ -66,11 +64,11 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
 
         fn updateFpsControllerIntent(
             dt: Res(TimeModule.DeltaTime),
+            physics_config: Res(physics.Config),
             keyboard_opt: ResOpt(InputModule.Keyboard),
             mouse_opt: ResOpt(InputModule.Mouse),
             settings: Res(FpsPhysicsSettings),
-            world: ResMut(physics.BackendWorld),
-            query: Query(.{ common.Transform, FpsController, physics.Velocity, physics.Collider, ControlledTag }),
+            query: Query(.{ common.Transform, FpsController, physics.CharacterVelocity, physics.CharacterState, ControlledTag }),
         ) void {
             const keyboard = keyboard_opt.ptr;
             const mouse = mouse_opt.ptr;
@@ -82,8 +80,8 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             while (it.next()) |row| {
                 const transform = row.get(common.Transform) orelse continue;
                 const controller = row.get(FpsController) orelse continue;
-                const velocity = row.get(physics.Velocity) orelse continue;
-                const collider = row.get(physics.Collider) orelse continue;
+                const velocity = row.get(physics.CharacterVelocity) orelse continue;
+                const character_state = row.get(physics.CharacterState) orelse continue;
 
                 var yaw_delta: f32 = 0.0;
                 var pitch_delta: f32 = 0.0;
@@ -102,6 +100,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
 
                 controller.yaw += yaw_delta;
                 controller.pitch = std.math.clamp(controller.pitch + pitch_delta, -1.45, 1.45);
+                transform.rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, controller.yaw);
 
                 const yaw_rot = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, controller.yaw);
                 const forward_world = yaw_rot.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 });
@@ -113,42 +112,31 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                     if (keys.isKeyDown(.s)) desired = desired.sub(forward_world);
                     if (keys.isKeyDown(.d)) desired = desired.add(right_world);
                     if (keys.isKeyDown(.a)) desired = desired.sub(right_world);
-                    if (keys.isKeyPressed(.space)) controller.jump_buffer_timer = controller.jump_buffer_time;
+                    if (keys.isKeyDown(.space)) controller.jump_buffer_timer = controller.jump_buffer_time;
                 }
 
                 desired.y = 0.0;
+                var desired_horizontal = Vec3{};
                 if (desired.length_squared() > 0.0001) {
                     const normalized = desired.normalize();
-                    velocity.linear.x = normalized.x * controller.move_speed;
-                    velocity.linear.z = normalized.z * controller.move_speed;
-                } else {
-                    velocity.linear.x = 0.0;
-                    velocity.linear.z = 0.0;
+                    desired_horizontal = normalized.scale(controller.move_speed);
                 }
 
-                const feet_origin = transform.translation.add(.{
-                    .x = 0.0,
-                    .y = -capsuleHalfHeight(controller.*),
-                    .z = 0.0,
-                });
-                const ground_distance = controller.radius + controller.ground_probe_distance;
-                const ray = physics.RayCast{
-                    .origin = feet_origin,
-                    .direction = .{ .x = 0.0, .y = -1.0, .z = 0.0 },
-                    .max_distance = ground_distance,
-                    .collision = collider.collision,
-                };
-                const ground_hit = world.ptr.castRay(ray);
-                controller.grounded = if (ground_hit) |hit|
-                    hit.normal.y >= controller.max_ground_slope_cos and hit.distance <= ground_distance
-                else
-                    false;
+                const supported = character_state.isSupported();
+                controller.grounded = character_state.isGrounded();
 
-                if (controller.grounded) {
+                if (supported) {
                     controller.coyote_timer = controller.coyote_time;
-                    if (velocity.linear.y < 0.0) velocity.linear.y = 0.0;
+                    velocity.linear.x = character_state.ground_velocity.x + desired_horizontal.x;
+                    velocity.linear.z = character_state.ground_velocity.z + desired_horizontal.z;
+                    if (velocity.linear.y < character_state.ground_velocity.y) {
+                        velocity.linear.y = character_state.ground_velocity.y;
+                    }
                 } else {
                     controller.coyote_timer = @max(controller.coyote_timer - step, 0.0);
+                    velocity.linear.x = desired_horizontal.x;
+                    velocity.linear.z = desired_horizontal.z;
+                    velocity.linear = velocity.linear.add(physics_config.ptr.gravity.scale(step));
                 }
 
                 controller.jump_buffer_timer = @max(controller.jump_buffer_timer - step, 0.0);

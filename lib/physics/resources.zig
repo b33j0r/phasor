@@ -37,6 +37,7 @@ pub const StepState = struct {
 pub const Stats = struct {
     body_count: u32 = 0,
     active_body_count: u32 = 0,
+    character_count: u32 = 0,
     contact_count: u32 = 0,
     broadphase_pairs: u32 = 0,
     step_ms: f32 = 0.0,

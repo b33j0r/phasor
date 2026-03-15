@@ -121,6 +121,10 @@ pub fn build(b: *std.Build) void {
         .module = gltf_embedded_assets,
     }});
     _ = addExample(&ctx, phasor.module, "warehouse", "examples/warehouse/main.zig", &.{});
+    const fetch_sponza = addFetchSponzaStep(&ctx);
+    const sponza_example = addExample(&ctx, phasor.module, "sponza", "examples/sponza/main.zig", &.{});
+    sponza_example.run_step.dependOn(fetch_sponza.prepare_step);
+    sponza_example.run_native_step.dependOn(fetch_sponza.prepare_step);
     addEcsQueryCacheBenchmark(&ctx, phasor.module);
 
     addWebExamples(&ctx, common.module);
@@ -845,13 +849,19 @@ fn addModuleTests(
     }
 }
 
+const ExampleBuild = struct {
+    exe: *std.Build.Step.Compile,
+    run_step: *std.Build.Step,
+    run_native_step: *std.Build.Step,
+};
+
 fn addExample(
     ctx: *const BuildContext,
     phasor_module: *std.Build.Module,
     name: []const u8,
     root: []const u8,
     extra_imports: []const std.Build.Module.Import,
-) *std.Build.Step.Compile {
+) ExampleBuild {
     var imports: std.ArrayList(std.Build.Module.Import) = .empty;
     defer imports.deinit(ctx.b.allocator);
     imports.append(ctx.b.allocator, .{
@@ -880,7 +890,42 @@ fn addExample(
     );
     run_native_step.dependOn(&run_cmd.step);
 
-    return exe;
+    return .{
+        .exe = exe,
+        .run_step = run_step,
+        .run_native_step = run_native_step,
+    };
+}
+
+const FetchSponzaBuild = struct {
+    user_step: *std.Build.Step,
+    prepare_step: *std.Build.Step,
+};
+
+fn addFetchSponzaStep(ctx: *const BuildContext) FetchSponzaBuild {
+    const fetch_mod = ctx.module("tools/fetch_sponza.zig", &.{});
+    const fetch_exe = ctx.b.addExecutable(.{
+        .name = "fetch-sponza",
+        .root_module = fetch_mod,
+    });
+    ctx.b.installArtifact(fetch_exe);
+
+    const fetch_run = ctx.b.addRunArtifact(fetch_exe);
+    fetch_run.setCwd(ctx.b.path("."));
+    if (ctx.b.args) |args| {
+        fetch_run.addArgs(args);
+    }
+
+    const fetch_step = ctx.b.step("fetch-sponza", "Download the Sponza glTF sample into the local cache");
+    fetch_step.dependOn(&fetch_run.step);
+
+    const fetch_prepare = ctx.b.addRunArtifact(fetch_exe);
+    fetch_prepare.setCwd(ctx.b.path("."));
+
+    return .{
+        .user_step = fetch_step,
+        .prepare_step = &fetch_prepare.step,
+    };
 }
 
 fn addEcsQueryCacheBenchmark(

@@ -1,4 +1,5 @@
 const common = @import("common");
+const ecs = @import("ecs");
 
 pub const Material = struct {
     friction: f32 = 0.5,
@@ -50,6 +51,27 @@ pub const Body = struct {
     };
 };
 
+pub const Character = struct {
+    mass: f32 = 80.0,
+    max_strength: f32 = 100.0,
+    max_slope_angle_radians: f32 = std.math.degreesToRadians(50.0),
+    padding: f32 = 0.02,
+    penetration_recovery_speed: f32 = 1.0,
+    predictive_contact_distance: f32 = 0.1,
+    max_collision_iterations: u32 = 5,
+    max_constraint_iterations: u32 = 15,
+    min_time_remaining: f32 = 1.0e-4,
+    collision_tolerance: f32 = 1.0e-3,
+    max_hits: u32 = 256,
+    hit_reduction_cos_max_angle: f32 = 0.999,
+    enhanced_internal_edge_removal: bool = true,
+    stick_to_floor_distance: f32 = 0.5,
+    step_up_height: f32 = 0.4,
+    step_forward_min_distance: f32 = 0.02,
+    step_forward_test_distance: f32 = 0.15,
+    step_down_extra_distance: f32 = 0.0,
+};
+
 pub const Collider = struct {
     shape: Shape,
     material: Material = .{},
@@ -61,6 +83,37 @@ pub const Collider = struct {
 pub const Velocity = struct {
     linear: common.Vec3 = .{},
     angular: common.Vec3 = .{},
+};
+
+pub const CharacterVelocity = struct {
+    linear: common.Vec3 = .{},
+};
+
+pub const CharacterGroundState = enum(u8) {
+    OnGround,
+    OnSteepGround,
+    NotSupported,
+    InAir,
+};
+
+pub const CharacterState = struct {
+    ground_state: CharacterGroundState = .InAir,
+    ground_normal: common.Vec3 = .{},
+    ground_velocity: common.Vec3 = .{},
+    ground_body: ?BodyHandle = null,
+    ground_entity: ?ecs.Entity.Id = null,
+    max_hits_exceeded: bool = false,
+
+    pub fn isSupported(self: @This()) bool {
+        return switch (self.ground_state) {
+            .OnGround, .OnSteepGround => true,
+            .NotSupported, .InAir => false,
+        };
+    }
+
+    pub fn isGrounded(self: @This()) bool {
+        return self.ground_state == .OnGround;
+    }
 };
 
 pub const MassProperties = struct {
@@ -94,3 +147,9 @@ pub const PhysicsDisabled = struct {};
 pub const BodyHandle = struct {
     value: u64 = 0,
 };
+
+pub const CharacterHandle = struct {
+    value: u64 = 0,
+};
+
+const std = @import("std");

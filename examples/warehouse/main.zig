@@ -105,30 +105,19 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), r
         Transform{
             .translation = .{ .x = 0.0, .y = 0.9, .z = 10.5 },
         },
-        physics.Body{
-            .kind = .Dynamic,
-            .linear_damping = 0.0,
-            .angular_damping = 0.0,
-            .allow_sleep = false,
-        },
+        physics.Character{},
         physics.Collider{
             .shape = .{ .Capsule = .{
                 .radius = 0.35,
                 .half_height = FpsPhysics.capsuleHalfHeight(.{}),
             } },
-            .material = .{ .friction = 0.0, .restitution = 0.0 },
             .collision = .{
                 .layer = 1,
                 .mask = 1 << 0,
             },
-            .density = 65.0,
         },
-        physics.Velocity{},
-        physics.LockAxes{
-            .rotation_x = true,
-            .rotation_y = true,
-            .rotation_z = true,
-        },
+        physics.CharacterVelocity{},
+        physics.CharacterState{},
     });
 
     _ = try commands.createEntity(.{

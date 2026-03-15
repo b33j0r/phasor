@@ -17,12 +17,15 @@
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/BackFaceMode.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
@@ -109,6 +112,20 @@ void from_quat(QuatArg src, float out[4]) {
     out[3] = src.GetW();
 }
 
+pj_character_ground_state ground_state_to_c(CharacterBase::EGroundState state) {
+    switch (state) {
+        case CharacterBase::EGroundState::OnGround:
+            return PJ_CHARACTER_GROUND_ON_GROUND;
+        case CharacterBase::EGroundState::OnSteepGround:
+            return PJ_CHARACTER_GROUND_ON_STEEP_GROUND;
+        case CharacterBase::EGroundState::NotSupported:
+            return PJ_CHARACTER_GROUND_NOT_SUPPORTED;
+        case CharacterBase::EGroundState::InAir:
+        default:
+            return PJ_CHARACTER_GROUND_IN_AIR;
+    }
+}
+
 EAllowedDOFs allowed_dofs_from_mask(uint32_t mask) {
     EAllowedDOFs out = EAllowedDOFs::None;
     if ((mask & (1u << 0)) != 0) out |= EAllowedDOFs::TranslationX;
@@ -187,6 +204,20 @@ private:
     uint32_t mMask;
 };
 
+class MaskBroadPhaseLayerFilter final : public BroadPhaseLayerFilter {
+public:
+    explicit MaskBroadPhaseLayerFilter(uint32_t mask) : mMask(mask) {}
+
+    bool ShouldCollide(BroadPhaseLayer layer) const override {
+        const uint32_t value = layer.GetValue();
+        if (value >= 32) return false;
+        return (mMask & (1u << value)) != 0;
+    }
+
+private:
+    uint32_t mMask;
+};
+
 bool make_shape(
     const pj_body_desc &desc,
     const float *mesh_vertices_xyz,
@@ -229,6 +260,9 @@ bool make_shape(
             IndexedTriangleList triangles;
             triangles.reserve(mesh_index_count / 3);
             for (uint32_t i = 0; i + 2 < mesh_index_count; i += 3) {
+                if (mesh_indices[i] >= mesh_vertex_count || mesh_indices[i + 1] >= mesh_vertex_count || mesh_indices[i + 2] >= mesh_vertex_count) {
+                    return false;
+                }
                 triangles.emplace_back(mesh_indices[i], mesh_indices[i + 1], mesh_indices[i + 2], 0);
             }
 
@@ -255,6 +289,7 @@ bool make_shape(
             );
             Shape::ShapeResult result = settings.Create();
             if (result.HasError()) {
+                std::printf("jolt heightfield shape create failed: %s\n", result.GetError().c_str());
                 return false;
             }
             out_shape = result.Get();
@@ -268,15 +303,41 @@ bool make_shape(
 } // namespace
 
 struct pj_world {
+    struct CharacterRecord {
+        uint32_t id = 0;
+        CharacterVirtual *character = nullptr;
+        uint32_t collision_mask = 0;
+        CharacterVirtual::ExtendedUpdateSettings update_settings;
+    };
+
     BroadPhaseInterface broad_phase_interface;
     LayerPairFilter object_layer_pair_filter;
     LayerVsBroadPhaseFilter object_vs_broad_phase_filter;
+    CharacterVsCharacterCollisionSimple character_vs_character_collision;
     PhysicsSystem physics_system;
     TempAllocatorImpl *temp_allocator = nullptr;
     JobSystemThreadPool *job_system = nullptr;
+    uint32_t next_character_id = 1;
+    std::vector<CharacterRecord> characters;
 
     pj_world() : object_vs_broad_phase_filter(object_layer_pair_filter) {}
 };
+
+namespace {
+
+pj_world::CharacterRecord *find_character_record(pj_world *world, uint32_t character_id) {
+    if (world == nullptr) {
+        return nullptr;
+    }
+    for (pj_world::CharacterRecord &record : world->characters) {
+        if (record.character != nullptr && record.id == character_id) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
 
 extern "C" bool pj_world_create(const pj_world_config *config, pj_world **out_world) {
     if (config == nullptr || out_world == nullptr) {
@@ -332,6 +393,13 @@ extern "C" bool pj_world_create(const pj_world_config *config, pj_world **out_wo
 extern "C" void pj_world_destroy(pj_world *world) {
     if (world == nullptr) {
         return;
+    }
+    for (pj_world::CharacterRecord &record : world->characters) {
+        if (record.character != nullptr) {
+            world->character_vs_character_collision.Remove(record.character);
+            delete record.character;
+            record.character = nullptr;
+        }
     }
     delete world->job_system;
     delete world->temp_allocator;
@@ -492,6 +560,138 @@ extern "C" bool pj_body_get_state(pj_world *world, uint32_t body_id_value, pj_bo
     return true;
 }
 
+extern "C" bool pj_character_create(pj_world *world, const pj_character_desc *desc, uint32_t *out_character_id) {
+    if (world == nullptr || desc == nullptr || out_character_id == nullptr) {
+        return false;
+    }
+
+    pj_body_desc shape_desc = {};
+    shape_desc.shape_kind = desc->shape_kind;
+    std::copy(desc->half_extents, desc->half_extents + 3, shape_desc.half_extents);
+    shape_desc.radius = desc->radius;
+    shape_desc.half_height = desc->half_height;
+
+    RefConst<Shape> shape;
+    if (!make_shape(shape_desc, nullptr, 0, nullptr, 0, nullptr, 0, shape)) {
+        return false;
+    }
+
+    CharacterVirtualSettings settings;
+    settings.mShape = shape;
+    settings.mMass = desc->mass;
+    settings.mMaxStrength = desc->max_strength;
+    settings.mMaxSlopeAngle = desc->max_slope_angle_radians;
+    settings.mCharacterPadding = desc->padding;
+    settings.mPenetrationRecoverySpeed = desc->penetration_recovery_speed;
+    settings.mPredictiveContactDistance = desc->predictive_contact_distance;
+    settings.mMaxCollisionIterations = desc->max_collision_iterations;
+    settings.mMaxConstraintIterations = desc->max_constraint_iterations;
+    settings.mMinTimeRemaining = desc->min_time_remaining;
+    settings.mCollisionTolerance = desc->collision_tolerance;
+    settings.mMaxNumHits = desc->max_hits;
+    settings.mHitReductionCosMaxAngle = desc->hit_reduction_cos_max_angle;
+    settings.mEnhancedInternalEdgeRemoval = desc->enhanced_internal_edge_removal;
+
+    CharacterVirtual *character = new CharacterVirtual(&settings, to_rvec3(desc->position), to_quat(desc->rotation), desc->user_data, &world->physics_system);
+    if (character == nullptr) {
+        return false;
+    }
+    character->SetLinearVelocity(to_vec3(desc->linear_velocity));
+    character->SetCharacterVsCharacterCollision(&world->character_vs_character_collision);
+    world->character_vs_character_collision.Add(character);
+
+    pj_world::CharacterRecord record;
+    record.id = world->next_character_id++;
+    record.character = character;
+    record.collision_mask = desc->collision_mask;
+    record.update_settings.mStickToFloorStepDown = Vec3(0.0f, -desc->stick_to_floor_distance, 0.0f);
+    record.update_settings.mWalkStairsStepUp = Vec3(0.0f, desc->step_up_height, 0.0f);
+    record.update_settings.mWalkStairsMinStepForward = desc->step_forward_min_distance;
+    record.update_settings.mWalkStairsStepForwardTest = desc->step_forward_test_distance;
+    record.update_settings.mWalkStairsStepDownExtra = Vec3(0.0f, -desc->step_down_extra_distance, 0.0f);
+    world->characters.push_back(record);
+
+    *out_character_id = record.id;
+    return true;
+}
+
+extern "C" bool pj_character_remove_destroy(pj_world *world, uint32_t character_id) {
+    if (world == nullptr) {
+        return false;
+    }
+    for (auto it = world->characters.begin(); it != world->characters.end(); ++it) {
+        if (it->id != character_id || it->character == nullptr) {
+            continue;
+        }
+        world->character_vs_character_collision.Remove(it->character);
+        delete it->character;
+        world->characters.erase(it);
+        return true;
+    }
+    return false;
+}
+
+extern "C" bool pj_character_set_transform(pj_world *world, uint32_t character_id, const float position[3], const float rotation[4]) {
+    pj_world::CharacterRecord *record = find_character_record(world, character_id);
+    if (record == nullptr || record->character == nullptr || position == nullptr || rotation == nullptr) {
+        return false;
+    }
+    record->character->SetPosition(to_rvec3(position));
+    record->character->SetRotation(to_quat(rotation));
+    return true;
+}
+
+extern "C" bool pj_character_set_linear_velocity(pj_world *world, uint32_t character_id, const float linear_velocity[3]) {
+    pj_world::CharacterRecord *record = find_character_record(world, character_id);
+    if (record == nullptr || record->character == nullptr || linear_velocity == nullptr) {
+        return false;
+    }
+    record->character->SetLinearVelocity(to_vec3(linear_velocity));
+    return true;
+}
+
+extern "C" bool pj_character_extended_update(pj_world *world, uint32_t character_id, float dt, const float gravity[3]) {
+    pj_world::CharacterRecord *record = find_character_record(world, character_id);
+    if (record == nullptr || record->character == nullptr || gravity == nullptr) {
+        return false;
+    }
+    MaskBroadPhaseLayerFilter broad_phase_filter(record->collision_mask);
+    MaskObjectLayerFilter object_layer_filter(record->collision_mask);
+    BodyFilter body_filter;
+    ShapeFilter shape_filter;
+    const Vec3 velocity = record->character->CancelVelocityTowardsSteepSlopes(record->character->GetLinearVelocity());
+    record->character->SetLinearVelocity(velocity);
+    record->character->ExtendedUpdate(
+        dt,
+        to_vec3(gravity),
+        record->update_settings,
+        broad_phase_filter,
+        object_layer_filter,
+        body_filter,
+        shape_filter,
+        *world->temp_allocator
+    );
+    return true;
+}
+
+extern "C" bool pj_character_get_state(pj_world *world, uint32_t character_id, pj_character_state *out_state) {
+    pj_world::CharacterRecord *record = find_character_record(world, character_id);
+    if (record == nullptr || record->character == nullptr || out_state == nullptr) {
+        return false;
+    }
+
+    from_rvec3(record->character->GetPosition(), out_state->position);
+    from_quat(record->character->GetRotation(), out_state->rotation);
+    from_vec3(record->character->GetLinearVelocity(), out_state->linear_velocity);
+    out_state->ground_state = ground_state_to_c(record->character->GetGroundState());
+    from_vec3(record->character->GetGroundNormal(), out_state->ground_normal);
+    from_vec3(record->character->GetGroundVelocity(), out_state->ground_velocity);
+    out_state->ground_body_id = record->character->GetGroundBodyID().IsInvalid() ? 0 : record->character->GetGroundBodyID().GetIndexAndSequenceNumber();
+    out_state->ground_user_data = record->character->GetGroundUserData();
+    out_state->max_hits_exceeded = record->character->GetMaxHitsExceeded();
+    return true;
+}
+
 extern "C" bool pj_world_cast_ray(
     pj_world *world,
     const float origin[3],
@@ -507,14 +707,20 @@ extern "C" bool pj_world_cast_ray(
 
     const Vec3 dir = to_vec3(direction);
     const RRayCast ray(to_rvec3(origin), dir.Normalized() * max_distance);
-    RayCastResult hit;
+    ClosestHitCollisionCollector<CastRayCollector> collector;
+    RayCastSettings settings;
+    settings.mBackFaceModeTriangles = EBackFaceMode::CollideWithBackFaces;
+    settings.mBackFaceModeConvex = EBackFaceMode::CollideWithBackFaces;
     MaskObjectLayerFilter object_filter(collision_mask);
-    const bool did_hit = world->physics_system.GetNarrowPhaseQuery().CastRay(ray, hit, {}, object_filter);
+    world->physics_system.GetNarrowPhaseQuery().CastRay(ray, settings, collector, {}, object_filter);
+    const bool did_hit = collector.HadHit();
 
     out_hit->hit = did_hit;
     if (!did_hit) {
         return true;
     }
+
+    const RayCastResult &hit = collector.mHit;
 
     const BodyLockRead lock(world->physics_system.GetBodyLockInterface(), hit.mBodyID);
     if (!lock.Succeeded()) {
@@ -531,6 +737,71 @@ extern "C" bool pj_world_cast_ray(
     from_rvec3(point, out_hit->position);
     from_vec3(normal, out_hit->normal);
     out_hit->distance = hit.mFraction * max_distance;
+    (void)source_layer;
+    return true;
+}
+
+extern "C" bool pj_world_cast_shape(
+    pj_world *world,
+    const pj_body_desc *desc,
+    const float translation[3],
+    uint32_t source_layer,
+    uint32_t collision_mask,
+    pj_shapecast_hit *out_hit
+) {
+    if (world == nullptr || desc == nullptr || translation == nullptr || out_hit == nullptr) {
+        return false;
+    }
+
+    RefConst<Shape> shape;
+    if (!make_shape(*desc, nullptr, 0, nullptr, 0, nullptr, 0, shape)) {
+        return false;
+    }
+
+    const RMat44 start = RMat44::sRotationTranslation(to_quat(desc->rotation), to_rvec3(desc->position));
+    const RShapeCast shape_cast = RShapeCast::sFromWorldTransform(shape.GetPtr(), Vec3::sReplicate(1.0f), start, to_vec3(translation));
+    ShapeCastSettings settings;
+    settings.mReturnDeepestPoint = true;
+    settings.mBackFaceModeTriangles = EBackFaceMode::CollideWithBackFaces;
+    settings.mBackFaceModeConvex = EBackFaceMode::CollideWithBackFaces;
+
+    ClosestHitCollisionCollector<CastShapeCollector> collector;
+    MaskBroadPhaseLayerFilter broad_phase_filter(collision_mask);
+    MaskObjectLayerFilter object_layer_filter(collision_mask);
+    BodyFilter body_filter;
+    ShapeFilter shape_filter;
+
+    world->physics_system.GetNarrowPhaseQuery().CastShape(
+        shape_cast,
+        settings,
+        RVec3::sZero(),
+        collector,
+        broad_phase_filter,
+        object_layer_filter,
+        body_filter,
+        shape_filter
+    );
+
+    out_hit->hit = collector.HadHit();
+    if (!out_hit->hit) {
+        return true;
+    }
+
+    const ShapeCastResult &hit = collector.mHit;
+    const BodyID body_id = hit.mBodyID2;
+    const BodyLockRead lock(world->physics_system.GetBodyLockInterface(), body_id);
+    if (!lock.Succeeded()) {
+        out_hit->hit = false;
+        return false;
+    }
+
+    const Body &body = lock.GetBody();
+    const Vec3 normal = hit.mPenetrationAxis.NormalizedOr(Vec3::sAxisY());
+    out_hit->body_id = body_id.GetIndexAndSequenceNumber();
+    out_hit->user_data = body.GetUserData();
+    from_vec3(hit.mContactPointOn2, out_hit->position);
+    from_vec3(normal, out_hit->normal);
+    out_hit->fraction = hit.mFraction;
     (void)source_layer;
     return true;
 }

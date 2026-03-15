@@ -17,8 +17,12 @@ pub const bake = @import("bake/root.zig");
 pub const module = @import("module.zig");
 
 pub const Body = components.Body;
+pub const Character = components.Character;
 pub const Collider = components.Collider;
 pub const Velocity = components.Velocity;
+pub const CharacterVelocity = components.CharacterVelocity;
+pub const CharacterState = components.CharacterState;
+pub const CharacterGroundState = components.CharacterGroundState;
 pub const MassProperties = components.MassProperties;
 pub const LockAxes = components.LockAxes;
 pub const KinematicTarget = components.KinematicTarget;
@@ -31,6 +35,7 @@ pub const CompoundShapeHandle = components.CompoundShapeHandle;
 pub const PhysicsDirty = components.PhysicsDirty;
 pub const PhysicsDisabled = components.PhysicsDisabled;
 pub const BodyHandle = components.BodyHandle;
+pub const CharacterHandle = components.CharacterHandle;
 
 pub const Config = resources.Config;
 pub const Stats = resources.Stats;

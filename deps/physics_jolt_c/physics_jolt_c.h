@@ -75,6 +75,56 @@ typedef struct pj_body_state {
     uint64_t user_data;
 } pj_body_state;
 
+typedef enum pj_character_ground_state {
+    PJ_CHARACTER_GROUND_ON_GROUND = 0,
+    PJ_CHARACTER_GROUND_ON_STEEP_GROUND = 1,
+    PJ_CHARACTER_GROUND_NOT_SUPPORTED = 2,
+    PJ_CHARACTER_GROUND_IN_AIR = 3,
+} pj_character_ground_state;
+
+typedef struct pj_character_desc {
+    uint64_t user_data;
+    pj_shape_kind shape_kind;
+    uint32_t object_layer;
+    uint32_t collision_mask;
+    float position[3];
+    float rotation[4];
+    float linear_velocity[3];
+    float half_extents[3];
+    float radius;
+    float half_height;
+    float mass;
+    float max_strength;
+    float max_slope_angle_radians;
+    float padding;
+    float penetration_recovery_speed;
+    float predictive_contact_distance;
+    uint32_t max_collision_iterations;
+    uint32_t max_constraint_iterations;
+    float min_time_remaining;
+    float collision_tolerance;
+    uint32_t max_hits;
+    float hit_reduction_cos_max_angle;
+    bool enhanced_internal_edge_removal;
+    float stick_to_floor_distance;
+    float step_up_height;
+    float step_forward_min_distance;
+    float step_forward_test_distance;
+    float step_down_extra_distance;
+} pj_character_desc;
+
+typedef struct pj_character_state {
+    float position[3];
+    float rotation[4];
+    float linear_velocity[3];
+    pj_character_ground_state ground_state;
+    float ground_normal[3];
+    float ground_velocity[3];
+    uint32_t ground_body_id;
+    uint64_t ground_user_data;
+    bool max_hits_exceeded;
+} pj_character_state;
+
 typedef struct pj_raycast_hit {
     bool hit;
     uint32_t body_id;
@@ -83,6 +133,15 @@ typedef struct pj_raycast_hit {
     float normal[3];
     float distance;
 } pj_raycast_hit;
+
+typedef struct pj_shapecast_hit {
+    bool hit;
+    uint32_t body_id;
+    uint64_t user_data;
+    float position[3];
+    float normal[3];
+    float fraction;
+} pj_shapecast_hit;
 
 bool pj_world_create(const pj_world_config *config, pj_world **out_world);
 void pj_world_destroy(pj_world *world);
@@ -104,6 +163,12 @@ bool pj_body_set_transform(pj_world *world, uint32_t body_id, const float positi
 bool pj_body_set_velocities(pj_world *world, uint32_t body_id, const float linear_velocity[3], const float angular_velocity[3]);
 bool pj_body_move_kinematic(pj_world *world, uint32_t body_id, const float position[3], const float rotation[4], float dt);
 bool pj_body_get_state(pj_world *world, uint32_t body_id, pj_body_state *out_state);
+bool pj_character_create(pj_world *world, const pj_character_desc *desc, uint32_t *out_character_id);
+bool pj_character_remove_destroy(pj_world *world, uint32_t character_id);
+bool pj_character_set_transform(pj_world *world, uint32_t character_id, const float position[3], const float rotation[4]);
+bool pj_character_set_linear_velocity(pj_world *world, uint32_t character_id, const float linear_velocity[3]);
+bool pj_character_extended_update(pj_world *world, uint32_t character_id, float dt, const float gravity[3]);
+bool pj_character_get_state(pj_world *world, uint32_t character_id, pj_character_state *out_state);
 bool pj_world_cast_ray(
     pj_world *world,
     const float origin[3],
@@ -112,6 +177,14 @@ bool pj_world_cast_ray(
     uint32_t source_layer,
     uint32_t collision_mask,
     pj_raycast_hit *out_hit
+);
+bool pj_world_cast_shape(
+    pj_world *world,
+    const pj_body_desc *desc,
+    const float translation[3],
+    uint32_t source_layer,
+    uint32_t collision_mask,
+    pj_shapecast_hit *out_hit
 );
 
 #ifdef __cplusplus
