@@ -1,4 +1,5 @@
 const Player = struct {};
+const PlayerCamera = struct {};
 const FpsPhysics = modules.FpsPhysicsModule(Player);
 const FpsController = FpsPhysics.FpsController;
 
@@ -31,6 +32,14 @@ const App = struct {
     pub fn configure(app: *ecs.App) !void {
         try platform.installDefaultModules(app);
         try app.installModule(modules.SkyModule);
+        try app.installModule(physics.PhysicsModule{
+            .config = .{
+                .backend = .Jolt,
+                .fixed_dt = 1.0 / 60.0,
+                .max_substeps = 8,
+                .gravity = .{ .x = 0.0, .y = -18.0, .z = 0.0 },
+            },
+        });
         try app.installModule(FpsPhysics{});
         try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
@@ -40,6 +49,7 @@ const App = struct {
 
         try app.addSystemTo("Startup", setupScene);
         try app.addSystemTo("Update", updateMouseCaptureToggle);
+        try app.addSystemTo("Update", updatePlayerCamera);
     }
 };
 
@@ -91,7 +101,33 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), r
 
     _ = try commands.createEntity(.{
         Player{},
-        FpsController{},
+        FpsController{ .eye_offset_y = 0.5 },
+        Transform{
+            .translation = .{ .x = 0.0, .y = 0.9, .z = 10.5 },
+        },
+        physics.Body{
+            .kind = .Dynamic,
+            .linear_damping = 0.0,
+            .angular_damping = 0.0,
+        },
+        physics.Collider{
+            .shape = .{ .Capsule = .{
+                .radius = 0.35,
+                .half_height = FpsPhysics.capsuleHalfHeight(.{}),
+            } },
+            .material = .{ .friction = 0.0, .restitution = 0.0 },
+            .density = 65.0,
+        },
+        physics.Velocity{},
+        physics.LockAxes{
+            .rotation_x = true,
+            .rotation_y = true,
+            .rotation_z = true,
+        },
+    });
+
+    _ = try commands.createEntity(.{
+        PlayerCamera{},
         Transform{
             .translation = .{ .x = 0.0, .y = 1.4, .z = 10.5 },
         },
@@ -341,6 +377,32 @@ fn updateMouseCaptureToggle(
     }
 }
 
+fn updatePlayerCamera(
+    players: ecs.system_params.Query(.{ Transform, FpsController, Player }),
+    cameras: ecs.system_params.Query(.{ Transform, PlayerCamera }),
+) void {
+    var player_transform: ?Transform = null;
+    var player_controller: ?FpsController = null;
+
+    var pit = players.iterator();
+    while (pit.next()) |row| {
+        player_transform = row.get(Transform).?.*;
+        player_controller = row.get(FpsController).?.*;
+        break;
+    }
+
+    if (player_transform == null or player_controller == null) return;
+    const controller = player_controller.?;
+    const camera_rotation = quatFromEuler(controller.pitch, controller.yaw, 0.0);
+
+    var cit = cameras.iterator();
+    while (cit.next()) |row| {
+        const transform = row.get(Transform) orelse continue;
+        transform.translation = player_transform.?.translation.add(.{ .x = 0.0, .y = controller.eye_offset_y, .z = 0.0 });
+        transform.rotation = camera_rotation;
+    }
+}
+
 fn spawnTexturedBox(
     commands: *ecs.Commands,
     build_ctx: *render.BuildContext,
@@ -477,7 +539,16 @@ fn spawnTexturedQuadUvRectInLayer(
 }
 
 fn addStaticCollider(commands: *ecs.Commands, center: Vec3, half: Vec3) !void {
-    try FpsPhysics.addStaticCollider(commands, center, half);
+    _ = try commands.createEntity(.{
+        Transform{
+            .translation = center,
+        },
+        physics.Body{ .kind = .Static },
+        physics.Collider{
+            .shape = .{ .Box = .{ .half_extents = half } },
+            .material = .{ .friction = 0.85, .restitution = 0.0 },
+        },
+    });
 }
 
 fn quatFromEuler(pitch: f32, yaw: f32, roll: f32) Quat {
@@ -721,6 +792,7 @@ const phasor = @import("phasor");
 
 const ecs = phasor.ecs;
 const modules = phasor.modules;
+const physics = phasor.physics;
 const render = phasor.renderer;
 const common = phasor.common;
 const platform = phasor.platform;

@@ -105,7 +105,11 @@ pub const State = struct {
                     const target = if (kinematic_target) |value| value.transform else transform.*;
                     _ = pj_body_move_kinematic(self.native, body_id, &vec3ToArray(target.translation), &quatToArray(target.rotation), config.fixed_dt);
                 },
-                .Dynamic => {},
+                .Dynamic => {
+                    if (velocity) |value| {
+                        _ = pj_body_set_velocities(self.native, body_id, &vec3ToArray(value.linear), &vec3ToArray(value.angular));
+                    }
+                },
             }
         }
 
