@@ -12,6 +12,9 @@ const StatusTextTag = struct {};
 const SceneSpawnPlan = struct {
     scene_size: Vec3,
 };
+const SceneMetrics = struct {
+    scene_size: Vec3,
+};
 const ActiveCameraMode = enum {
     Overview,
     Fps,
@@ -76,6 +79,7 @@ const SceneBounds = struct {
 
 const App = struct {
     pub const options = platform.Options{
+        .vsync = true,
         .window = .{
             .title = "Phasor Lite - Sponza",
             .width = 1440,
@@ -196,6 +200,9 @@ fn setupScene(
     try commands.insertResource(SceneSpawnPlan{
         .scene_size = scene_size,
     });
+    try commands.insertResource(SceneMetrics{
+        .scene_size = scene_size,
+    });
     try commands.insertResource(SceneReady{});
 
     _ = try commands.createEntity(.{
@@ -213,6 +220,7 @@ fn setupScene(
             .near = 0.05,
             .far = 250.0,
         } },
+        CameraLayer(1){},
     });
 
     _ = try commands.createEntity(.{
@@ -389,6 +397,7 @@ fn updateStatusOverlay(
     scene_assets: Res(Assets),
     scene_ready: ResOpt(SceneReady),
     spawn_plan: ResOpt(SceneSpawnPlan),
+    scene_metrics: ResOpt(SceneMetrics),
     imported: ResOpt(assets.ImportedScene),
     camera_mode: ResOpt(ActiveCameraMode),
     overlay: ResMut(StatusOverlay),
@@ -429,7 +438,7 @@ fn updateStatusOverlay(
         ) catch "Sponza: spawning..."
     else blk: {
         const imported_scene = imported.ptr orelse break :blk "Sponza: ready";
-        const bounds = imported_scene.bounds.size();
+        const scene_size = if (scene_metrics.ptr) |metrics| metrics.scene_size else imported_scene.bounds.size();
         break :blk std.fmt.bufPrint(
             &overlay.ptr.buffer,
             "Sponza {c}  stage {s}\nWASD move, mouse look, Space jump\n{s}\n{s}\nScene: {d} meshes  {d:.1}m x {d:.1}m x {d:.1}m",
@@ -439,9 +448,9 @@ fn updateStatusOverlay(
                 mouse_state,
                 camera_state,
                 imported_scene.mesh_handles.len,
-                bounds.x,
-                bounds.y,
-                bounds.z,
+                scene_size.x,
+                scene_size.y,
+                scene_size.z,
             },
         ) catch "Sponza: ready";
     };
@@ -464,6 +473,7 @@ fn unloadImportedScene(commands: *ecs.Commands) void {
     _ = commands.removeResource(assets.ImportedScene);
     _ = commands.removeResource(SceneReady);
     _ = commands.removeResource(SceneSpawnPlan);
+    _ = commands.removeResource(SceneMetrics);
     _ = commands.removeResource(StatusOverlay);
     _ = commands.removeResource(ActiveCameraMode);
 }
@@ -761,6 +771,12 @@ fn appendPrimitiveCollision(
     bounds: *SceneBounds,
 ) !void {
     if (primitive.topology != .Triangles) return;
+    if (primitive.material_index) |material_index| {
+        if (material_index < scene_data.materials.len) {
+            const material = scene_data.materials[material_index];
+            if (material.alpha_mode != .Opaque or material.double_sided) return;
+        }
+    }
     const position_accessor = primitive.position_accessor orelse return;
     if (position_accessor.element_type != .Vec3 or position_accessor.component_type != 5126) return;
 
