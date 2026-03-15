@@ -95,4 +95,3 @@ private:
 };
 
 JPH_NAMESPACE_END
-

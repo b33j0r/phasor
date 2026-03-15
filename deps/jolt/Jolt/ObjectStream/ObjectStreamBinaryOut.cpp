@@ -162,4 +162,3 @@ void ObjectStreamBinaryOut::WritePrimitiveData(const DMat44 &inPrimitive)
 JPH_NAMESPACE_END
 
 #endif // JPH_OBJECT_STREAM
-
