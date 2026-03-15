@@ -1,5 +1,6 @@
 const common = @import("common");
 const ecs = @import("ecs");
+const backend = @import("backend.zig");
 const resources = @import("resources.zig");
 const events = @import("events.zig");
 
@@ -28,6 +29,17 @@ pub const PhysicsModule = struct {
         if (!commands.hasResource(resources.StepState)) {
             try commands.insertResource(resources.StepState{});
         }
+        if (!commands.hasResource(resources.CollisionMeshStore)) {
+            try commands.insertResource(resources.CollisionMeshStore.init(commands.allocator));
+        }
+        if (!commands.hasResource(resources.HeightFieldStore)) {
+            try commands.insertResource(resources.HeightFieldStore.init(commands.allocator));
+        }
+        if (!commands.hasResource(backend.World)) {
+            var world = try backend.World.init(commands.allocator, self.config);
+            errdefer world.deinit();
+            try commands.insertResource(world);
+        }
 
         try commands.registerEvent(events.ContactBegan, 128);
         try commands.registerEvent(events.ContactEnded, 128);
@@ -45,6 +57,18 @@ pub const PhysicsModule = struct {
         app.removeSystem(stepSystem);
         app.removeSystem(eventsSystem);
         app.removeSystem(syncOutSystem);
+        if (commands.getResourceMut(backend.World)) |world| {
+            world.deinit();
+            _ = commands.removeResource(backend.World);
+        }
+        if (commands.getResourceMut(resources.HeightFieldStore)) |store| {
+            store.deinit();
+            _ = commands.removeResource(resources.HeightFieldStore);
+        }
+        if (commands.getResourceMut(resources.CollisionMeshStore)) |store| {
+            store.deinit();
+            _ = commands.removeResource(resources.CollisionMeshStore);
+        }
         _ = commands.removeResource(resources.StepState);
         _ = commands.removeResource(resources.Stats);
         _ = commands.removeResource(resources.Config);
@@ -63,17 +87,39 @@ fn ensureScheduleBetween(
     };
 }
 
-fn syncInSystem(step_state: ecs.system_params.ResMut(resources.StepState)) void {
-    step_state.ptr.steps_last_frame = 0;
+fn syncInSystem(
+    world: ecs.system_params.ResMut(backend.World),
+    config: ecs.system_params.Res(resources.Config),
+    step_state: ecs.system_params.ResMut(resources.StepState),
+    commands: *ecs.Commands,
+) void {
+    world.ptr.syncIn(commands, config.ptr.*, step_state.ptr);
 }
 
-fn stepSystem(config: ecs.system_params.Res(resources.Config), step_state: ecs.system_params.ResMut(resources.StepState)) void {
-    _ = config;
-    step_state.ptr.alpha = 0.0;
+fn stepSystem(
+    world: ecs.system_params.ResMut(backend.World),
+    config: ecs.system_params.Res(resources.Config),
+    step_state: ecs.system_params.ResMut(resources.StepState),
+    stats: ecs.system_params.ResMut(resources.Stats),
+) void {
+    world.ptr.step(config.ptr.*, step_state.ptr, stats.ptr);
 }
 
-fn eventsSystem(stats: ecs.system_params.ResMut(resources.Stats), step_state: ecs.system_params.Res(resources.StepState)) void {
+fn eventsSystem(
+    world: ecs.system_params.ResMut(backend.World),
+    stats: ecs.system_params.ResMut(resources.Stats),
+    step_state: ecs.system_params.Res(resources.StepState),
+) void {
+    world.ptr.collectEvents();
     stats.ptr.last_substeps = step_state.ptr.steps_last_frame;
 }
 
-fn syncOutSystem(_: *ecs.Commands, _: ecs.system_params.Res(resources.Config), _: ecs.system_params.Res(resources.StepState), _: ecs.system_params.Query(.{ common.Transform })) void {}
+fn syncOutSystem(
+    world: ecs.system_params.ResMut(backend.World),
+    commands: *ecs.Commands,
+    _: ecs.system_params.Res(resources.Config),
+    _: ecs.system_params.Res(resources.StepState),
+    _: ecs.system_params.Query(.{common.Transform}),
+) void {
+    world.ptr.syncOut(commands);
+}

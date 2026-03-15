@@ -604,23 +604,22 @@ fn applyViewport(tri: render.Triangle, vp: anytype, size: render.Size, view: com
     var out = tri;
     for (&out.vertices) |*v| {
         const transformed = view.transformVec2(.{ .x = v.position[0], .y = v.position[1] });
-        const pos = .{ transformed.x, transformed.y };
         const ndc = switch (vp.mode) {
-            .TopLeft => positionToNdcTopLeft(pos, size),
-            .Center => positionToNdcCenter(pos, size),
+            .TopLeft => positionToNdcTopLeft(transformed, size),
+            .Center => positionToNdcCenter(transformed, size),
         };
-        v.position = ndc;
+        v.position = .{ ndc.x, ndc.y };
     }
     return out;
 }
 
-fn positionToNdcTopLeft(pos: [2]f32, size: render.Size) [2]f32 {
+fn positionToNdcTopLeft(pos: common.Vec2, size: render.Size) common.Vec2 {
     const w = @as(f32, @floatFromInt(size.width));
     const h = @as(f32, @floatFromInt(size.height));
     if (w == 0.0 or h == 0.0) return pos;
-    const x = (pos[0] / w) * 2.0 - 1.0;
-    const y = 1.0 - (pos[1] / h) * 2.0;
-    return .{ x, y };
+    const x = (pos.x / w) * 2.0 - 1.0;
+    const y = 1.0 - (pos.y / h) * 2.0;
+    return .{ .x = x, .y = y };
 }
 
 const BlendItem = struct {
@@ -657,13 +656,13 @@ fn blendItemLessThan(_: void, a: BlendItem, b: BlendItem) bool {
     return a.depth > b.depth;
 }
 
-fn positionToNdcCenter(pos: [2]f32, size: render.Size) [2]f32 {
+fn positionToNdcCenter(pos: common.Vec2, size: render.Size) common.Vec2 {
     const w = @as(f32, @floatFromInt(size.width));
     const h = @as(f32, @floatFromInt(size.height));
     if (w == 0.0 or h == 0.0) return pos;
-    const x = pos[0] / (w * 0.5);
-    const y = pos[1] / (h * 0.5);
-    return .{ x, y };
+    const x = pos.x / (w * 0.5);
+    const y = pos.y / (h * 0.5);
+    return .{ .x = x, .y = y };
 }
 
 const std = @import("std");

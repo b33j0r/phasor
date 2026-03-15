@@ -200,22 +200,22 @@ fn directionForFacePoint(spec: FaceSpec, x: f32, y: f32) common.Vec3 {
     return rotated.add(spec.offset).normalize();
 }
 
-fn directionToEquirectUv(direction: common.Vec3) [2]f32 {
+fn directionToEquirectUv(direction: common.Vec3) common.Vec2 {
     const u = 0.5 + (std.math.atan2(direction.x, direction.z) / (2.0 * std.math.pi));
     const v = 0.5 - (std.math.asin(std.math.clamp(direction.y, -1.0, 1.0)) / std.math.pi);
-    return .{ u, v };
+    return .{ .x = u, .y = v };
 }
 
-fn unwrapSeam(uvs: *[4][2]f32) void {
-    var min_u = uvs.*[0][0];
-    var max_u = uvs.*[0][0];
+fn unwrapSeam(uvs: *[4]common.Vec2) void {
+    var min_u = uvs.*[0].x;
+    var max_u = uvs.*[0].x;
     for (uvs.*[1..]) |uv| {
-        min_u = @min(min_u, uv[0]);
-        max_u = @max(max_u, uv[0]);
+        min_u = @min(min_u, uv.x);
+        max_u = @max(max_u, uv.x);
     }
     if (max_u - min_u <= 0.5) return;
     for (&uvs.*) |*uv| {
-        if (uv[0] < 0.5) uv[0] += 1.0;
+        if (uv.x < 0.5) uv.x += 1.0;
     }
 }
 
@@ -259,7 +259,7 @@ fn createPanoramaFaceMesh(
             const y0 = std.math.lerp(-half, half, t0);
             const y1 = std.math.lerp(-half, half, t1);
 
-            var uvs = [4][2]f32{
+            var uvs = [4]common.Vec2{
                 directionToEquirectUv(directionForFacePoint(spec, x0, y0)),
                 directionToEquirectUv(directionForFacePoint(spec, x1, y0)),
                 directionToEquirectUv(directionForFacePoint(spec, x1, y1)),
@@ -274,10 +274,10 @@ fn createPanoramaFaceMesh(
             const idx2: u16 = @intCast(base + 2);
             const idx3: u16 = @intCast(base + 3);
 
-            try vertices.append(allocator, .{ .position = .{ x0, y0 }, .uv = uvs[0] });
-            try vertices.append(allocator, .{ .position = .{ x1, y0 }, .uv = uvs[1] });
-            try vertices.append(allocator, .{ .position = .{ x1, y1 }, .uv = uvs[2] });
-            try vertices.append(allocator, .{ .position = .{ x0, y1 }, .uv = uvs[3] });
+            try vertices.append(allocator, .{ .position = .{ x0, y0 }, .uv = .{ uvs[0].x, uvs[0].y } });
+            try vertices.append(allocator, .{ .position = .{ x1, y0 }, .uv = .{ uvs[1].x, uvs[1].y } });
+            try vertices.append(allocator, .{ .position = .{ x1, y1 }, .uv = .{ uvs[2].x, uvs[2].y } });
+            try vertices.append(allocator, .{ .position = .{ x0, y1 }, .uv = .{ uvs[3].x, uvs[3].y } });
 
             try indices.append(allocator, idx0);
             try indices.append(allocator, idx1);

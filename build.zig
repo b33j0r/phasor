@@ -1,4 +1,5 @@
 const std = @import("std");
+const jolt_sources = @import("deps/jolt_sources.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -109,6 +110,7 @@ pub fn build(b: *std.Build) void {
     _ = addExample(&ctx, phasor.module, "triangle", "examples/triangle/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "bouncing-ball", "examples/bouncing-ball/main.zig", &.{});
     _ = addExample(&ctx, phasor.module, "cube", "examples/cube/main.zig", &.{});
+    _ = addExample(&ctx, phasor.module, "physics-cubes", "examples/physics-cubes/main.zig", &.{});
     const gltf_embedded_assets = ctx.b.createModule(.{
         .root_source_file = ctx.b.path("assets/gltf/embedded_assets.zig"),
         .target = ctx.target,
@@ -561,6 +563,10 @@ const PhysicsModuleLib = struct {
             .{ .name = "common", .module = deps.common },
             .{ .name = "ecs", .module = deps.ecs },
         });
+
+        if (!ctx.target.result.cpu.arch.isWasm()) {
+            addJoltSources(ctx, bundle.module);
+        }
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -584,6 +590,36 @@ const GuiModuleLib = struct {
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
+
+fn addJoltSources(ctx: *const BuildContext, module: *std.Build.Module) void {
+    module.addIncludePath(ctx.b.path("deps/jolt"));
+    module.addIncludePath(ctx.b.path("deps/physics_jolt_c"));
+    module.linkSystemLibrary("c++", .{});
+    module.addCSourceFiles(.{
+        .root = ctx.b.path(""),
+        .files = jolt_sources.files,
+        .flags = &.{
+            "-std=c++17",
+            "-DJPH_OBJECT_LAYER_BITS=32",
+            "-DJPH_USE_STD_VECTOR",
+            "-DCPP_EXCEPTIONS_ENABLED=0",
+            "-DCPP_RTTI_ENABLED=0",
+        },
+        .language = .cpp,
+    });
+    module.addCSourceFiles(.{
+        .root = ctx.b.path(""),
+        .files = &.{"deps/physics_jolt_c/physics_jolt_c.cpp"},
+        .flags = &.{
+            "-std=c++17",
+            "-DJPH_OBJECT_LAYER_BITS=32",
+            "-DJPH_USE_STD_VECTOR",
+            "-DCPP_EXCEPTIONS_ENABLED=0",
+            "-DCPP_RTTI_ENABLED=0",
+        },
+        .language = .cpp,
+    });
+}
 
 const ModulesModule = struct {
     module: *std.Build.Module,
@@ -922,6 +958,12 @@ fn addWasmExample(
     const install_wasm = ctx.b.addInstallFile(wasm_exe.getEmittedBin(), ctx.b.fmt("{s}/app.wasm", .{web_dir}));
     const install_html = ctx.b.addInstallFile(ctx.b.path("assets/web/index.html"), ctx.b.fmt("{s}/index.html", .{web_dir}));
     const install_js = ctx.b.addInstallFile(ctx.b.path("assets/web/webgpu.js"), ctx.b.fmt("{s}/webgpu.js", .{web_dir}));
+    const install_jolt_bridge = ctx.b.addInstallFile(ctx.b.path("assets/web/jolt_bridge.js"), ctx.b.fmt("{s}/jolt_bridge.js", .{web_dir}));
+    const install_vendor = ctx.b.addInstallDirectory(.{
+        .source_dir = ctx.b.path("assets/web/vendor"),
+        .install_dir = .prefix,
+        .install_subdir = ctx.b.fmt("{s}/vendor", .{web_dir}),
+    });
     const install_favicon = ctx.b.addInstallFile(ctx.b.path("assets/web/favicon.svg"), ctx.b.fmt("{s}/favicon.svg", .{web_dir}));
     const install_triangle_shader = ctx.b.addInstallFile(
         ctx.b.path("lib/render/shaders/triangle.wgsl"),
@@ -948,6 +990,8 @@ fn addWasmExample(
     web_step.dependOn(&install_wasm.step);
     web_step.dependOn(&install_html.step);
     web_step.dependOn(&install_js.step);
+    web_step.dependOn(&install_jolt_bridge.step);
+    web_step.dependOn(&install_vendor.step);
     web_step.dependOn(&install_favicon.step);
     web_step.dependOn(&install_triangle_shader.step);
     web_step.dependOn(&install_quad_shader.step);
@@ -968,6 +1012,8 @@ fn addWasmExample(
     run_server.step.dependOn(&install_wasm.step);
     run_server.step.dependOn(&install_html.step);
     run_server.step.dependOn(&install_js.step);
+    run_server.step.dependOn(&install_jolt_bridge.step);
+    run_server.step.dependOn(&install_vendor.step);
     run_server.step.dependOn(&install_favicon.step);
     run_server.step.dependOn(&install_triangle_shader.step);
     run_server.step.dependOn(&install_quad_shader.step);
@@ -990,6 +1036,8 @@ fn addWasmExample(
     run_server_https.step.dependOn(&install_wasm.step);
     run_server_https.step.dependOn(&install_html.step);
     run_server_https.step.dependOn(&install_js.step);
+    run_server_https.step.dependOn(&install_jolt_bridge.step);
+    run_server_https.step.dependOn(&install_vendor.step);
     run_server_https.step.dependOn(&install_favicon.step);
     run_server_https.step.dependOn(&install_triangle_shader.step);
     run_server_https.step.dependOn(&install_quad_shader.step);
@@ -1193,6 +1241,7 @@ fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module) void {
     const wasm_examples = [_]WasmExample{
         .{ .name = "bouncing-ball", .root = "examples/bouncing-ball/main.zig" },
         .{ .name = "cube", .root = "examples/cube/main.zig" },
+        .{ .name = "physics-cubes", .root = "examples/physics-cubes/main.zig" },
         .{ .name = "triangle", .root = "examples/triangle/main.zig" },
         .{ .name = "warehouse", .root = "examples/warehouse/main.zig" },
         .{ .name = "gltf", .root = "examples/gltf/main.zig" },
