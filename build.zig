@@ -1229,6 +1229,7 @@ fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module) void {
     const wasm_examples = [_]WasmExample{
         .{ .name = "bouncing-ball", .root = "examples/bouncing-ball/main.zig" },
         .{ .name = "cube", .root = "examples/cube/main.zig" },
+        .{ .name = "physics-cubes", .root = "examples/physics-cubes/main.zig" },
         .{ .name = "triangle", .root = "examples/triangle/main.zig" },
         .{ .name = "warehouse", .root = "examples/warehouse/main.zig" },
         .{ .name = "gltf", .root = "examples/gltf/main.zig" },
