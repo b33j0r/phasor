@@ -1,0 +1,674 @@
+const std = @import("std");
+const s = @import("shared.zig");
+const phases = @import("phases.zig");
+
+pub fn ensureSceneLoader(commands: *s.ecs.Commands) !void {
+    if (commands.hasResource(s.SceneLoaderState)) return;
+
+    var loader = try s.SceneLoaderState.init(commands.allocator, commands.io);
+    errdefer loader.deinit();
+    try loader.agent.start(commands.io.*, runSceneLoader, s.SceneLoaderTaskContext{
+        .allocator = commands.allocator,
+        .path = s.sponza_scene_path,
+    });
+    loader.started = true;
+    loader.progress = .{ .label = "1/6 locating cached assets", .fraction = 0.02 };
+    try commands.insertResource(loader);
+}
+
+pub fn ensureLoadingScreenVisuals(
+    commands: *s.ecs.Commands,
+    build_ctx: s.ResOpt(s.render.BuildContext),
+    scene_assets: s.ResMut(s.Assets),
+    screen_state: s.ResOpt(s.LoadingScreenState),
+    current_phase: s.ResOpt(phases.SponzaPhases.CurrentPhase),
+) !void {
+    if (screen_state.ptr == null) return;
+    const phase = current_phase.ptr orelse return;
+    if (phase.phase != .Loading) return;
+    if (commands.hasResource(s.LoadingScreenVisualState)) return;
+
+    const build_ctx_res = build_ctx.ptr orelse return;
+    if (!scene_assets.ptr.color_shader.handle.isValid()) return error.ColorShaderMissing;
+
+    const mesh_handle = try createUiRectMesh(commands.allocator, build_ctx_res, 1.0, 1.0);
+    const shader_material = s.render.Material.withShader(scene_assets.ptr.color_shader.handle);
+
+    const track_entity = try commands.createEntity(.{
+        s.Transform{},
+        s.MeshInstance{
+            .mesh_handle = mesh_handle,
+            .material = shader_material,
+            .color = s.Color.rgba(32, 32, 32, 230),
+        },
+        s.render.Layer(1001){},
+        s.LoadingScreen{},
+        s.LoadingScreenBarTrack{},
+    });
+    const fill_entity = try commands.createEntity(.{
+        s.Transform{},
+        s.MeshInstance{
+            .mesh_handle = mesh_handle,
+            .material = shader_material,
+            .color = s.Color.rgb(235, 235, 235),
+        },
+        s.render.Layer(1001){},
+        s.LoadingScreen{},
+        s.LoadingScreenBarFill{},
+    });
+
+    try commands.insertResource(s.LoadingScreenVisualState{
+        .track_entity = track_entity,
+        .fill_entity = fill_entity,
+    });
+}
+
+pub fn drainSceneLoader(commands: *s.ecs.Commands, loader: s.ResMut(s.SceneLoaderState)) !void {
+    while (loader.ptr.agent.tryRecv()) |message| {
+        switch (message) {
+            .progress => |progress| loader.ptr.progress = progress,
+            .ready => |payload| {
+                if (loader.ptr.payload) |*existing| existing.deinit(commands.allocator);
+                loader.ptr.payload = payload;
+                loader.ptr.progress = .{ .label = "4/6 validating collision bake", .fraction = 0.46 };
+            },
+            .failed => |err_name| loader.ptr.failed = err_name,
+        }
+    }
+}
+
+pub fn advanceSceneFinalize(
+    commands: *s.ecs.Commands,
+    build_ctx: s.ResOpt(s.render.BuildContext),
+    assets_ctx: s.ResOpt(s.assets.AssetsContext),
+    collision_store: s.ResMut(s.physics.CollisionMeshStore),
+    scene_assets: s.ResMut(s.Assets),
+    loader: s.ResMut(s.SceneLoaderState),
+) !void {
+    if (commands.hasResource(s.SceneReady)) return;
+    if (loader.ptr.failed != null) return;
+
+    const build_ctx_res = build_ctx.ptr orelse return;
+    const assets_ctx_res = assets_ctx.ptr orelse return;
+    if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
+    if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
+    if (!scene_assets.ptr.sky_shader.handle.isValid()) return error.SkyShaderMissing;
+
+    if (!commands.hasResource(s.SceneFinalizeState)) {
+        if (loader.ptr.payload) |payload| {
+            const bounds = payload.bake.bounds;
+            const center = bounds.center();
+            const root_translation = s.Vec3{
+                .x = -center.x,
+                .y = -bounds.min.y,
+                .z = -center.z,
+            };
+            try commands.insertResource(s.SceneFinalizeState{
+                .allocator = commands.allocator,
+                .payload = payload,
+                .root_translation = root_translation,
+                .scene_size = bounds.size(),
+            });
+            loader.ptr.payload = null;
+        }
+        return;
+    }
+
+    const finalize = commands.getResourceMut(s.SceneFinalizeState) orelse return;
+    switch (finalize.stage) {
+        .inspect_bake => {
+            loader.ptr.progress = .{ .label = "4/6 validating collision bake", .fraction = 0.52 };
+            try logCollisionBakeStats(commands.allocator, finalize.payload.bake);
+            finalize.stage = .create_scene_root;
+        },
+        .create_scene_root => {
+            loader.ptr.progress = .{ .label = "5/6 creating scene root", .fraction = 0.60 };
+            const root = try commands.createEntity(.{
+                s.Transform{
+                    .translation = finalize.root_translation,
+                },
+                s.SceneRoot{},
+                s.render.Layer(0){},
+            });
+            finalize.scene_root = root;
+
+            _ = try commands.createEntity(.{
+                s.Transform{
+                    .translation = .{
+                        .x = 0.0,
+                        .y = finalize.scene_size.y * 0.35,
+                        .z = 0.0,
+                    },
+                },
+                s.modules.SkyModule.PanoramaSky{
+                    .material = scene_assets.ptr.sky_panorama.material,
+                    .shader_handle = scene_assets.ptr.sky_shader.handle,
+                    .size = @max(@max(finalize.scene_size.x, finalize.scene_size.y), finalize.scene_size.z) * 4.0,
+                    .follow_camera = true,
+                    .face_segments = 56,
+                },
+                s.render.Layer(-1){},
+            });
+            finalize.stage = .parse_collision;
+        },
+        .parse_collision => {
+            loader.ptr.progress = .{ .label = "5/6 decoding collision mesh", .fraction = 0.68 };
+            finalize.parsed_collision = try s.physics.CollisionBake.mesh_formats.parseAlloc(
+                commands.allocator,
+                finalize.payload.bake.collision_blob,
+            );
+            finalize.next_collision_mesh = 0;
+            finalize.stage = .instantiate_collision;
+        },
+        .instantiate_collision => {
+            const parsed = finalize.parsed_collision orelse return error.MissingParsedCollision;
+            const total_meshes = parsed.meshes.len;
+            const remaining = total_meshes -| finalize.next_collision_mesh;
+            const chunk_len = @min(@as(usize, 16), remaining);
+            const completed = finalize.next_collision_mesh;
+            loader.ptr.progress = .{
+                .label = "5/6 building collision bodies",
+                .fraction = if (total_meshes == 0)
+                    0.84
+                else
+                    0.72 + (0.18 * (@as(f32, @floatFromInt(completed)) / @as(f32, @floatFromInt(total_meshes)))),
+            };
+
+            var produced: usize = 0;
+            while (produced < chunk_len) : (produced += 1) {
+                const mesh = parsed.meshes[finalize.next_collision_mesh];
+                finalize.next_collision_mesh += 1;
+                if (mesh.index_count < 3 or mesh.vertex_count == 0) continue;
+                const handle = try addCollisionSubmesh(commands.allocator, collision_store.ptr, parsed, mesh);
+                _ = try commands.createEntity(.{
+                    s.Transform{
+                        .translation = finalize.root_translation,
+                    },
+                    s.physics.Body{ .kind = .Static },
+                    s.physics.Collider{
+                        .shape = .{ .TriangleMesh = handle },
+                        .material = .{ .friction = 0.85, .restitution = 0.0 },
+                        .collision = .{
+                            .layer = mesh.layer,
+                            .mask = mesh.mask,
+                        },
+                    },
+                });
+            }
+
+            if (finalize.next_collision_mesh >= total_meshes) {
+                finalize.stage = .instantiate_scene;
+            }
+        },
+        .instantiate_scene => {
+            loader.ptr.progress = .{ .label = "6/6 instantiating render scene", .fraction = 0.92 };
+            const imported = try s.assets.ImportedScene.instantiate(
+                commands.allocator,
+                assets_ctx_res.io,
+                commands,
+                build_ctx_res,
+                finalize.payload.resolved_path,
+                &finalize.payload.scene_data,
+                .{
+                    .parent = finalize.scene_root,
+                    .shader_handle = scene_assets.ptr.scene_shader.handle,
+                    .mesh_layout = .Pos3NormUv,
+                },
+            );
+            try commands.insertResource(imported);
+            try commands.insertResource(s.SceneSpawnPlan{
+                .scene_size = finalize.scene_size,
+            });
+            try commands.insertResource(s.SceneMetrics{
+                .scene_size = finalize.scene_size,
+            });
+            try commands.insertResource(s.SceneReady{});
+            try commands.insertResource(s.MouseCapture{ .enabled = true });
+            try commands.insertResource(s.ClearColor{ .color = s.Color.rgb(8, 10, 14) });
+            loader.ptr.progress = .{ .label = "Ready", .fraction = 1.0 };
+            try commands.insertResource(phases.SponzaPhases.NextPhase{ .phase = .{ .InGame = .{ .Playing = .{} } } });
+            _ = commands.removeResource(s.SceneFinalizeState);
+        },
+    }
+}
+
+pub fn updateLoadingScreen(
+    commands: *s.ecs.Commands,
+    elapsed: s.Res(s.ElapsedTime),
+    loader: s.ResOpt(s.SceneLoaderState),
+    current_phase: s.ResOpt(phases.SponzaPhases.CurrentPhase),
+    window_bounds_opt: s.ResOpt(s.common.WindowBounds),
+    texts: s.Query(.{ s.render.Text, s.Transform, s.LoadingScreenText }),
+    bar_tracks: s.Query(.{ s.Transform, s.MeshInstance, s.LoadingScreenBarTrack }),
+    bar_fills: s.Query(.{ s.Transform, s.MeshInstance, s.LoadingScreenBarFill }),
+) void {
+    const screen_state = commands.getResourceMut(s.LoadingScreenState) orelse return;
+    const loader_state = loader.ptr;
+    const spinner = spinnerFrame(elapsed.ptr.seconds);
+    var header_buffer: [64]u8 = undefined;
+    const phase_name = if (current_phase.ptr) |phase| switch (phase.phase) {
+        .Loading => "Loading",
+        .InGame => |in_game| switch (in_game) {
+            .Playing => "InGame.Playing",
+            .Paused => "InGame.Paused",
+        },
+    } else "Boot";
+    const header = std.fmt.bufPrint(&header_buffer, "Sponza {c} {s}", .{ spinner, phase_name }) catch "Sponza";
+
+    var bar_buffer: [20]u8 = undefined;
+    const progress = if (loader_state) |state| state.progress else s.SceneLoaderProgress{ .label = "Booting", .fraction = 0.0 };
+    const clamped_progress = std.math.clamp(progress.fraction, 0.0, 1.0);
+    const filled = @min(@as(usize, @intFromFloat(clamped_progress * 20.0)), bar_buffer.len);
+    for (&bar_buffer, 0..) |*slot, index| {
+        slot.* = if (index < filled) '#' else '-';
+    }
+    const percent = @as(u32, @intFromFloat(clamped_progress * 100.0));
+
+    const message = if (loader_state) |state|
+        if (state.failed) |err_name|
+            std.fmt.bufPrint(
+                screen_state.overlay.buffer[0..],
+                "{s}\n\nLoad failed\n{s}",
+                .{ header, err_name },
+            ) catch "Sponza: load failed"
+        else
+            std.fmt.bufPrint(
+                screen_state.overlay.buffer[0..],
+                "{s}\n\n{d}%\n{s}",
+                .{ header, percent, progress.label },
+            ) catch "Sponza: loading..."
+    else
+        std.fmt.bufPrint(
+            screen_state.overlay.buffer[0..],
+            "{s}\n\nPreparing scene loader",
+            .{header},
+        ) catch "Sponza: booting...";
+
+    const width = if (window_bounds_opt.ptr) |bounds|
+        @as(f32, @floatFromInt(bounds.width))
+    else
+        1440.0;
+    const height = if (window_bounds_opt.ptr) |bounds|
+        @as(f32, @floatFromInt(bounds.height))
+    else
+        900.0;
+    const bar_width: f32 = 420.0;
+    const bar_height: f32 = 18.0;
+    const bar_center_x = width * 0.5;
+    const bar_center_y = height * 0.5 + 88.0;
+
+    var it = texts.iterator();
+    while (it.next()) |row| {
+        const text = row.get(s.render.Text) orelse continue;
+        const transform = row.get(s.Transform) orelse continue;
+        transform.translation.x = width * 0.5;
+        transform.translation.y = height * 0.5;
+        text.content = message;
+        text.font_size = 28.0;
+        text.color = s.Color.rgb(230, 232, 236);
+        text.horizontal_alignment = .Center;
+        text.vertical_alignment = .Center;
+    }
+
+    var track_it = bar_tracks.iterator();
+    while (track_it.next()) |row| {
+        const transform = row.get(s.Transform) orelse continue;
+        const mesh = row.get(s.MeshInstance) orelse continue;
+        transform.translation = .{ .x = bar_center_x, .y = bar_center_y, .z = 0.0 };
+        transform.scale = .{ .x = bar_width, .y = bar_height, .z = 1.0 };
+        mesh.color = s.Color.rgba(32, 32, 32, 230);
+    }
+
+    var fill_it = bar_fills.iterator();
+    while (fill_it.next()) |row| {
+        const transform = row.get(s.Transform) orelse continue;
+        const mesh = row.get(s.MeshInstance) orelse continue;
+        const fill_width = @max(4.0, bar_width * clamped_progress);
+        transform.translation = .{
+            .x = bar_center_x - (bar_width - fill_width) * 0.5,
+            .y = bar_center_y,
+            .z = 0.0,
+        };
+        transform.scale = .{ .x = fill_width, .y = bar_height - 4.0, .z = 1.0 };
+        mesh.color = if (loader_state != null and loader_state.?.failed == null)
+            s.Color.rgb(242, 242, 242)
+        else
+            s.Color.rgb(196, 48, 48);
+    }
+}
+
+pub fn unloadImportedScene(commands: *s.ecs.Commands) void {
+    _ = commands.removeResource(s.assets.ImportedScene);
+    _ = commands.removeResource(s.SceneReady);
+    _ = commands.removeResource(s.SceneSpawnPlan);
+    _ = commands.removeResource(s.SceneMetrics);
+    _ = commands.removeResource(s.SceneFinalizeState);
+    _ = commands.removeResource(s.SceneLoaderState);
+    _ = commands.removeResource(s.LightingReady);
+    _ = commands.removeResource(s.LoadingScreenState);
+    _ = commands.removeResource(s.LoadingScreenVisualState);
+    _ = commands.removeResource(s.HudCameraState);
+}
+
+fn createUiRectMesh(
+    allocator: std.mem.Allocator,
+    build_ctx: *const s.render.BuildContext,
+    width: f32,
+    height: f32,
+) !s.render.MeshHandle {
+    const half_width = width * 0.5;
+    const half_height = height * 0.5;
+    const vertices = [_]s.render.VertexPos3Color{
+        .{ .position = .{ -half_width, -half_height, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
+        .{ .position = .{ half_width, -half_height, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
+        .{ .position = .{ half_width, half_height, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
+        .{ .position = .{ -half_width, half_height, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
+    };
+    const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
+    _ = allocator;
+    return build_ctx.addMeshPos3Color(vertices[0..], indices[0..]);
+}
+
+fn spinnerFrame(seconds: f64) u8 {
+    const frames = [_]u8{ '|', '/', '-', '\\' };
+    const frame_index = @as(usize, @intFromFloat(@floor(seconds * 4.0)));
+    return frames[frame_index % frames.len];
+}
+
+fn bakeSceneCollision(allocator: std.mem.Allocator, scene_data: *const s.assets.SceneData) !s.SceneBake {
+    var builder = s.physics.CollisionBake.Builder.init(allocator);
+    defer builder.deinit();
+
+    var bounds: s.SceneBounds = .{};
+    const roots = sceneRootNodes(scene_data);
+    for (roots) |root_node_index| {
+        try appendNodeCollision(allocator, scene_data, root_node_index, s.Transform.identity(), &builder, &bounds);
+    }
+
+    return .{
+        .bounds = bounds,
+        .collision_blob = try builder.finish(),
+    };
+}
+
+fn logCollisionBakeStats(allocator: std.mem.Allocator, baked: s.SceneBake) !void {
+    var parsed = try s.physics.CollisionBake.mesh_formats.parseAlloc(allocator, baked.collision_blob);
+    defer parsed.deinit(allocator);
+
+    var max_index: u32 = 0;
+    for (parsed.indices) |index| {
+        max_index = @max(max_index, index);
+    }
+
+    std.log.debug(
+        "sponza collision bake: meshes={} vertices={} indices={} max_index={} bounds=({d:.2}, {d:.2}, {d:.2})",
+        .{
+            parsed.meshes.len,
+            parsed.vertices.len,
+            parsed.indices.len,
+            max_index,
+            baked.bounds.size().x,
+            baked.bounds.size().y,
+            baked.bounds.size().z,
+        },
+    );
+
+    if (parsed.vertices.len == 0 or parsed.indices.len < 3) return error.InvalidCollisionBake;
+    if (max_index >= parsed.vertices.len) return error.InvalidCollisionBake;
+    try validateCollisionMeshes(parsed);
+}
+
+fn validateCollisionMeshes(parsed: s.physics.CollisionBake.File) !void {
+    for (parsed.meshes, 0..) |mesh, mesh_index| {
+        if (mesh.index_count == 0) continue;
+
+        const vertex_start: u32 = mesh.first_vertex;
+        const vertex_end: u32 = mesh.first_vertex + mesh.vertex_count;
+        var local_min: u32 = std.math.maxInt(u32);
+        var local_max: u32 = 0;
+
+        for (parsed.indices[mesh.first_index .. mesh.first_index + mesh.index_count]) |index| {
+            local_min = @min(local_min, index);
+            local_max = @max(local_max, index);
+            if (index < vertex_start or index >= vertex_end) {
+                std.log.warn(
+                    "sponza collision mesh {} invalid range: vertex_range=[{}, {}) bad_index={} local_min={} local_max={}",
+                    .{ mesh_index, vertex_start, vertex_end, index, local_min, local_max },
+                );
+                return error.InvalidCollisionBake;
+            }
+        }
+    }
+}
+
+fn addCollisionSubmesh(
+    allocator: std.mem.Allocator,
+    collision_store: *s.physics.CollisionMeshStore,
+    parsed: s.physics.CollisionBake.File,
+    mesh: s.physics.CollisionBake.Mesh,
+) !s.physics.CollisionMeshHandle {
+    var builder = s.physics.CollisionBake.Builder.init(allocator);
+    defer builder.deinit();
+
+    const vertex_start: usize = mesh.first_vertex;
+    const vertex_end: usize = mesh.first_vertex + mesh.vertex_count;
+    const index_start: usize = mesh.first_index;
+    const index_end: usize = mesh.first_index + mesh.index_count;
+
+    var positions = try allocator.alloc(s.Vec3, mesh.vertex_count);
+    defer allocator.free(positions);
+    for (parsed.vertices[vertex_start..vertex_end], 0..) |vertex, i| {
+        positions[i] = vertex.position;
+    }
+
+    var indices = try allocator.alloc(u32, mesh.index_count);
+    defer allocator.free(indices);
+    for (parsed.indices[index_start..index_end], 0..) |index, i| {
+        indices[i] = index - mesh.first_vertex;
+    }
+
+    try builder.addTriangleSoup(positions, indices, .{
+        .layer = mesh.layer,
+        .mask = mesh.mask,
+    });
+    const bytes = try builder.finish();
+    defer allocator.free(bytes);
+    return collision_store.add(.{
+        .bytes = bytes,
+        .format = .PhysicsMeshV1,
+    });
+}
+
+fn sceneRootNodes(scene_data: *const s.assets.SceneData) []const u32 {
+    if (scene_data.default_scene) |default_scene| {
+        if (default_scene < scene_data.scenes.len) {
+            return scene_data.scenes[default_scene].root_nodes;
+        }
+    }
+    if (scene_data.scenes.len > 0) {
+        return scene_data.scenes[0].root_nodes;
+    }
+    return &.{};
+}
+
+fn appendNodeCollision(
+    allocator: std.mem.Allocator,
+    scene_data: *const s.assets.SceneData,
+    node_index: u32,
+    parent_transform: s.Transform,
+    builder: *s.physics.CollisionBake.Builder,
+    bounds: *s.SceneBounds,
+) !void {
+    if (node_index >= scene_data.nodes.len) return;
+    const node = scene_data.nodes[node_index];
+    const node_transform = combineTransform(parent_transform, localToWorld(node.local_transform));
+
+    if (node.mesh_index) |mesh_index| {
+        if (mesh_index < scene_data.meshes.len) {
+            const mesh = scene_data.meshes[mesh_index];
+            for (mesh.primitives) |primitive| {
+                try appendPrimitiveCollision(allocator, scene_data, primitive, node_transform, builder, bounds);
+            }
+        }
+    }
+
+    for (node.children) |child_index| {
+        try appendNodeCollision(allocator, scene_data, child_index, node_transform, builder, bounds);
+    }
+}
+
+fn appendPrimitiveCollision(
+    allocator: std.mem.Allocator,
+    scene_data: *const s.assets.SceneData,
+    primitive: s.assets.scene.PrimitiveData,
+    transform: s.Transform,
+    builder: *s.physics.CollisionBake.Builder,
+    bounds: *s.SceneBounds,
+) !void {
+    const position_accessor = primitive.position_accessor orelse return;
+    if (position_accessor.element_type != .Vec3 or position_accessor.component_type != 5126) {
+        return error.UnsupportedPositionAccessor;
+    }
+
+    const position_meta = scene_data.accessors[position_accessor.accessor_index];
+    const position_bytes = scene_data.accessorByteSlice(position_accessor.accessor_index) orelse return error.MissingPositionBytes;
+    const vertex_count = position_accessor.count;
+    if (vertex_count == 0) return;
+
+    const indices = try buildTriangleIndicesU32(allocator, scene_data, primitive.indices_accessor, vertex_count);
+    defer allocator.free(indices);
+
+    var positions = try allocator.alloc(s.Vec3, vertex_count);
+    defer allocator.free(positions);
+    for (0..vertex_count) |i| {
+        const local_pos = readVec3(position_bytes, positionMetaStride(position_meta), i);
+        const world_pos = transformPoint(transform, local_pos);
+        positions[i] = world_pos;
+        bounds.include(world_pos);
+    }
+
+    try builder.addTriangleSoup(positions, indices, .{
+        .layer = 0,
+        .mask = 1 << 1,
+    });
+}
+
+fn buildTriangleIndicesU32(
+    allocator: std.mem.Allocator,
+    scene_data: *const s.assets.SceneData,
+    indices_accessor: ?s.assets.scene.AccessorRef,
+    vertex_count: usize,
+) ![]u32 {
+    if (indices_accessor) |accessor| {
+        const meta = scene_data.accessors[accessor.accessor_index];
+        const bytes = scene_data.accessorByteSlice(accessor.accessor_index) orelse return error.MissingIndexBytes;
+        var out = try allocator.alloc(u32, accessor.count);
+        for (0..accessor.count) |i| {
+            out[i] = switch (meta.component_type) {
+                5121 => readU8(bytes, meta.byte_stride, i),
+                5123 => readU16(bytes, meta.byte_stride, i),
+                5125 => readU32(bytes, meta.byte_stride, i),
+                else => return error.UnsupportedIndexAccessor,
+            };
+        }
+        return out;
+    }
+
+    const out = try allocator.alloc(u32, vertex_count);
+    for (out, 0..) |*dst, i| dst.* = @intCast(i);
+    return out;
+}
+
+fn localToWorld(local: s.common.LocalTransform) s.Transform {
+    return .{
+        .translation = local.translation,
+        .rotation = local.rotation,
+        .scale = local.scale,
+    };
+}
+
+fn combineTransform(parent: s.Transform, local: s.Transform) s.Transform {
+    return .{
+        .translation = parent.translation.add(parent.rotation.rotateVec3(mulVec3Components(parent.scale, local.translation))),
+        .rotation = parent.rotation.mul(local.rotation),
+        .scale = mulVec3Components(parent.scale, local.scale),
+    };
+}
+
+fn transformPoint(transform: s.Transform, point: s.Vec3) s.Vec3 {
+    return transform.translation.add(transform.rotation.rotateVec3(mulVec3Components(transform.scale, point)));
+}
+
+fn mulVec3Components(a: s.Vec3, b: s.Vec3) s.Vec3 {
+    return .{
+        .x = a.x * b.x,
+        .y = a.y * b.y,
+        .z = a.z * b.z,
+    };
+}
+
+fn positionMetaStride(meta: s.assets.scene.AccessorData) usize {
+    if (meta.byte_stride != 0) return meta.byte_stride;
+    return switch (meta.component_type) {
+        5126 => 12,
+        else => 12,
+    };
+}
+
+fn readVec3(bytes: []const u8, stride: usize, index: usize) s.Vec3 {
+    const base = index * stride;
+    return .{
+        .x = readF32(bytes, base),
+        .y = readF32(bytes, base + 4),
+        .z = readF32(bytes, base + 8),
+    };
+}
+
+fn readF32(bytes: []const u8, offset: usize) f32 {
+    return @bitCast(std.mem.bytesToValue(u32, bytes[offset .. offset + 4]));
+}
+
+fn readU8(bytes: []const u8, stride: usize, index: usize) u32 {
+    return bytes[index * stride];
+}
+
+fn readU16(bytes: []const u8, stride: usize, index: usize) u32 {
+    const base = index * stride;
+    const lo = @as(u16, bytes[base]);
+    const hi = @as(u16, bytes[base + 1]) << 8;
+    return lo | hi;
+}
+
+fn readU32(bytes: []const u8, stride: usize, index: usize) u32 {
+    const base = index * stride;
+    return @as(u32, bytes[base]) |
+        (@as(u32, bytes[base + 1]) << 8) |
+        (@as(u32, bytes[base + 2]) << 16) |
+        (@as(u32, bytes[base + 3]) << 24);
+}
+
+fn runSceneLoader(
+    _: std.Io,
+    _: s.common.Channel(s.SceneLoaderCommand).Receiver,
+    outbox: s.common.Channel(s.SceneLoaderMessage).Sender,
+    ctx: s.SceneLoaderTaskContext,
+) anyerror!void {
+    try outbox.send(.{ .progress = .{ .label = "1/6 locating cached assets", .fraction = 0.08 } });
+
+    const resolved_z = try ctx.allocator.dupeZ(u8, ctx.path);
+    errdefer ctx.allocator.free(resolved_z);
+
+    try outbox.send(.{ .progress = .{ .label = "2/6 parsing glTF scene", .fraction = 0.22 } });
+    var scene_data = try s.assets.gltf.parseFromFile(ctx.allocator, resolved_z);
+    errdefer scene_data.deinit();
+
+    try outbox.send(.{ .progress = .{ .label = "3/6 baking collision meshes", .fraction = 0.42 } });
+    const bake = try bakeSceneCollision(ctx.allocator, &scene_data);
+    errdefer ctx.allocator.free(bake.collision_blob);
+
+    try outbox.send(.{ .ready = .{
+        .resolved_path = resolved_z,
+        .scene_data = scene_data,
+        .bake = bake,
+    } });
+}
