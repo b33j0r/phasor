@@ -347,13 +347,14 @@ fn updateStatusOverlay(
     overlay: ResMut(StatusOverlay),
     texts: Query(.{ render.Text, Transform, StatusTextTag }),
 ) void {
+    const loading_active = scene_assets.ptr.sponza.scene_data == null or scene_ready.ptr == null or spawn_plan.ptr != null;
     const phase = if (scene_assets.ptr.sponza.scene_data == null)
         "1/3 cache"
     else if (scene_ready.ptr == null)
         "2/3 setup"
     else
         "3/3 ready";
-    const spinner = spinnerFrame(elapsed.ptr.seconds);
+    const spinner = if (loading_active) spinnerFrame(elapsed.ptr.seconds) else ' ';
     const mouse_state = if (mouse_opt.ptr) |mouse|
         if (mouse.captured) "mouse look: on (Esc releases)"
         else if (capture_opt.ptr) |capture|
