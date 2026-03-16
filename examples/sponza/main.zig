@@ -112,6 +112,8 @@ const App = struct {
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
             .font_size = 28.0,
             .text_color = Color.WHITE,
+            .buffer_capacity = 768,
+            .extra_lines = &sponza_metric_lines,
         });
 
         try app.addSystemTo("Startup", ensureStatusOverlay);
@@ -123,6 +125,7 @@ const App = struct {
         try app.addSystemTo("Update", spawnPlayerFromCollision);
         try app.addSystemTo("Update", updateMouseCaptureToggle);
         try app.addSystemTo("Update", updatePlayerCamera);
+        try app.addSystemTo("Update", emitPlayerHudMetrics);
         try app.addSystemTo("Update", logPlayerBookmark);
         try app.addSystemTo("Update", animateLights);
         try app.addSystemTo("Update", updateStatusOverlay);
@@ -389,6 +392,28 @@ fn logPlayerBookmark(
             controller.yaw,
         },
     );
+}
+
+fn emitPlayerHudMetrics(
+    bus: ResMut(metrics.Bus),
+    players: Query(.{ Transform, Player }),
+) void {
+    var it = players.iterator();
+    const row = it.next() orelse return;
+    const transform = row.get(Transform) orelse return;
+
+    metrics.emitBus(true, bus.ptr, .{
+        .player_x = metrics.gauge(transform.translation.x),
+        .player_y = metrics.gauge(transform.translation.y),
+        .player_z = metrics.gauge(transform.translation.z),
+    });
+}
+
+fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
+    const x = if (ctx.store.get("player_x")) |sample| sample.value.asF64() else 0.0;
+    const y = if (ctx.store.get("player_y")) |sample| sample.value.asF64() else 0.0;
+    const z = if (ctx.store.get("player_z")) |sample| sample.value.asF64() else 0.0;
+    return std.fmt.bufPrint(out, "Player XYZ: {d:.2}, {d:.2}, {d:.2}", .{ x, y, z }) catch "Player XYZ: ERR";
 }
 
 fn updateStatusOverlay(
@@ -1118,10 +1143,15 @@ const Assets = struct {
     },
 };
 
+const sponza_metric_lines = [_]modules.MetricLine{
+    modules.lineFormat(-90, formatPlayerPositionLine),
+};
+
 const ecs = phasor.ecs;
 const assets = phasor.assets;
 const common = phasor.common;
 const lighting = phasor.lighting;
+const metrics = phasor.metrics;
 const modules = phasor.modules;
 const physics = phasor.physics;
 const platform = phasor.platform;
