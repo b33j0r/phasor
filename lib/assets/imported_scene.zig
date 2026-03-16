@@ -18,6 +18,13 @@ pub const ImportedScene = struct {
 
     pub const Options = struct {
         parent: ?u64 = null,
+        shader_handle: render.ShaderHandle = render.ShaderHandle.invalid(),
+        mesh_layout: MeshLayout = .Pos3Uv,
+    };
+
+    pub const MeshLayout = enum {
+        Pos3Uv,
+        Pos3NormUv,
     };
 
     pub const Bounds = struct {
@@ -163,7 +170,7 @@ pub const ImportedScene = struct {
             if (mesh_index >= scene_data.meshes.len) continue;
             const mesh_data = scene_data.meshes[mesh_index];
             for (mesh_data.primitives) |primitive| {
-                const mesh_handle = try buildPrimitiveMesh(allocator, build_ctx, scene_data, primitive, &result.bounds);
+                const mesh_handle = try buildPrimitiveMesh(allocator, build_ctx, scene_data, primitive, &result.bounds, options.mesh_layout);
                 try meshes.append(allocator, mesh_handle);
 
                 var material = render.Material.default;
@@ -210,6 +217,7 @@ pub const ImportedScene = struct {
                     common.Transform{},
                     render.MeshInstance{
                         .mesh_handle = mesh_handle,
+                        .shader_handle = options.shader_handle,
                         .color = color,
                         .material = material,
                         .scene_material = scene_material,
@@ -264,6 +272,7 @@ fn buildPrimitiveMesh(
     scene_data: *const scene_mod.SceneData,
     primitive: scene_mod.PrimitiveData,
     bounds: *ImportedScene.Bounds,
+    mesh_layout: ImportedScene.MeshLayout,
 ) !render.MeshHandle {
     const position_accessor = primitive.position_accessor orelse return error.MissingPositions;
     if (position_accessor.element_type != .Vec3 or position_accessor.component_type != 5126) {
@@ -275,29 +284,60 @@ fn buildPrimitiveMesh(
     const vertex_count = position_accessor.count;
     if (vertex_count > std.math.maxInt(u16)) return error.TooManyVertices;
 
-    var vertices = try allocator.alloc(render.VertexPos3Uv, vertex_count);
-    defer allocator.free(vertices);
-
     const uv_accessor = primitive.uv0_accessor;
     const uv_meta = if (uv_accessor) |ref| scene_data.accessors[ref.accessor_index] else null;
     const uv_bytes = if (uv_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
 
-    for (0..vertex_count) |i| {
-        const pos = readVec3(position_bytes, position_meta.byte_stride, i);
-        bounds.include(pos);
-        const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
-            readVec2(uv_bytes.?, uv_meta.?.byte_stride, i)
-        else
-            common.Vec2{};
-        vertices[i] = .{
-            .position = .{ pos.x, pos.y, pos.z },
-            .uv = .{ uv.x, uv.y },
-        };
-    }
-
     const indices = try buildIndices(allocator, scene_data, primitive.indices_accessor, vertex_count);
     defer allocator.free(indices);
-    return build_ctx.addMeshPos3Uv(vertices, indices);
+
+    switch (mesh_layout) {
+        .Pos3Uv => {
+            var vertices = try allocator.alloc(render.VertexPos3Uv, vertex_count);
+            defer allocator.free(vertices);
+
+            for (0..vertex_count) |i| {
+                const pos = readVec3(position_bytes, position_meta.byte_stride, i);
+                bounds.include(pos);
+                const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
+                    readVec2(uv_bytes.?, uv_meta.?.byte_stride, i)
+                else
+                    common.Vec2{};
+                vertices[i] = .{
+                    .position = .{ pos.x, pos.y, pos.z },
+                    .uv = .{ uv.x, uv.y },
+                };
+            }
+            return build_ctx.addMeshPos3Uv(vertices, indices);
+        },
+        .Pos3NormUv => {
+            var vertices = try allocator.alloc(render.VertexPos3NormUv, vertex_count);
+            defer allocator.free(vertices);
+
+            const normal_accessor = primitive.normal_accessor;
+            const normal_meta = if (normal_accessor) |ref| scene_data.accessors[ref.accessor_index] else null;
+            const normal_bytes = if (normal_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
+
+            for (0..vertex_count) |i| {
+                const pos = readVec3(position_bytes, position_meta.byte_stride, i);
+                bounds.include(pos);
+                const normal = if (normal_accessor != null and normal_meta != null and normal_bytes != null)
+                    readVec3(normal_bytes.?, normal_meta.?.byte_stride, i)
+                else
+                    common.Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 };
+                const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
+                    readVec2(uv_bytes.?, uv_meta.?.byte_stride, i)
+                else
+                    common.Vec2{};
+                vertices[i] = .{
+                    .position = .{ pos.x, pos.y, pos.z },
+                    .normal = .{ normal.x, normal.y, normal.z },
+                    .uv = .{ uv.x, uv.y },
+                };
+            }
+            return build_ctx.addMeshPos3NormUv(vertices, indices);
+        },
+    }
 }
 
 fn buildIndices(

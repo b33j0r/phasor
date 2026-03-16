@@ -30,6 +30,10 @@ pub const BuildContext = struct {
         return self.mesh_library.addMeshPos3Uv(self.renderer, vertices, indices);
     }
 
+    pub fn addMeshPos3NormUv(self: *const BuildContext, vertices: []const backend.VertexPos3NormUv, indices: []const u16) !mesh.MeshHandle {
+        return self.mesh_library.addMeshPos3NormUv(self.renderer, vertices, indices);
+    }
+
     pub fn addMeshPos3Color(self: *const BuildContext, vertices: []const backend.VertexPos3Color, indices: []const u16) !mesh.MeshHandle {
         return self.mesh_library.addMeshPos3Color(self.renderer, vertices, indices);
     }
@@ -40,6 +44,10 @@ pub const BuildContext = struct {
 
     pub fn updateMeshPos3Uv(self: *const BuildContext, handle: mesh.MeshHandle, vertices: []const backend.VertexPos3Uv, indices: []const u16) !bool {
         return self.mesh_library.updateMeshPos3Uv(self.renderer, handle, vertices, indices);
+    }
+
+    pub fn updateMeshPos3NormUv(self: *const BuildContext, handle: mesh.MeshHandle, vertices: []const backend.VertexPos3NormUv, indices: []const u16) !bool {
+        return self.mesh_library.updateMeshPos3NormUv(self.renderer, handle, vertices, indices);
     }
 
     pub fn updateMeshPos3Color(self: *const BuildContext, handle: mesh.MeshHandle, vertices: []const backend.VertexPos3Color, indices: []const u16) !bool {

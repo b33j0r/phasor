@@ -80,6 +80,8 @@ pub const Pipeline = struct {
 pub const Shader = struct {
     pipeline_opaque: *wgpu.RenderPipeline,
     pipeline_blend: *wgpu.RenderPipeline,
+    vertex_layout: ShaderVertexLayout,
+    binding_mode: ShaderBindingMode,
 };
 
 pub const PostProcessShader = struct {
@@ -100,12 +102,27 @@ pub const ShaderSource = struct {
     wgsl: ?[]const u8 = null,
     glsl_vertex: ?[]const u8 = null,
     glsl_fragment: ?[]const u8 = null,
+    vertex_layout: ShaderVertexLayout = .pos3_color4,
+    binding_mode: ShaderBindingMode = .none,
+};
+
+pub const ShaderVertexLayout = enum(u8) {
+    pos3_color4,
+    pos3_uv2,
+    pos3_norm_uv2,
+};
+
+pub const ShaderBindingMode = enum(u8) {
+    none,
+    material,
+    material_scene,
 };
 
 pub const MeshVertexLayout = enum(u8) {
     uv2,
     pos3_uv2,
     pos3_color4,
+    pos3_norm_uv2,
 };
 
 pub const Mesh = struct {
@@ -146,6 +163,12 @@ pub const VertexUv = extern struct {
 
 pub const VertexPos3Uv = extern struct {
     position: [3]f32,
+    uv: [2]f32,
+};
+
+pub const VertexPos3NormUv = extern struct {
+    position: [3]f32,
+    normal: [3]f32,
     uv: [2]f32,
 };
 
@@ -685,6 +708,57 @@ pub const Renderer = struct {
         mesh.index_count = @intCast(indices.len);
     }
 
+    pub fn createMeshPos3NormUv(self: *Renderer, vertices: []const VertexPos3NormUv, indices: []const u16) !Mesh {
+        const vertex_buf = try createBufferWithData(
+            self.allocator,
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(vertices),
+        );
+        const index_buf = try createBufferWithData(
+            self.allocator,
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(indices),
+        );
+        return Mesh{
+            .vertex_buffer = vertex_buf,
+            .index_buffer = index_buf,
+            .index_count = @intCast(indices.len),
+            .vertex_layout = .pos3_norm_uv2,
+        };
+    }
+
+    pub fn updateMeshPos3NormUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3NormUv, indices: []const u16) !void {
+        if (mesh.vertex_layout != .pos3_norm_uv2) return error.InvalidMeshLayout;
+        const vertex_bytes = std.mem.sliceAsBytes(vertices);
+        const index_bytes = std.mem.sliceAsBytes(indices);
+        if (vertex_bytes.len > mesh.vertex_buffer.size or index_bytes.len > mesh.index_buffer.size) {
+            mesh.vertex_buffer.buffer.release();
+            mesh.index_buffer.buffer.release();
+            mesh.vertex_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+                vertex_bytes,
+            );
+            mesh.index_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+                index_bytes,
+            );
+        } else {
+            self.queue.writeBuffer(mesh.vertex_buffer.buffer, 0, vertex_bytes.ptr, vertex_bytes.len);
+            self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
+        }
+        mesh.index_count = @intCast(indices.len);
+    }
+
     pub fn createMeshPos3Color(self: *Renderer, vertices: []const VertexPos3Color, indices: []const u16) !Mesh {
         const vertex_buf = try createBufferWithData(
             self.allocator,
@@ -746,26 +820,56 @@ pub const Renderer = struct {
         defer shader_vertex.release();
         const shader_fragment = try createShaderModule(self.device, .fragment, source);
         defer shader_fragment.release();
-
-        return Shader{
-            .pipeline_opaque = try createColorPipeline(
-                self.device,
-                shader_vertex,
-                shader_fragment,
-                self.surface_format,
-                depth_format,
-                false,
-                true,
-            ),
-            .pipeline_blend = try createColorPipeline(
-                self.device,
-                shader_vertex,
-                shader_fragment,
-                self.surface_format,
-                depth_format,
-                true,
-                false,
-            ),
+        return switch (source.binding_mode) {
+            .none => .{
+                .pipeline_opaque = try createColorPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    false,
+                    true,
+                ),
+                .pipeline_blend = try createColorPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    true,
+                    false,
+                ),
+                .vertex_layout = source.vertex_layout,
+                .binding_mode = source.binding_mode,
+            },
+            .material => .{
+                .pipeline_opaque = try createCustomMaterialPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    self.quad_bind_group_layout,
+                    source.vertex_layout,
+                    false,
+                    true,
+                ),
+                .pipeline_blend = try createCustomMaterialPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    self.quad_bind_group_layout,
+                    source.vertex_layout,
+                    true,
+                    false,
+                ),
+                .vertex_layout = source.vertex_layout,
+                .binding_mode = source.binding_mode,
+            },
+            .material_scene => error.NotImplemented,
         };
     }
 
@@ -920,6 +1024,30 @@ pub const Frame = struct {
             self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, byte_offset, bytes.ptr, bytes.len);
         }
 
+        render_pass.setPipeline(pipeline);
+        render_pass.setBindGroup(0, material.bind_group, 0, null);
+        render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
+        render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
+        render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
+        render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
+    }
+
+    pub fn drawTexturedMeshesWithShader(self: *Frame, mesh: Mesh, material: Material, shader: Shader, instances: []const MeshInstance, blend: bool) void {
+        if (instances.len == 0) return;
+        if (!shaderMatchesMesh(shader, mesh.vertex_layout)) return;
+        const render_pass = self.render_pass orelse return;
+        const total_bytes: usize = instances.len * @sizeOf(InstanceData);
+        const offset = self.renderer.instance_ring.allocate(total_bytes, 256);
+
+        var i: usize = 0;
+        while (i < instances.len) : (i += 1) {
+            const data = buildInstanceData(instances[i]);
+            const bytes = std.mem.asBytes(&data);
+            const byte_offset = offset + i * @sizeOf(InstanceData);
+            self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, byte_offset, bytes.ptr, bytes.len);
+        }
+
+        const pipeline = if (blend) shader.pipeline_blend else shader.pipeline_opaque;
         render_pass.setPipeline(pipeline);
         render_pass.setBindGroup(0, material.bind_group, 0, null);
         render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
@@ -1528,6 +1656,123 @@ fn createMeshTexturedPipeline(
         .depth_stencil = &depth_state,
         .fragment = &wgpu.FragmentState{
             .module = shader,
+            .entry_point = wgpu.StringView.fromSlice("fs_main"),
+            .target_count = color_targets.len,
+            .targets = color_targets[0..].ptr,
+        },
+        .multisample = wgpu.MultisampleState{},
+    }) orelse return error.PipelineCreationFailed;
+}
+
+fn shaderMatchesMesh(shader: Shader, layout: MeshVertexLayout) bool {
+    return switch (shader.vertex_layout) {
+        .pos3_color4 => layout == .pos3_color4,
+        .pos3_uv2 => layout == .pos3_uv2,
+        .pos3_norm_uv2 => layout == .pos3_norm_uv2,
+    };
+}
+
+fn createCustomMaterialPipeline(
+    device: *wgpu.Device,
+    vertex_shader: *wgpu.ShaderModule,
+    fragment_shader: *wgpu.ShaderModule,
+    format: wgpu.TextureFormat,
+    depth_format_param: wgpu.TextureFormat,
+    bind_group_layout: *wgpu.BindGroupLayout,
+    vertex_layout_kind: ShaderVertexLayout,
+    enable_blend: bool,
+    depth_write_enabled: bool,
+) !*wgpu.RenderPipeline {
+    const pipeline_layout = device.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
+        .bind_group_layout_count = 1,
+        .bind_group_layouts = &[_]*wgpu.BindGroupLayout{bind_group_layout},
+    }) orelse return error.PipelineLayoutFailed;
+    defer pipeline_layout.release();
+
+    const pos3_uv_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x2, .offset = @sizeOf([3]f32), .shader_location = 1 },
+    };
+    const pos3_norm_uv_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x3, .offset = @sizeOf([3]f32), .shader_location = 1 },
+        .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
+    };
+    const instance_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 2, .pos3_norm_uv2 => 3, else => 2 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 3, .pos3_norm_uv2 => 4, else => 3 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 4, .pos3_norm_uv2 => 5, else => 4 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 5, .pos3_norm_uv2 => 6, else => 5 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 6, .pos3_norm_uv2 => 7, else => 6 } },
+    };
+    const vertex_buffers = switch (vertex_layout_kind) {
+        .pos3_uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3Uv),
+                .attribute_count = pos3_uv_attributes.len,
+                .attributes = pos3_uv_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = instance_attributes.len,
+                .attributes = instance_attributes[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+        .pos3_norm_uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3NormUv),
+                .attribute_count = pos3_norm_uv_attributes.len,
+                .attributes = pos3_norm_uv_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = instance_attributes.len,
+                .attributes = instance_attributes[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+        else => return error.PipelineCreationFailed,
+    };
+    const blend_state = wgpu.BlendState{
+        .color = .{
+            .operation = .add,
+            .src_factor = .src_alpha,
+            .dst_factor = .one_minus_src_alpha,
+        },
+        .alpha = .{
+            .operation = .add,
+            .src_factor = .one,
+            .dst_factor = .one_minus_src_alpha,
+        },
+    };
+    const color_targets = [_]wgpu.ColorTargetState{wgpu.ColorTargetState{
+        .format = format,
+        .blend = if (enable_blend) &blend_state else null,
+    }};
+    const depth_state = wgpu.DepthStencilState{
+        .format = depth_format_param,
+        .depth_write_enabled = if (depth_write_enabled) .true else .false,
+        .depth_compare = .less_equal,
+        .stencil_front = .{},
+        .stencil_back = .{},
+    };
+    return device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
+        .layout = pipeline_layout,
+        .vertex = wgpu.VertexState{
+            .module = vertex_shader,
+            .entry_point = wgpu.StringView.fromSlice("vs_main"),
+            .buffer_count = vertex_buffers.len,
+            .buffers = vertex_buffers[0..].ptr,
+        },
+        .primitive = wgpu.PrimitiveState{
+            .topology = .triangle_list,
+        },
+        .depth_stencil = &depth_state,
+        .fragment = &wgpu.FragmentState{
+            .module = fragment_shader,
             .entry_point = wgpu.StringView.fromSlice("fs_main"),
             .target_count = color_targets.len,
             .targets = color_targets[0..].ptr,

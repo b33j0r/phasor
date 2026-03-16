@@ -141,10 +141,24 @@ const ShaderBatchKey = struct {
     shader: render.ShaderHandle,
 };
 
+const TexturedShaderBatchKey = struct {
+    mesh: render.MeshHandle,
+    shader: render.ShaderHandle,
+    material: usize,
+};
+
 const ShaderBatchItem = struct {
     key: ShaderBatchKey,
     mesh: render.Mesh,
     shader: render.Shader,
+    instance: render.BackendMeshInstance,
+};
+
+const TexturedShaderBatchItem = struct {
+    key: TexturedShaderBatchKey,
+    mesh: render.Mesh,
+    shader: render.Shader,
+    material: render.BackendMaterial,
     instance: render.BackendMeshInstance,
 };
 
@@ -169,6 +183,14 @@ fn shaderBatchKeyEqual(a: ShaderBatchKey, b: ShaderBatchKey) bool {
         a.shader.generation == b.shader.generation;
 }
 
+fn texturedShaderBatchKeyEqual(a: TexturedShaderBatchKey, b: TexturedShaderBatchKey) bool {
+    return a.mesh.index == b.mesh.index and
+        a.mesh.generation == b.mesh.generation and
+        a.shader.index == b.shader.index and
+        a.shader.generation == b.shader.generation and
+        a.material == b.material;
+}
+
 fn batchItemLessThan(_: void, a: BatchItem, b: BatchItem) bool {
     if (a.key.mesh.index != b.key.mesh.index) return a.key.mesh.index < b.key.mesh.index;
     if (a.key.mesh.generation != b.key.mesh.generation) return a.key.mesh.generation < b.key.mesh.generation;
@@ -180,6 +202,14 @@ fn shaderBatchItemLessThan(_: void, a: ShaderBatchItem, b: ShaderBatchItem) bool
     if (a.key.mesh.generation != b.key.mesh.generation) return a.key.mesh.generation < b.key.mesh.generation;
     if (a.key.shader.index != b.key.shader.index) return a.key.shader.index < b.key.shader.index;
     return a.key.shader.generation < b.key.shader.generation;
+}
+
+fn texturedShaderBatchItemLessThan(_: void, a: TexturedShaderBatchItem, b: TexturedShaderBatchItem) bool {
+    if (a.key.mesh.index != b.key.mesh.index) return a.key.mesh.index < b.key.mesh.index;
+    if (a.key.mesh.generation != b.key.mesh.generation) return a.key.mesh.generation < b.key.mesh.generation;
+    if (a.key.shader.index != b.key.shader.index) return a.key.shader.index < b.key.shader.index;
+    if (a.key.shader.generation != b.key.shader.generation) return a.key.shader.generation < b.key.shader.generation;
+    return a.key.material < b.key.material;
 }
 
 fn materialKey(material: render.BackendMaterial) usize {
@@ -323,6 +353,8 @@ fn drawSceneLayers(
         defer batch_items.deinit(allocator);
         var shader_batch_items: std.ArrayListUnmanaged(ShaderBatchItem) = .empty;
         defer shader_batch_items.deinit(allocator);
+        var textured_shader_batch_items: std.ArrayListUnmanaged(TexturedShaderBatchItem) = .empty;
+        defer textured_shader_batch_items.deinit(allocator);
 
         for (items) |item| {
             switch (item) {
@@ -351,16 +383,39 @@ fn drawSceneLayers(
 
                     if (instance.shader_handle) |shader_handle| {
                         const shader = shader_library.get(shader_handle) orelse continue;
-                        const key = ShaderBatchKey{
-                            .mesh = instance.mesh_handle,
-                            .shader = shader_handle,
-                        };
-                        try shader_batch_items.append(allocator, .{
-                            .key = key,
-                            .mesh = mesh.*,
-                            .shader = shader.*,
-                            .instance = gpu_instance,
-                        });
+                        switch (shader.binding_mode) {
+                            .none => {
+                                const key = ShaderBatchKey{
+                                    .mesh = instance.mesh_handle,
+                                    .shader = shader_handle,
+                                };
+                                try shader_batch_items.append(allocator, .{
+                                    .key = key,
+                                    .mesh = mesh.*,
+                                    .shader = shader.*,
+                                    .instance = gpu_instance,
+                                });
+                            },
+                            .material => {
+                                const material = if (instance.material_handle) |handle|
+                                    (material_library.get(handle) orelse continue).*
+                                else
+                                    instance.material orelse default_material;
+                                const key = TexturedShaderBatchKey{
+                                    .mesh = instance.mesh_handle,
+                                    .shader = shader_handle,
+                                    .material = materialKey(material),
+                                };
+                                try textured_shader_batch_items.append(allocator, .{
+                                    .key = key,
+                                    .mesh = mesh.*,
+                                    .shader = shader.*,
+                                    .material = material,
+                                    .instance = gpu_instance,
+                                });
+                            },
+                            .material_scene => continue,
+                        }
                         continue;
                     }
 
@@ -432,6 +487,31 @@ fn drawSceneLayers(
             }
         }
 
+        if (textured_shader_batch_items.items.len > 0) {
+            std.sort.pdq(TexturedShaderBatchItem, textured_shader_batch_items.items, {}, texturedShaderBatchItemLessThan);
+            var shader_instances: std.ArrayListUnmanaged(render.BackendMeshInstance) = .empty;
+            defer shader_instances.deinit(allocator);
+
+            var idx_shader: usize = 0;
+            while (idx_shader < textured_shader_batch_items.items.len) {
+                const first = textured_shader_batch_items.items[idx_shader];
+                const key = first.key;
+                shader_instances.clearRetainingCapacity();
+                try shader_instances.append(allocator, first.instance);
+                idx_shader += 1;
+                while (idx_shader < textured_shader_batch_items.items.len and texturedShaderBatchKeyEqual(textured_shader_batch_items.items[idx_shader].key, key)) : (idx_shader += 1) {
+                    try shader_instances.append(allocator, textured_shader_batch_items.items[idx_shader].instance);
+                }
+                const max_instances: usize = render.max_instances_per_draw;
+                var start: usize = 0;
+                while (start < shader_instances.items.len) {
+                    const end = @min(start + max_instances, shader_instances.items.len);
+                    frame.drawTexturedMeshesWithShader(first.mesh, first.material, first.shader, shader_instances.items[start..end], false);
+                    start = end;
+                }
+            }
+        }
+
         var blended: std.ArrayListUnmanaged(BlendItem) = .empty;
         defer blended.deinit(allocator);
 
@@ -449,7 +529,17 @@ fn drawSceneLayers(
                     };
                     if (instance.shader_handle) |shader_handle| {
                         const shader = shader_library.get(shader_handle) orelse continue;
-                        frame.drawColoredMeshes(mesh.*, shader.*, &[_]render.BackendMeshInstance{gpu_instance}, true);
+                        switch (shader.binding_mode) {
+                            .none => frame.drawColoredMeshes(mesh.*, shader.*, &[_]render.BackendMeshInstance{gpu_instance}, true),
+                            .material => {
+                                const material = if (instance.material_handle) |handle|
+                                    (material_library.get(handle) orelse continue).*
+                                else
+                                    instance.material orelse default_material;
+                                frame.drawTexturedMeshesWithShader(mesh.*, material, shader.*, &[_]render.BackendMeshInstance{gpu_instance}, true);
+                            },
+                            .material_scene => {},
+                        }
                         continue;
                     }
                     const material = if (instance.material_handle) |handle|

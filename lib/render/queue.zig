@@ -53,7 +53,7 @@ pub const RenderQueue = struct {
     ) !void {
         var material: ?backend.Material = null;
         var material_handle: ?mesh.MaterialHandle = null;
-        var shader_handle: ?mesh.ShaderHandle = null;
+        var shader_handle: ?mesh.ShaderHandle = if (instance.shader_handle.isValid()) instance.shader_handle else null;
         const blend = instance.color.a < 255 or instance.material.alpha_mode == .Blend;
         switch (instance.material.binding) {
             .default => {},
@@ -64,7 +64,7 @@ pub const RenderQueue = struct {
                 material = mat;
             },
             .shader => |shader| {
-                shader_handle = shader;
+                if (shader_handle == null) shader_handle = shader;
             },
         }
         try self.items.append(self.allocator, .{
@@ -95,7 +95,7 @@ pub const RenderQueue = struct {
         try self.items.append(self.allocator, .{
             .mesh = .{
                 .mesh_handle = instance.mesh_handle,
-                .shader_handle = null,
+                .shader_handle = if (instance.shader_handle.isValid()) instance.shader_handle else null,
                 .material_handle = null,
                 .transform = transform,
                 .color = instance.color,

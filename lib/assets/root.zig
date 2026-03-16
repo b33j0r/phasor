@@ -308,6 +308,8 @@ pub const Shader = struct {
     wgsl_source: ?[]const u8 = null,
     glsl_vertex_source: ?[]const u8 = null,
     glsl_fragment_source: ?[]const u8 = null,
+    vertex_layout: render.ShaderVertexLayout = .pos3_color4,
+    binding_mode: render.ShaderBindingMode = .none,
     handle: render.ShaderHandle = render.ShaderHandle.invalid(),
 
     pub fn load(self: *Shader, ctx: AssetsContext) !void {
@@ -319,6 +321,8 @@ pub const Shader = struct {
             .wgsl = self.wgsl_source,
             .glsl_vertex = self.glsl_vertex_source,
             .glsl_fragment = self.glsl_fragment_source,
+            .vertex_layout = self.vertex_layout,
+            .binding_mode = self.binding_mode,
         });
         self.handle = try library.addShader(shader);
         log.debug("loaded shader", .{});

@@ -165,6 +165,7 @@ fn setupScene(
     const assets_ctx_res = assets_ctx.ptr orelse return;
     const scene_asset = &scene_assets.ptr.sponza;
     const scene_data = scene_asset.scene_data orelse return;
+    if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
 
     const baked = try bakeSceneCollision(commands.allocator, &scene_data);
     defer commands.allocator.free(baked.collision_blob);
@@ -202,6 +203,7 @@ fn setupScene(
         &scene_data,
         .{
             .parent = root,
+            .shader_handle = scene_assets.ptr.scene_shader.handle,
         },
     );
     try commands.insertResource(imported);
@@ -1035,6 +1037,11 @@ fn spinnerFrame(seconds: f64) u8 {
 
 const Assets = struct {
     sponza: assets.Scene = .file(sponza_scene_path),
+    scene_shader: assets.Shader = .{
+        .wgsl_source = @embedFile("shaders/scene_passthrough.wgsl"),
+        .vertex_layout = .pos3_uv2,
+        .binding_mode = .material,
+    },
 };
 
 const ecs = phasor.ecs;
