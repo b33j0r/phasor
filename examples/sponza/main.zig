@@ -204,6 +204,7 @@ fn setupScene(
         .{
             .parent = root,
             .shader_handle = scene_assets.ptr.scene_shader.handle,
+            .mesh_layout = .Pos3NormUv,
         },
     );
     try commands.insertResource(imported);

@@ -324,7 +324,19 @@ fn drawSceneLayers(
 ) !void {
     for (layers) |layer| {
         if (!layerIncluded(layer, filter)) continue;
-        const layer_rect = layerViewportRect(layer, layer_viewports, viewport_size);
+        const camera = cameraForLayer(layer, layer_cameras, fallback_camera);
+        const layer_rect = if (camera) |cam|
+            switch (cam.camera) {
+                .Viewport => layerViewportRect(layer, layer_viewports, viewport_size),
+                else => types.ViewportRect{
+                    .x = 0.0,
+                    .y = 0.0,
+                    .width = @as(f32, @floatFromInt(viewport_size.width)),
+                    .height = @as(f32, @floatFromInt(viewport_size.height)),
+                },
+            }
+        else
+            layerViewportRect(layer, layer_viewports, viewport_size);
         if (layer_rect.width <= 0.0 or layer_rect.height <= 0.0) continue;
         const scissor_rect = scaleViewportRect(layer_rect, viewport_size, surface_size);
         frame.setViewportScissor(scissor_rect.x, scissor_rect.y, scissor_rect.width, scissor_rect.height);
@@ -333,7 +345,6 @@ fn drawSceneLayers(
             .width = @intFromFloat(layer_rect.width),
             .height = @intFromFloat(layer_rect.height),
         };
-        const camera = cameraForLayer(layer, layer_cameras, fallback_camera);
         const view = if (camera) |cam| cam.view else common.Mat4.identity();
         const viewport_matrix = if (camera) |cam|
             switch (cam.camera) {
@@ -382,7 +393,8 @@ fn drawSceneLayers(
 
                     const color_f = common.Color.F32.fromColor(instance.color);
                     const gpu_instance = render.BackendMeshInstance{
-                        .transform = clipOrWorldTransform(shader_library, instance, clip_model),
+                        .clip_transform = clip_model,
+                        .model_transform = instance.transform,
                         .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
                     };
 
@@ -546,7 +558,8 @@ fn drawSceneLayers(
                     const clip_model = resolveModel(instance.transform, view_proj);
                     const color_f = common.Color.F32.fromColor(instance.color);
                     const gpu_instance = render.BackendMeshInstance{
-                        .transform = clipOrWorldTransform(shader_library, instance, clip_model),
+                        .clip_transform = clip_model,
+                        .model_transform = instance.transform,
                         .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
                     };
                     if (instance.shader_handle) |shader_handle| {
@@ -643,15 +656,6 @@ fn buildSceneUniforms(
         uniforms.lights[i] = extracted_lighting.lights[i];
     }
     return uniforms;
-}
-
-fn clipOrWorldTransform(shader_library: *render.ShaderLibrary, instance: anytype, clip_model: common.Mat4) common.Mat4 {
-    if (instance.shader_handle) |shader_handle| {
-        if (shader_library.get(shader_handle)) |shader| {
-            if (shader.binding_mode == .material_scene) return instance.transform;
-        }
-    }
-    return clip_model;
 }
 
 fn postProcessPassLessThan(_: void, a: PostProcessPassItem, b: PostProcessPassItem) bool {

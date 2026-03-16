@@ -310,14 +310,14 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 80,
+          arrayStride: 144,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
             { shaderLocation: 3, offset: 16, format: "float32x4" },
             { shaderLocation: 4, offset: 32, format: "float32x4" },
             { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 64, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
           ],
         },
       ],
@@ -347,14 +347,14 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 80,
+          arrayStride: 144,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
             { shaderLocation: 3, offset: 16, format: "float32x4" },
             { shaderLocation: 4, offset: 32, format: "float32x4" },
             { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 64, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
           ],
         },
       ],
@@ -388,14 +388,14 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 80,
+          arrayStride: 144,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
             { shaderLocation: 3, offset: 16, format: "float32x4" },
             { shaderLocation: 4, offset: 32, format: "float32x4" },
             { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 64, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
           ],
         },
       ],
@@ -423,14 +423,14 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 80,
+          arrayStride: 144,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
             { shaderLocation: 3, offset: 16, format: "float32x4" },
             { shaderLocation: 4, offset: 32, format: "float32x4" },
             { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 64, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
           ],
         },
       ],
@@ -519,14 +519,14 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
       ],
     },
     {
-      arrayStride: 80,
+      arrayStride: 144,
       stepMode: "instance",
       attributes: [
         { shaderLocation: 2, offset: 0, format: "float32x4" },
         { shaderLocation: 3, offset: 16, format: "float32x4" },
         { shaderLocation: 4, offset: 32, format: "float32x4" },
         { shaderLocation: 5, offset: 48, format: "float32x4" },
-        { shaderLocation: 6, offset: 64, format: "float32x4" },
+        { shaderLocation: 6, offset: 128, format: "float32x4" },
       ],
     },
   ];
@@ -600,14 +600,14 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
           ],
         },
         {
-          arrayStride: 80,
+          arrayStride: 144,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
             { shaderLocation: 3, offset: 16, format: "float32x4" },
             { shaderLocation: 4, offset: 32, format: "float32x4" },
             { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 64, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
           ],
         },
       ]
@@ -622,15 +622,27 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
             ],
           },
           {
-            arrayStride: 80,
+            arrayStride: bindingMode === 2 ? 144 : 144,
             stepMode: "instance",
-            attributes: [
-              { shaderLocation: 3, offset: 0, format: "float32x4" },
-              { shaderLocation: 4, offset: 16, format: "float32x4" },
-              { shaderLocation: 5, offset: 32, format: "float32x4" },
-              { shaderLocation: 6, offset: 48, format: "float32x4" },
-              { shaderLocation: 7, offset: 64, format: "float32x4" },
-            ],
+            attributes: bindingMode === 2
+              ? [
+                  { shaderLocation: 3, offset: 0, format: "float32x4" },
+                  { shaderLocation: 4, offset: 16, format: "float32x4" },
+                  { shaderLocation: 5, offset: 32, format: "float32x4" },
+                  { shaderLocation: 6, offset: 48, format: "float32x4" },
+                  { shaderLocation: 7, offset: 64, format: "float32x4" },
+                  { shaderLocation: 8, offset: 80, format: "float32x4" },
+                  { shaderLocation: 9, offset: 96, format: "float32x4" },
+                  { shaderLocation: 10, offset: 112, format: "float32x4" },
+                  { shaderLocation: 11, offset: 128, format: "float32x4" },
+                ]
+              : [
+                  { shaderLocation: 3, offset: 0, format: "float32x4" },
+                  { shaderLocation: 4, offset: 16, format: "float32x4" },
+                  { shaderLocation: 5, offset: 32, format: "float32x4" },
+                  { shaderLocation: 6, offset: 48, format: "float32x4" },
+                  { shaderLocation: 7, offset: 128, format: "float32x4" },
+                ],
           },
         ]
       : null;
@@ -1492,7 +1504,7 @@ const imports = {
           : null;
       if (!pipeline) return;
       const instanceData = new Float32Array(memory.buffer, instancePtr, 20);
-      const stride = 80;
+      const stride = 144;
       const alignment = 256;
       let offset = Math.ceil(ctx.instanceOffset / alignment) * alignment;
       if (offset + stride > ctx.instanceBufferSize) {
@@ -1521,14 +1533,14 @@ const imports = {
           : null;
       if (!pipeline) return;
       if (!instanceCount) return;
-      const stride = 80;
+      const stride = 144;
       const alignment = 256;
       const byteLength = instanceCount * stride;
       if (byteLength > ctx.instanceBufferSize) {
         console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
         return;
       }
-      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 20);
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 36);
       ensureInstanceScratch(byteLength);
       const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
       scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
@@ -1554,14 +1566,14 @@ const imports = {
       if (!mesh || !shader) return;
       if (mesh.vertexLayout !== 3) return;
       if (!instanceCount) return;
-      const stride = 80;
+      const stride = 144;
       const alignment = 256;
       const byteLength = instanceCount * stride;
       if (byteLength > ctx.instanceBufferSize) {
         console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
         return;
       }
-      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 20);
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 36);
       ensureInstanceScratch(byteLength);
       const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
       scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
@@ -1588,14 +1600,14 @@ const imports = {
       if (!mesh || !material || !shader) return;
       if (mesh.vertexLayout !== 2 && mesh.vertexLayout !== 4) return;
       if (!instanceCount) return;
-      const stride = 80;
+      const stride = 144;
       const alignment = 256;
       const byteLength = instanceCount * stride;
       if (byteLength > ctx.instanceBufferSize) {
         console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
         return;
       }
-      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 20);
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 36);
       ensureInstanceScratch(byteLength);
       const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
       scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));

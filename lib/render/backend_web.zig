@@ -134,7 +134,8 @@ pub const RendererStats = extern struct {
 };
 
 pub const MeshInstance = extern struct {
-    transform: common.Mat4 = common.Mat4.identity(),
+    clip_transform: common.Mat4 = common.Mat4.identity(),
+    model_transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
 };
 
@@ -181,6 +182,10 @@ pub const DrawCmd = union(enum) {
 };
 
 const InstanceData = extern struct {
+    clip0: [4]f32,
+    clip1: [4]f32,
+    clip2: [4]f32,
+    clip3: [4]f32,
     model0: [4]f32,
     model1: [4]f32,
     model2: [4]f32,
@@ -534,12 +539,17 @@ fn targetSlotValue(target: FrameTarget) u32 {
 }
 
 fn buildInstanceData(instance: MeshInstance) InstanceData {
-    const m = instance.transform.m;
+    const clip = instance.clip_transform.m;
+    const model = instance.model_transform.m;
     return .{
-        .model0 = .{ m[0][0], m[0][1], m[0][2], m[0][3] },
-        .model1 = .{ m[1][0], m[1][1], m[1][2], m[1][3] },
-        .model2 = .{ m[2][0], m[2][1], m[2][2], m[2][3] },
-        .model3 = .{ m[3][0], m[3][1], m[3][2], m[3][3] },
+        .clip0 = .{ clip[0][0], clip[0][1], clip[0][2], clip[0][3] },
+        .clip1 = .{ clip[1][0], clip[1][1], clip[1][2], clip[1][3] },
+        .clip2 = .{ clip[2][0], clip[2][1], clip[2][2], clip[2][3] },
+        .clip3 = .{ clip[3][0], clip[3][1], clip[3][2], clip[3][3] },
+        .model0 = .{ model[0][0], model[0][1], model[0][2], model[0][3] },
+        .model1 = .{ model[1][0], model[1][1], model[1][2], model[1][3] },
+        .model2 = .{ model[2][0], model[2][1], model[2][2], model[2][3] },
+        .model3 = .{ model[3][0], model[3][1], model[3][2], model[3][3] },
         .color = instance.color,
     };
 }

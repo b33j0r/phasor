@@ -148,7 +148,8 @@ pub const RendererStats = extern struct {
 };
 
 pub const MeshInstance = extern struct {
-    transform: common.Mat4 = common.Mat4.identity(),
+    clip_transform: common.Mat4 = common.Mat4.identity(),
+    model_transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
 };
 
@@ -195,6 +196,10 @@ pub const DrawCmd = union(enum) {
 };
 
 const InstanceData = extern struct {
+    clip0: [4]f32,
+    clip1: [4]f32,
+    clip2: [4]f32,
+    clip3: [4]f32,
     model0: [4]f32,
     model1: [4]f32,
     model2: [4]f32,
@@ -873,6 +878,7 @@ pub const Renderer = struct {
                     depth_format,
                     self.quad_bind_group_layout,
                     source.vertex_layout,
+                    source.binding_mode,
                     false,
                     true,
                 ),
@@ -884,6 +890,7 @@ pub const Renderer = struct {
                     depth_format,
                     self.quad_bind_group_layout,
                     source.vertex_layout,
+                    source.binding_mode,
                     true,
                     false,
                 ),
@@ -899,6 +906,7 @@ pub const Renderer = struct {
                     depth_format,
                     self.scene_bind_group_layout,
                     source.vertex_layout,
+                    source.binding_mode,
                     false,
                     true,
                 ),
@@ -910,6 +918,7 @@ pub const Renderer = struct {
                     depth_format,
                     self.scene_bind_group_layout,
                     source.vertex_layout,
+                    source.binding_mode,
                     true,
                     false,
                 ),
@@ -1219,12 +1228,17 @@ pub const Frame = struct {
 };
 
 fn buildInstanceData(instance: MeshInstance) InstanceData {
-    const m = instance.transform.m;
+    const clip = instance.clip_transform.m;
+    const model = instance.model_transform.m;
     return .{
-        .model0 = .{ m[0][0], m[0][1], m[0][2], m[0][3] },
-        .model1 = .{ m[1][0], m[1][1], m[1][2], m[1][3] },
-        .model2 = .{ m[2][0], m[2][1], m[2][2], m[2][3] },
-        .model3 = .{ m[3][0], m[3][1], m[3][2], m[3][3] },
+        .clip0 = .{ clip[0][0], clip[0][1], clip[0][2], clip[0][3] },
+        .clip1 = .{ clip[1][0], clip[1][1], clip[1][2], clip[1][3] },
+        .clip2 = .{ clip[2][0], clip[2][1], clip[2][2], clip[2][3] },
+        .clip3 = .{ clip[3][0], clip[3][1], clip[3][2], clip[3][3] },
+        .model0 = .{ model[0][0], model[0][1], model[0][2], model[0][3] },
+        .model1 = .{ model[1][0], model[1][1], model[1][2], model[1][3] },
+        .model2 = .{ model[2][0], model[2][1], model[2][2], model[2][3] },
+        .model3 = .{ model[3][0], model[3][1], model[3][2], model[3][3] },
         .color = instance.color,
     };
 }
@@ -1614,7 +1628,7 @@ fn createQuadPipeline(
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 3 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 4 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 5 },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = 6 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = 6 },
     };
     const vertex_buffers = [_]wgpu.VertexBufferLayout{
         .{
@@ -1704,7 +1718,7 @@ fn createMeshTexturedPipeline(
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 3 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 4 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 5 },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = 6 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = 6 },
     };
     const vertex_buffers = [_]wgpu.VertexBufferLayout{
         .{
@@ -1785,6 +1799,7 @@ fn createCustomMaterialPipeline(
     depth_format_param: wgpu.TextureFormat,
     bind_group_layout: *wgpu.BindGroupLayout,
     vertex_layout_kind: ShaderVertexLayout,
+    binding_mode: ShaderBindingMode,
     enable_blend: bool,
     depth_write_enabled: bool,
 ) !*wgpu.RenderPipeline {
@@ -1803,13 +1818,25 @@ fn createCustomMaterialPipeline(
         .{ .format = .float32x3, .offset = @sizeOf([3]f32), .shader_location = 1 },
         .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
     };
-    const instance_attributes = [_]wgpu.VertexAttribute{
+    const instance_attributes_default = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 2, .pos3_norm_uv2 => 3, else => 2 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 3, .pos3_norm_uv2 => 4, else => 3 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 4, .pos3_norm_uv2 => 5, else => 4 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 5, .pos3_norm_uv2 => 6, else => 5 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 6, .pos3_norm_uv2 => 7, else => 6 } },
+    };
+    const instance_attributes_scene = [_]wgpu.VertexAttribute{
         .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 2, .pos3_norm_uv2 => 3, else => 2 } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 3, .pos3_norm_uv2 => 4, else => 3 } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 4, .pos3_norm_uv2 => 5, else => 4 } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 5, .pos3_norm_uv2 => 6, else => 5 } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 6, .pos3_norm_uv2 => 7, else => 6 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 5, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 7, .pos3_norm_uv2 => 8, else => 7 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 6, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 8, .pos3_norm_uv2 => 9, else => 8 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 7, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 9, .pos3_norm_uv2 => 10, else => 9 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 10, .pos3_norm_uv2 => 11, else => 10 } },
     };
+    const instance_attributes = if (binding_mode == .material_scene) instance_attributes_scene[0..] else instance_attributes_default[0..];
     const vertex_buffers = switch (vertex_layout_kind) {
         .pos3_uv2 => [_]wgpu.VertexBufferLayout{
             .{
@@ -1931,7 +1958,7 @@ fn createColorPipeline(
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 3 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 4 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 5 },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = 6 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = 6 },
     };
     const vertex_buffers = [_]wgpu.VertexBufferLayout{
         .{
