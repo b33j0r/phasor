@@ -91,13 +91,11 @@ pub const SceneBake = struct {
 };
 
 pub const LoadedScenePayload = struct {
-    resolved_path: [:0]u8,
-    scene_data: assets.SceneData,
+    prepared_scene: assets.PreparedImportedScene,
     bake: SceneBake,
 
     pub fn deinit(self: *LoadedScenePayload, allocator: std.mem.Allocator) void {
-        self.scene_data.deinit();
-        allocator.free(self.resolved_path);
+        self.prepared_scene.deinit();
         allocator.free(self.bake.collision_blob);
         self.* = undefined;
     }
@@ -133,9 +131,11 @@ pub const SceneFinalizeState = struct {
     scene_root: ?u64 = null,
     parsed_collision: ?physics.CollisionBake.File = null,
     next_collision_mesh: usize = 0,
+    scene_apply: ?assets.PreparedImportedScene.ApplyState = null,
 
     pub fn deinit(self: *SceneFinalizeState) void {
         if (self.parsed_collision) |*parsed| parsed.deinit(self.allocator);
+        if (self.scene_apply) |*apply| apply.deinit();
         self.payload.deinit(self.allocator);
         self.* = undefined;
     }

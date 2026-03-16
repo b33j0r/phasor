@@ -12,7 +12,7 @@ pub fn ensureSceneLoader(commands: *s.ecs.Commands) !void {
         .path = s.sponza_scene_path,
     });
     loader.started = true;
-    loader.progress = .{ .label = "1/6 locating cached assets", .fraction = 0.02 };
+    loader.progress = .{ .label = "1/7 locating cached assets", .fraction = 0.02 };
     try commands.insertResource(loader);
 }
 
@@ -70,7 +70,7 @@ pub fn drainSceneLoader(commands: *s.ecs.Commands, loader: s.ResMut(s.SceneLoade
             .ready => |payload| {
                 if (loader.ptr.payload) |*existing| existing.deinit(commands.allocator);
                 loader.ptr.payload = payload;
-                loader.ptr.progress = .{ .label = "4/6 validating collision bake", .fraction = 0.46 };
+                loader.ptr.progress = .{ .label = "5/7 validating collision bake", .fraction = 0.54 };
             },
             .failed => |err_name| loader.ptr.failed = err_name,
         }
@@ -80,7 +80,6 @@ pub fn drainSceneLoader(commands: *s.ecs.Commands, loader: s.ResMut(s.SceneLoade
 pub fn advanceSceneFinalize(
     commands: *s.ecs.Commands,
     build_ctx: s.ResOpt(s.render.BuildContext),
-    assets_ctx: s.ResOpt(s.assets.AssetsContext),
     collision_store: s.ResMut(s.physics.CollisionMeshStore),
     scene_assets: s.ResMut(s.Assets),
     loader: s.ResMut(s.SceneLoaderState),
@@ -89,7 +88,6 @@ pub fn advanceSceneFinalize(
     if (loader.ptr.failed != null) return;
 
     const build_ctx_res = build_ctx.ptr orelse return;
-    const assets_ctx_res = assets_ctx.ptr orelse return;
     if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
     if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
     if (!scene_assets.ptr.sky_shader.handle.isValid()) return error.SkyShaderMissing;
@@ -117,12 +115,12 @@ pub fn advanceSceneFinalize(
     const finalize = commands.getResourceMut(s.SceneFinalizeState) orelse return;
     switch (finalize.stage) {
         .inspect_bake => {
-            loader.ptr.progress = .{ .label = "4/6 validating collision bake", .fraction = 0.52 };
+            loader.ptr.progress = .{ .label = "5/7 validating collision bake", .fraction = 0.58 };
             try logCollisionBakeStats(commands.allocator, finalize.payload.bake);
             finalize.stage = .create_scene_root;
         },
         .create_scene_root => {
-            loader.ptr.progress = .{ .label = "5/6 creating scene root", .fraction = 0.60 };
+            loader.ptr.progress = .{ .label = "6/7 creating scene root", .fraction = 0.64 };
             const root = try commands.createEntity(.{
                 s.Transform{
                     .translation = finalize.root_translation,
@@ -152,7 +150,7 @@ pub fn advanceSceneFinalize(
             finalize.stage = .parse_collision;
         },
         .parse_collision => {
-            loader.ptr.progress = .{ .label = "5/6 decoding collision mesh", .fraction = 0.68 };
+            loader.ptr.progress = .{ .label = "6/7 decoding collision mesh", .fraction = 0.70 };
             finalize.parsed_collision = try s.physics.CollisionBake.mesh_formats.parseAlloc(
                 commands.allocator,
                 finalize.payload.bake.collision_blob,
@@ -167,11 +165,11 @@ pub fn advanceSceneFinalize(
             const chunk_len = @min(@as(usize, 16), remaining);
             const completed = finalize.next_collision_mesh;
             loader.ptr.progress = .{
-                .label = "5/6 building collision bodies",
+                .label = "6/7 building collision bodies",
                 .fraction = if (total_meshes == 0)
-                    0.84
+                    0.82
                 else
-                    0.72 + (0.18 * (@as(f32, @floatFromInt(completed)) / @as(f32, @floatFromInt(total_meshes)))),
+                    0.72 + (0.10 * (@as(f32, @floatFromInt(completed)) / @as(f32, @floatFromInt(total_meshes)))),
             };
 
             var produced: usize = 0;
@@ -201,20 +199,29 @@ pub fn advanceSceneFinalize(
             }
         },
         .instantiate_scene => {
-            loader.ptr.progress = .{ .label = "6/6 instantiating render scene", .fraction = 0.92 };
-            const imported = try s.assets.ImportedScene.instantiate(
-                commands.allocator,
-                assets_ctx_res.io,
+            if (finalize.scene_apply == null) {
+                finalize.scene_apply = try finalize.payload.prepared_scene.beginApply(commands.allocator);
+            }
+            const apply = &finalize.scene_apply.?;
+            const finished = try finalize.payload.prepared_scene.applyBatch(
                 commands,
                 build_ctx_res,
-                finalize.payload.resolved_path,
-                &finalize.payload.scene_data,
                 .{
                     .parent = finalize.scene_root,
                     .shader_handle = scene_assets.ptr.scene_shader.handle,
                     .mesh_layout = .Pos3NormUv,
                 },
+                apply,
+                6,
             );
+            loader.ptr.progress = .{
+                .label = "7/7 uploading render scene",
+                .fraction = 0.84 + (0.15 * apply.progress(finalize.payload.prepared_scene.primitives.len)),
+            };
+            if (!finished) return;
+
+            const imported = try finalize.payload.prepared_scene.completeApply(apply);
+            finalize.scene_apply = null;
             try commands.insertResource(imported);
             try commands.insertResource(s.SceneSpawnPlan{
                 .scene_size = finalize.scene_size,
@@ -648,27 +655,37 @@ fn readU32(bytes: []const u8, stride: usize, index: usize) u32 {
 }
 
 fn runSceneLoader(
-    _: std.Io,
+    task_io: std.Io,
     _: s.common.Channel(s.SceneLoaderCommand).Receiver,
     outbox: s.common.Channel(s.SceneLoaderMessage).Sender,
     ctx: s.SceneLoaderTaskContext,
 ) anyerror!void {
-    try outbox.send(.{ .progress = .{ .label = "1/6 locating cached assets", .fraction = 0.08 } });
+    try outbox.send(.{ .progress = .{ .label = "1/7 locating cached assets", .fraction = 0.08 } });
 
     const resolved_z = try ctx.allocator.dupeZ(u8, ctx.path);
-    errdefer ctx.allocator.free(resolved_z);
+    defer ctx.allocator.free(resolved_z);
 
-    try outbox.send(.{ .progress = .{ .label = "2/6 parsing glTF scene", .fraction = 0.22 } });
+    try outbox.send(.{ .progress = .{ .label = "2/7 parsing glTF scene", .fraction = 0.20 } });
     var scene_data = try s.assets.gltf.parseFromFile(ctx.allocator, resolved_z);
     errdefer scene_data.deinit();
 
-    try outbox.send(.{ .progress = .{ .label = "3/6 baking collision meshes", .fraction = 0.42 } });
+    try outbox.send(.{ .progress = .{ .label = "3/7 baking collision meshes", .fraction = 0.34 } });
     const bake = try bakeSceneCollision(ctx.allocator, &scene_data);
     errdefer ctx.allocator.free(bake.collision_blob);
 
+    try outbox.send(.{ .progress = .{ .label = "4/7 preparing render assets", .fraction = 0.50 } });
+    var prepared_scene = try s.assets.PreparedImportedScene.prepare(
+        ctx.allocator,
+        &task_io,
+        resolved_z,
+        &scene_data,
+        .{ .mesh_layout = .Pos3NormUv },
+    );
+    errdefer prepared_scene.deinit();
+    scene_data.deinit();
+
     try outbox.send(.{ .ready = .{
-        .resolved_path = resolved_z,
-        .scene_data = scene_data,
+        .prepared_scene = prepared_scene,
         .bake = bake,
     } });
 }

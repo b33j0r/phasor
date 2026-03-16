@@ -99,139 +99,440 @@ pub const ImportedScene = struct {
         scene_data: *const scene_mod.SceneData,
         options: Options,
     ) !ImportedScene {
-        const loaded_textures = try allocator.alloc(?render.TextureHandle, scene_data.textures.len);
-        defer allocator.free(loaded_textures);
-        for (loaded_textures) |*slot| slot.* = null;
+        var prepared = try PreparedImportedScene.prepare(allocator, io, source_path, scene_data, .{
+            .mesh_layout = options.mesh_layout,
+        });
+        defer prepared.deinit();
+        return prepared.instantiate(allocator, commands, build_ctx, options);
+    }
+};
 
-        const base_color_materials = try allocator.alloc(?render.MaterialHandle, scene_data.textures.len);
-        defer allocator.free(base_color_materials);
-        for (base_color_materials) |*slot| slot.* = null;
+pub const PreparedImportedScene = struct {
+    allocator: std.mem.Allocator,
+    mesh_layout: ImportedScene.MeshLayout,
+    nodes: []PreparedNode = &.{},
+    root_node_indices: []u32 = &.{},
+    materials: []PreparedMaterial = &.{},
+    textures: []?PreparedTexture = &.{},
+    meshes: []PreparedMesh = &.{},
+    primitives: []PreparedPrimitive = &.{},
+    bounds: ImportedScene.Bounds = .{},
 
-        var meshes: std.ArrayListUnmanaged(render.MeshHandle) = .empty;
-        defer meshes.deinit(allocator);
-        var textures: std.ArrayListUnmanaged(render.TextureHandle) = .empty;
-        defer textures.deinit(allocator);
-        var materials: std.ArrayListUnmanaged(render.MaterialHandle) = .empty;
-        defer materials.deinit(allocator);
+    pub const PrepareOptions = struct {
+        mesh_layout: ImportedScene.MeshLayout = .Pos3Uv,
+    };
 
-        errdefer {
-            for (materials.items) |handle| {
-                _ = build_ctx.material_library.destroyMaterial(build_ctx.renderer, handle);
-            }
-            for (textures.items) |handle| {
-                _ = build_ctx.texture_library.destroyTexture(build_ctx.renderer, handle);
-            }
-            for (meshes.items) |handle| {
-                _ = build_ctx.mesh_library.destroyMesh(build_ctx.renderer, handle);
-            }
+    pub const ApplyState = struct {
+        allocator: std.mem.Allocator,
+        renderer: ?*render.Renderer = null,
+        mesh_library: ?*render.MeshLibrary = null,
+        texture_library: ?*render.TextureLibrary = null,
+        material_library: ?*render.MaterialLibrary = null,
+        node_entities: []u64 = &.{},
+        root_entities: []u64 = &.{},
+        loaded_textures: []?render.TextureHandle = &.{},
+        base_color_materials: []?render.MaterialHandle = &.{},
+        mesh_handles: std.ArrayListUnmanaged(render.MeshHandle) = .empty,
+        texture_handles: std.ArrayListUnmanaged(render.TextureHandle) = .empty,
+        material_handles: std.ArrayListUnmanaged(render.MaterialHandle) = .empty,
+        nodes_created: bool = false,
+        next_primitive: usize = 0,
+
+        pub fn init(allocator: std.mem.Allocator, prepared: *const PreparedImportedScene) !ApplyState {
+            const node_entities = try allocator.alloc(u64, prepared.nodes.len);
+            errdefer allocator.free(node_entities);
+
+            const root_entities = try allocator.alloc(u64, prepared.root_node_indices.len);
+            errdefer allocator.free(root_entities);
+
+            const loaded_textures = try allocator.alloc(?render.TextureHandle, prepared.textures.len);
+            errdefer allocator.free(loaded_textures);
+            for (loaded_textures) |*slot| slot.* = null;
+
+            const base_color_materials = try allocator.alloc(?render.MaterialHandle, prepared.textures.len);
+            errdefer allocator.free(base_color_materials);
+            for (base_color_materials) |*slot| slot.* = null;
+
+            return .{
+                .allocator = allocator,
+                .node_entities = node_entities,
+                .root_entities = root_entities,
+                .loaded_textures = loaded_textures,
+                .base_color_materials = base_color_materials,
+            };
         }
 
-        var result = ImportedScene{
+        fn ensureRuntime(self: *ApplyState, build_ctx: *const render.BuildContext) void {
+            if (self.renderer != null) return;
+            self.renderer = build_ctx.renderer;
+            self.mesh_library = build_ctx.mesh_library;
+            self.texture_library = build_ctx.texture_library;
+            self.material_library = build_ctx.material_library;
+        }
+
+        pub fn progress(self: *const ApplyState, total_primitives: usize) f32 {
+            if (total_primitives == 0) return if (self.nodes_created) 1.0 else 0.0;
+            return @as(f32, @floatFromInt(self.next_primitive)) / @as(f32, @floatFromInt(total_primitives));
+        }
+
+        pub fn deinit(self: *ApplyState) void {
+            if (self.renderer) |renderer| {
+                const mesh_library = self.mesh_library orelse unreachable;
+                const texture_library = self.texture_library orelse unreachable;
+                const material_library = self.material_library orelse unreachable;
+                for (self.material_handles.items) |handle| {
+                    _ = material_library.destroyMaterial(renderer, handle);
+                }
+                for (self.texture_handles.items) |handle| {
+                    _ = texture_library.destroyTexture(renderer, handle);
+                }
+                for (self.mesh_handles.items) |handle| {
+                    _ = mesh_library.destroyMesh(renderer, handle);
+                }
+            }
+            self.mesh_handles.deinit(self.allocator);
+            self.texture_handles.deinit(self.allocator);
+            self.material_handles.deinit(self.allocator);
+            if (self.base_color_materials.len > 0) self.allocator.free(self.base_color_materials);
+            if (self.loaded_textures.len > 0) self.allocator.free(self.loaded_textures);
+            if (self.root_entities.len > 0) self.allocator.free(self.root_entities);
+            if (self.node_entities.len > 0) self.allocator.free(self.node_entities);
+            self.* = undefined;
+        }
+
+        fn finish(self: *ApplyState) !ImportedScene {
+            const renderer = self.renderer orelse return error.MissingRenderer;
+            const mesh_library = self.mesh_library orelse return error.MissingMeshLibrary;
+            const texture_library = self.texture_library orelse return error.MissingTextureLibrary;
+            const material_library = self.material_library orelse return error.MissingMaterialLibrary;
+
+            const mesh_handles = try self.mesh_handles.toOwnedSlice(self.allocator);
+            errdefer self.allocator.free(mesh_handles);
+            const texture_handles = try self.texture_handles.toOwnedSlice(self.allocator);
+            errdefer self.allocator.free(texture_handles);
+            const material_handles = try self.material_handles.toOwnedSlice(self.allocator);
+            errdefer self.allocator.free(material_handles);
+
+            self.mesh_handles = .empty;
+            self.texture_handles = .empty;
+            self.material_handles = .empty;
+
+            const root_entities = self.root_entities;
+            self.root_entities = &.{};
+
+            if (self.base_color_materials.len > 0) self.allocator.free(self.base_color_materials);
+            self.base_color_materials = &.{};
+            if (self.loaded_textures.len > 0) self.allocator.free(self.loaded_textures);
+            self.loaded_textures = &.{};
+            if (self.node_entities.len > 0) self.allocator.free(self.node_entities);
+            self.node_entities = &.{};
+
+            const allocator = self.allocator;
+            self.* = undefined;
+
+            return .{
+                .allocator = allocator,
+                .renderer = renderer,
+                .mesh_library = mesh_library,
+                .texture_library = texture_library,
+                .material_library = material_library,
+                .mesh_handles = mesh_handles,
+                .texture_handles = texture_handles,
+                .material_handles = material_handles,
+                .root_entities = root_entities,
+            };
+        }
+    };
+
+    pub fn prepare(
+        allocator: std.mem.Allocator,
+        io: *const std.Io,
+        source_path: ?[]const u8,
+        scene_data: *const scene_mod.SceneData,
+        options: PrepareOptions,
+    ) !PreparedImportedScene {
+        var result = PreparedImportedScene{
             .allocator = allocator,
-            .renderer = build_ctx.renderer,
-            .mesh_library = build_ctx.mesh_library,
-            .texture_library = build_ctx.texture_library,
-            .material_library = build_ctx.material_library,
+            .mesh_layout = options.mesh_layout,
         };
+        errdefer result.deinit();
 
-        const node_entities = try allocator.alloc(u64, scene_data.nodes.len);
-        defer allocator.free(node_entities);
-
-        for (scene_data.nodes, 0..) |node, i| {
-            const entity = try commands.createEntity(.{
-                transformFromLocal(node.local_transform),
-            });
-            node_entities[i] = entity;
+        result.nodes = try allocator.alloc(PreparedNode, scene_data.nodes.len);
+        for (scene_data.nodes, 0..) |node, index| {
+            result.nodes[index] = .{
+                .parent_index = node.parent_index,
+                .local_transform = node.local_transform,
+            };
         }
 
-        for (scene_data.nodes, 0..) |node, i| {
-            const parent_entity = if (node.parent_index) |parent_index|
-                node_entities[parent_index]
-            else
-                options.parent;
-            if (parent_entity) |parent| {
-                try commands.addComponents(node_entities[i], .{
-                    common.Parent{ .id = parent },
-                    node.local_transform,
-                });
-            }
+        result.root_node_indices = try collectRootNodes(allocator, scene_data);
+
+        result.materials = try allocator.alloc(PreparedMaterial, scene_data.materials.len);
+        for (scene_data.materials, 0..) |material, index| {
+            result.materials[index] = PreparedMaterial.fromScene(material);
         }
 
-        const root_indices = try collectRootNodes(allocator, scene_data);
-        defer allocator.free(root_indices);
-
-        const root_entities = try allocator.alloc(u64, root_indices.len);
-        for (root_indices, 0..) |node_index, i| {
-            root_entities[i] = node_entities[node_index];
+        result.textures = try allocator.alloc(?PreparedTexture, scene_data.textures.len);
+        for (result.textures) |*slot| slot.* = null;
+        for (scene_data.textures, 0..) |_, texture_index| {
+            result.textures[texture_index] = try prepareTextureData(allocator, io, source_path, scene_data, @intCast(texture_index));
         }
+
+        var meshes: std.ArrayListUnmanaged(PreparedMesh) = .empty;
+        defer meshes.deinit(allocator);
+        errdefer for (meshes.items) |*mesh| mesh.deinit(allocator);
+        var primitives: std.ArrayListUnmanaged(PreparedPrimitive) = .empty;
+        defer primitives.deinit(allocator);
 
         for (scene_data.nodes, 0..) |node, node_index| {
             const mesh_index = node.mesh_index orelse continue;
             if (mesh_index >= scene_data.meshes.len) continue;
             const mesh_data = scene_data.meshes[mesh_index];
             for (mesh_data.primitives) |primitive| {
-                const mesh_handle = try buildPrimitiveMesh(allocator, build_ctx, scene_data, primitive, &result.bounds, options.mesh_layout);
-                try meshes.append(allocator, mesh_handle);
-
-                var material = render.Material.default;
-                var scene_material = render.SceneMaterial.default;
-                var color = common.Color.WHITE;
-                if (primitive.material_index) |material_index| {
-                    if (material_index < scene_data.materials.len) {
-                        const imported_material = scene_data.materials[material_index];
-                        color = colorFromFactor(imported_material.base_color_factor);
-                        scene_material = try buildSceneMaterial(
-                            allocator,
-                            io,
-                            build_ctx,
-                            source_path,
-                            scene_data,
-                            imported_material,
-                            loaded_textures,
-                            &textures,
-                        );
-                        material.alpha_mode = scene_material.alpha_mode;
-                        if (imported_material.base_color_texture) |base_color_texture| {
-                            if (try ensureBaseColorMaterial(
-                                allocator,
-                                io,
-                                build_ctx,
-                                source_path,
-                                scene_data,
-                                base_color_texture.texture_index,
-                                loaded_textures,
-                                base_color_materials,
-                                &textures,
-                                &materials,
-                            )) |material_handle| {
-                                material = render.Material.withTextured(material_handle);
-                                material.alpha_mode = scene_material.alpha_mode;
-                            }
-                        }
-                    }
-                }
-
-                _ = try commands.createEntity(.{
-                    common.Parent{ .id = node_entities[node_index] },
-                    common.LocalTransform.identity(),
-                    common.Transform{},
-                    render.MeshInstance{
-                        .mesh_handle = mesh_handle,
-                        .shader_handle = options.shader_handle,
-                        .color = color,
-                        .material = material,
-                        .scene_material = scene_material,
-                    },
-                    render.Layer(0){},
+                var prepared_mesh = try preparePrimitiveMesh(
+                    allocator,
+                    scene_data,
+                    primitive,
+                    &result.bounds,
+                    options.mesh_layout,
+                );
+                errdefer prepared_mesh.deinit(allocator);
+                try meshes.append(allocator, prepared_mesh);
+                try primitives.append(allocator, .{
+                    .node_index = @intCast(node_index),
+                    .mesh_index = @intCast(meshes.items.len - 1),
+                    .material_index = primitive.material_index,
                 });
             }
         }
 
-        result.mesh_handles = try meshes.toOwnedSlice(allocator);
-        result.texture_handles = try textures.toOwnedSlice(allocator);
-        result.material_handles = try materials.toOwnedSlice(allocator);
-        result.root_entities = root_entities;
+        result.meshes = try meshes.toOwnedSlice(allocator);
+        result.primitives = try primitives.toOwnedSlice(allocator);
         return result;
+    }
+
+    pub fn deinit(self: *PreparedImportedScene) void {
+        for (self.textures) |*texture| {
+            if (texture.*) |*value| value.deinit(self.allocator);
+        }
+        if (self.textures.len > 0) self.allocator.free(self.textures);
+        if (self.materials.len > 0) self.allocator.free(self.materials);
+        if (self.root_node_indices.len > 0) self.allocator.free(self.root_node_indices);
+        if (self.nodes.len > 0) self.allocator.free(self.nodes);
+        for (self.meshes) |*mesh| mesh.deinit(self.allocator);
+        if (self.meshes.len > 0) self.allocator.free(self.meshes);
+        if (self.primitives.len > 0) self.allocator.free(self.primitives);
+        self.* = undefined;
+    }
+
+    pub fn beginApply(self: *const PreparedImportedScene, allocator: std.mem.Allocator) !ApplyState {
+        return ApplyState.init(allocator, self);
+    }
+
+    pub fn applyBatch(
+        self: *const PreparedImportedScene,
+        commands: anytype,
+        build_ctx: *const render.BuildContext,
+        options: ImportedScene.Options,
+        state: *ApplyState,
+        max_primitives: usize,
+    ) !bool {
+        state.ensureRuntime(build_ctx);
+
+        if (!state.nodes_created) {
+            try self.createNodeEntities(commands, options, state);
+            if (self.primitives.len == 0) return true;
+        }
+
+        const remaining = self.primitives.len -| state.next_primitive;
+        const batch_len = @min(max_primitives, remaining);
+        var produced: usize = 0;
+        while (produced < batch_len) : (produced += 1) {
+            const prepared_primitive = self.primitives[state.next_primitive];
+            state.next_primitive += 1;
+
+            const prepared_mesh = self.meshes[prepared_primitive.mesh_index];
+            const mesh_handle = try createPreparedMesh(build_ctx, prepared_mesh);
+            errdefer _ = build_ctx.destroyMesh(mesh_handle);
+            try state.mesh_handles.append(state.allocator, mesh_handle);
+
+            var material = render.Material.default;
+            var scene_material = render.SceneMaterial.default;
+            var color = common.Color.WHITE;
+            if (prepared_primitive.material_index) |material_index| {
+                if (material_index < self.materials.len) {
+                    const prepared_material = self.materials[material_index];
+                    color = colorFromFactor(prepared_material.base_color_factor);
+                    scene_material = try buildPreparedSceneMaterial(build_ctx, self, prepared_material, state);
+                    material.alpha_mode = scene_material.alpha_mode;
+                    if (prepared_material.base_color_texture) |base_color_texture| {
+                        if (try ensurePreparedBaseColorMaterial(
+                            build_ctx,
+                            self,
+                            base_color_texture.texture_index,
+                            state,
+                        )) |material_handle| {
+                            material = render.Material.withTextured(material_handle);
+                            material.alpha_mode = scene_material.alpha_mode;
+                        }
+                    }
+                }
+            }
+
+            _ = try commands.createEntity(.{
+                common.Parent{ .id = state.node_entities[prepared_primitive.node_index] },
+                common.LocalTransform.identity(),
+                common.Transform{},
+                render.MeshInstance{
+                    .mesh_handle = mesh_handle,
+                    .shader_handle = options.shader_handle,
+                    .color = color,
+                    .material = material,
+                    .scene_material = scene_material,
+                },
+                render.Layer(0){},
+            });
+        }
+
+        return state.next_primitive >= self.primitives.len;
+    }
+
+    pub fn completeApply(self: *const PreparedImportedScene, state: *ApplyState) !ImportedScene {
+        var imported = try state.finish();
+        imported.bounds = self.bounds;
+        return imported;
+    }
+
+    pub fn instantiate(
+        self: *const PreparedImportedScene,
+        allocator: std.mem.Allocator,
+        commands: anytype,
+        build_ctx: *const render.BuildContext,
+        options: ImportedScene.Options,
+    ) !ImportedScene {
+        var state = try self.beginApply(allocator);
+        errdefer state.deinit();
+
+        while (true) {
+            const finished = try self.applyBatch(commands, build_ctx, options, &state, std.math.maxInt(usize));
+            if (!finished) continue;
+            return self.completeApply(&state);
+        }
+    }
+
+    fn createNodeEntities(
+        self: *const PreparedImportedScene,
+        commands: anytype,
+        options: ImportedScene.Options,
+        state: *ApplyState,
+    ) !void {
+        for (self.nodes, 0..) |node, index| {
+            const entity = try commands.createEntity(.{
+                transformFromLocal(node.local_transform),
+            });
+            state.node_entities[index] = entity;
+        }
+
+        for (self.nodes, 0..) |node, index| {
+            const parent_entity = if (node.parent_index) |parent_index|
+                state.node_entities[parent_index]
+            else
+                options.parent;
+            if (parent_entity) |parent| {
+                try commands.addComponents(state.node_entities[index], .{
+                    common.Parent{ .id = parent },
+                    node.local_transform,
+                });
+            }
+        }
+
+        for (self.root_node_indices, 0..) |node_index, index| {
+            state.root_entities[index] = state.node_entities[node_index];
+        }
+        state.nodes_created = true;
+    }
+};
+
+const PreparedNode = struct {
+    parent_index: ?u32 = null,
+    local_transform: common.LocalTransform = .{},
+};
+
+const PreparedPrimitive = struct {
+    node_index: u32,
+    mesh_index: u32,
+    material_index: ?u32 = null,
+};
+
+const PreparedTexture = struct {
+    width: u32,
+    height: u32,
+    data: []u8,
+
+    fn deinit(self: *PreparedTexture, allocator: std.mem.Allocator) void {
+        allocator.free(self.data);
+        self.* = undefined;
+    }
+};
+
+const PreparedMaterial = struct {
+    base_color_factor: common.Color.F32 = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+    emissive_factor: common.Color.F32 = .{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 },
+    metallic_factor: f32 = 1.0,
+    roughness_factor: f32 = 1.0,
+    normal_scale: f32 = 1.0,
+    occlusion_strength: f32 = 1.0,
+    alpha_cutoff: f32 = 0.5,
+    alpha_mode: render.Material.AlphaMode = .Opaque,
+    double_sided: bool = false,
+    base_color_texture: ?scene_mod.TextureRef = null,
+    metallic_roughness_texture: ?scene_mod.TextureRef = null,
+    normal_texture: ?scene_mod.TextureRef = null,
+    occlusion_texture: ?scene_mod.TextureRef = null,
+    emissive_texture: ?scene_mod.TextureRef = null,
+
+    fn fromScene(material: scene_mod.MaterialData) PreparedMaterial {
+        return .{
+            .base_color_factor = material.base_color_factor,
+            .emissive_factor = material.emissive_factor,
+            .metallic_factor = material.metallic_factor,
+            .roughness_factor = material.roughness_factor,
+            .normal_scale = material.normal_scale,
+            .occlusion_strength = material.occlusion_strength,
+            .alpha_cutoff = material.alpha_cutoff,
+            .alpha_mode = alphaModeFromScene(material.alpha_mode),
+            .double_sided = material.double_sided,
+            .base_color_texture = material.base_color_texture,
+            .metallic_roughness_texture = material.metallic_roughness_texture,
+            .normal_texture = material.normal_texture,
+            .occlusion_texture = material.occlusion_texture,
+            .emissive_texture = material.emissive_texture,
+        };
+    }
+};
+
+const PreparedMesh = union(ImportedScene.MeshLayout) {
+    Pos3Uv: struct {
+        vertices: []render.VertexPos3Uv,
+        indices: []u16,
+    },
+    Pos3NormUv: struct {
+        vertices: []render.VertexPos3NormUv,
+        indices: []u16,
+    },
+
+    fn deinit(self: *PreparedMesh, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .Pos3Uv => |mesh| {
+                allocator.free(mesh.vertices);
+                allocator.free(mesh.indices);
+            },
+            .Pos3NormUv => |mesh| {
+                allocator.free(mesh.vertices);
+                allocator.free(mesh.indices);
+            },
+        }
+        self.* = undefined;
     }
 };
 
@@ -266,14 +567,13 @@ fn collectRootNodes(allocator: std.mem.Allocator, scene_data: *const scene_mod.S
     return roots.toOwnedSlice(allocator);
 }
 
-fn buildPrimitiveMesh(
+fn preparePrimitiveMesh(
     allocator: std.mem.Allocator,
-    build_ctx: *const render.BuildContext,
     scene_data: *const scene_mod.SceneData,
     primitive: scene_mod.PrimitiveData,
     bounds: *ImportedScene.Bounds,
     mesh_layout: ImportedScene.MeshLayout,
-) !render.MeshHandle {
+) !PreparedMesh {
     const position_accessor = primitive.position_accessor orelse return error.MissingPositions;
     if (position_accessor.element_type != .Vec3 or position_accessor.component_type != 5126) {
         return error.UnsupportedPositionAccessor;
@@ -289,18 +589,18 @@ fn buildPrimitiveMesh(
     const uv_bytes = if (uv_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
 
     const indices = try buildIndices(allocator, scene_data, primitive.indices_accessor, vertex_count);
-    defer allocator.free(indices);
+    errdefer allocator.free(indices);
 
     switch (mesh_layout) {
         .Pos3Uv => {
-            var vertices = try allocator.alloc(render.VertexPos3Uv, vertex_count);
-            defer allocator.free(vertices);
+            const vertices = try allocator.alloc(render.VertexPos3Uv, vertex_count);
+            errdefer allocator.free(vertices);
 
             for (0..vertex_count) |i| {
-                const pos = readVec3(position_bytes, position_meta.byte_stride, i);
+                const pos = readVec3(position_bytes, positionMetaStride(position_meta), i);
                 bounds.include(pos);
                 const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
-                    readVec2(uv_bytes.?, uv_meta.?.byte_stride, i)
+                    readVec2(uv_bytes.?, uvMetaStride(uv_meta.?), i)
                 else
                     common.Vec2{};
                 vertices[i] = .{
@@ -308,25 +608,25 @@ fn buildPrimitiveMesh(
                     .uv = .{ uv.x, uv.y },
                 };
             }
-            return build_ctx.addMeshPos3Uv(vertices, indices);
+            return .{ .Pos3Uv = .{ .vertices = vertices, .indices = indices } };
         },
         .Pos3NormUv => {
-            var vertices = try allocator.alloc(render.VertexPos3NormUv, vertex_count);
-            defer allocator.free(vertices);
+            const vertices = try allocator.alloc(render.VertexPos3NormUv, vertex_count);
+            errdefer allocator.free(vertices);
 
             const normal_accessor = primitive.normal_accessor;
             const normal_meta = if (normal_accessor) |ref| scene_data.accessors[ref.accessor_index] else null;
             const normal_bytes = if (normal_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
 
             for (0..vertex_count) |i| {
-                const pos = readVec3(position_bytes, position_meta.byte_stride, i);
+                const pos = readVec3(position_bytes, positionMetaStride(position_meta), i);
                 bounds.include(pos);
                 const normal = if (normal_accessor != null and normal_meta != null and normal_bytes != null)
-                    readVec3(normal_bytes.?, normal_meta.?.byte_stride, i)
+                    readVec3(normal_bytes.?, positionMetaStride(normal_meta.?), i)
                 else
                     common.Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 };
                 const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
-                    readVec2(uv_bytes.?, uv_meta.?.byte_stride, i)
+                    readVec2(uv_bytes.?, uvMetaStride(uv_meta.?), i)
                 else
                     common.Vec2{};
                 vertices[i] = .{
@@ -335,9 +635,16 @@ fn buildPrimitiveMesh(
                     .uv = .{ uv.x, uv.y },
                 };
             }
-            return build_ctx.addMeshPos3NormUv(vertices, indices);
+            return .{ .Pos3NormUv = .{ .vertices = vertices, .indices = indices } };
         },
     }
+}
+
+fn createPreparedMesh(build_ctx: *const render.BuildContext, prepared_mesh: PreparedMesh) !render.MeshHandle {
+    return switch (prepared_mesh) {
+        .Pos3Uv => |mesh| build_ctx.addMeshPos3Uv(mesh.vertices, mesh.indices),
+        .Pos3NormUv => |mesh| build_ctx.addMeshPos3NormUv(mesh.vertices, mesh.indices),
+    };
 }
 
 fn buildIndices(
@@ -349,13 +656,14 @@ fn buildIndices(
     if (indices_accessor) |accessor| {
         const meta = scene_data.accessors[accessor.accessor_index];
         const bytes = scene_data.accessorByteSlice(accessor.accessor_index) orelse return error.MissingIndexBytes;
-        var out = try allocator.alloc(u16, accessor.count);
+        const stride = scalarStride(meta);
+        const out = try allocator.alloc(u16, accessor.count);
         for (0..accessor.count) |i| {
             out[i] = switch (meta.component_type) {
-                5121 => readU8(bytes, meta.byte_stride, i),
-                5123 => readU16(bytes, meta.byte_stride, i),
+                5121 => readU8(bytes, stride, i),
+                5123 => readU16(bytes, stride, i),
                 5125 => blk: {
-                    const value = readU32(bytes, meta.byte_stride, i);
+                    const value = readU32(bytes, stride, i);
                     if (value > std.math.maxInt(u16)) return error.IndexOutOfRange;
                     break :blk @intCast(value);
                 },
@@ -370,180 +678,85 @@ fn buildIndices(
     return out;
 }
 
-fn buildSceneMaterial(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
+fn buildPreparedSceneMaterial(
     build_ctx: *const render.BuildContext,
-    source_path: ?[]const u8,
-    scene_data: *const scene_mod.SceneData,
-    imported_material: scene_mod.MaterialData,
-    loaded_textures: []?render.TextureHandle,
-    textures: *std.ArrayListUnmanaged(render.TextureHandle),
+    prepared_scene: *const PreparedImportedScene,
+    prepared_material: PreparedMaterial,
+    state: *PreparedImportedScene.ApplyState,
 ) !render.SceneMaterial {
     return .{
-        .base_color_factor = imported_material.base_color_factor,
-        .emissive_factor = imported_material.emissive_factor,
-        .metallic_factor = imported_material.metallic_factor,
-        .roughness_factor = imported_material.roughness_factor,
-        .normal_scale = imported_material.normal_scale,
-        .occlusion_strength = imported_material.occlusion_strength,
-        .alpha_cutoff = imported_material.alpha_cutoff,
-        .alpha_mode = alphaModeFromScene(imported_material.alpha_mode),
-        .double_sided = imported_material.double_sided,
-        .base_color_texture = try loadSceneTexture(
-            allocator,
-            io,
-            build_ctx,
-            source_path,
-            scene_data,
-            imported_material.base_color_texture,
-            loaded_textures,
-            textures,
-        ),
-        .metallic_roughness_texture = try loadSceneTexture(
-            allocator,
-            io,
-            build_ctx,
-            source_path,
-            scene_data,
-            imported_material.metallic_roughness_texture,
-            loaded_textures,
-            textures,
-        ),
-        .normal_texture = try loadSceneTexture(
-            allocator,
-            io,
-            build_ctx,
-            source_path,
-            scene_data,
-            imported_material.normal_texture,
-            loaded_textures,
-            textures,
-        ),
-        .occlusion_texture = try loadSceneTexture(
-            allocator,
-            io,
-            build_ctx,
-            source_path,
-            scene_data,
-            imported_material.occlusion_texture,
-            loaded_textures,
-            textures,
-        ),
-        .emissive_texture = try loadSceneTexture(
-            allocator,
-            io,
-            build_ctx,
-            source_path,
-            scene_data,
-            imported_material.emissive_texture,
-            loaded_textures,
-            textures,
-        ),
+        .base_color_factor = prepared_material.base_color_factor,
+        .emissive_factor = prepared_material.emissive_factor,
+        .metallic_factor = prepared_material.metallic_factor,
+        .roughness_factor = prepared_material.roughness_factor,
+        .normal_scale = prepared_material.normal_scale,
+        .occlusion_strength = prepared_material.occlusion_strength,
+        .alpha_cutoff = prepared_material.alpha_cutoff,
+        .alpha_mode = prepared_material.alpha_mode,
+        .double_sided = prepared_material.double_sided,
+        .base_color_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.base_color_texture, state),
+        .metallic_roughness_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.metallic_roughness_texture, state),
+        .normal_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.normal_texture, state),
+        .occlusion_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.occlusion_texture, state),
+        .emissive_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.emissive_texture, state),
     };
 }
 
-fn alphaModeFromScene(mode: scene_mod.AlphaMode) render.Material.AlphaMode {
-    return switch (mode) {
-        .Opaque => .Opaque,
-        .Mask => .Mask,
-        .Blend => .Blend,
-    };
-}
-
-fn loadSceneTexture(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
+fn preparedSceneTexture(
     build_ctx: *const render.BuildContext,
-    source_path: ?[]const u8,
-    scene_data: *const scene_mod.SceneData,
+    prepared_scene: *const PreparedImportedScene,
     texture_ref: ?scene_mod.TextureRef,
-    loaded_textures: []?render.TextureHandle,
-    textures: *std.ArrayListUnmanaged(render.TextureHandle),
+    state: *PreparedImportedScene.ApplyState,
 ) !render.SceneTexture {
     const texture_data = texture_ref orelse return .{};
-    const texture_handle = try ensureTextureHandle(
-        allocator,
-        io,
-        build_ctx,
-        source_path,
-        scene_data,
-        texture_data.texture_index,
-        loaded_textures,
-        textures,
-    ) orelse return .{};
+    const texture_handle = try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_data.texture_index, state) orelse return .{};
     return .{
         .texture_handle = texture_handle,
         .texcoord_set = texture_data.texcoord_set,
     };
 }
 
-fn ensureBaseColorMaterial(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
+fn ensurePreparedBaseColorMaterial(
     build_ctx: *const render.BuildContext,
-    source_path: ?[]const u8,
-    scene_data: *const scene_mod.SceneData,
+    prepared_scene: *const PreparedImportedScene,
     texture_index: u32,
-    loaded_textures: []?render.TextureHandle,
-    base_color_materials: []?render.MaterialHandle,
-    textures: *std.ArrayListUnmanaged(render.TextureHandle),
-    materials: *std.ArrayListUnmanaged(render.MaterialHandle),
+    state: *PreparedImportedScene.ApplyState,
 ) !?render.MaterialHandle {
-    if (texture_index >= base_color_materials.len) return null;
-    if (base_color_materials[texture_index]) |handle| return handle;
+    if (texture_index >= state.base_color_materials.len) return null;
+    if (state.base_color_materials[texture_index]) |handle| return handle;
 
-    const texture_handle = try ensureTextureHandle(
-        allocator,
-        io,
-        build_ctx,
-        source_path,
-        scene_data,
-        texture_index,
-        loaded_textures,
-        textures,
-    ) orelse return null;
+    const texture_handle = try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_index, state) orelse return null;
     const material_handle = try build_ctx.createMaterial(texture_handle, null);
     errdefer _ = build_ctx.destroyMaterial(material_handle);
-    try materials.append(allocator, material_handle);
-    base_color_materials[texture_index] = material_handle;
+    try state.material_handles.append(state.allocator, material_handle);
+    state.base_color_materials[texture_index] = material_handle;
     return material_handle;
 }
 
-fn ensureTextureHandle(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
+fn ensurePreparedTextureHandle(
     build_ctx: *const render.BuildContext,
-    source_path: ?[]const u8,
-    scene_data: *const scene_mod.SceneData,
+    prepared_scene: *const PreparedImportedScene,
     texture_index: u32,
-    loaded_textures: []?render.TextureHandle,
-    textures: *std.ArrayListUnmanaged(render.TextureHandle),
+    state: *PreparedImportedScene.ApplyState,
 ) !?render.TextureHandle {
-    if (texture_index >= loaded_textures.len) return null;
-    if (loaded_textures[texture_index]) |handle| return handle;
+    if (texture_index >= state.loaded_textures.len) return null;
+    if (state.loaded_textures[texture_index]) |handle| return handle;
 
-    const handle = try loadTextureHandle(
-        allocator,
-        io,
-        build_ctx,
-        source_path,
-        scene_data,
-        texture_index,
-    ) orelse return null;
-    try textures.append(allocator, handle);
-    loaded_textures[texture_index] = handle;
-    return handle;
+    const prepared = prepared_scene.textures[texture_index] orelse return null;
+    const texture_handle = try build_ctx.createTextureRgba8(prepared.width, prepared.height, prepared.data);
+    errdefer _ = build_ctx.destroyTexture(texture_handle);
+    try state.texture_handles.append(state.allocator, texture_handle);
+    state.loaded_textures[texture_index] = texture_handle;
+    return texture_handle;
 }
 
-fn loadTextureHandle(
+fn prepareTextureData(
     allocator: std.mem.Allocator,
     io: *const std.Io,
-    build_ctx: *const render.BuildContext,
     source_path: ?[]const u8,
     scene_data: *const scene_mod.SceneData,
     texture_index: u32,
-) !?render.TextureHandle {
+) !?PreparedTexture {
     if (texture_index >= scene_data.textures.len) return null;
     const texture_data = scene_data.textures[texture_index];
     const image_index = texture_data.image_index orelse return null;
@@ -561,10 +774,11 @@ fn loadTextureHandle(
     defer allocator.free(bytes);
 
     const decoded = try decodeImage(allocator, bytes);
-    defer allocator.free(decoded.data);
-
-    const texture_handle = try build_ctx.createTextureRgba8(decoded.width, decoded.height, decoded.data);
-    return texture_handle;
+    return .{
+        .width = decoded.width,
+        .height = decoded.height,
+        .data = decoded.data,
+    };
 }
 
 const DecodedImage = struct {
@@ -610,6 +824,45 @@ fn readExternalImage(allocator: std.mem.Allocator, io: *const std.Io, source_pat
     const absolute_path = try std.fs.path.join(allocator, &.{ scene_dir, uri });
     defer allocator.free(absolute_path);
     return std.Io.Dir.cwd().readFileAlloc(io.*, absolute_path, allocator, std.Io.Limit.limited(32 * 1024 * 1024));
+}
+
+fn alphaModeFromScene(mode: scene_mod.AlphaMode) render.Material.AlphaMode {
+    return switch (mode) {
+        .Opaque => .Opaque,
+        .Mask => .Mask,
+        .Blend => .Blend,
+    };
+}
+
+fn positionMetaStride(meta: scene_mod.AccessorData) usize {
+    if (meta.byte_stride != 0) return meta.byte_stride;
+    return switch (meta.component_type) {
+        5126 => switch (meta.element_type) {
+            .Vec2 => 8,
+            .Vec3 => 12,
+            .Vec4 => 16,
+            else => 4,
+        },
+        else => scalarStride(meta),
+    };
+}
+
+fn uvMetaStride(meta: scene_mod.AccessorData) usize {
+    if (meta.byte_stride != 0) return meta.byte_stride;
+    return switch (meta.component_type) {
+        5126 => 8,
+        else => scalarStride(meta) * 2,
+    };
+}
+
+fn scalarStride(meta: scene_mod.AccessorData) usize {
+    if (meta.byte_stride != 0) return meta.byte_stride;
+    return switch (meta.component_type) {
+        5120, 5121 => 1,
+        5122, 5123 => 2,
+        5125, 5126 => 4,
+        else => 4,
+    };
 }
 
 fn readVec3(bytes: []const u8, stride: usize, index: usize) common.Vec3 {

@@ -5,6 +5,7 @@ pub const scene = @import("scene.zig");
 pub const imported_scene = @import("imported_scene.zig");
 pub const SceneData = scene.SceneData;
 pub const ImportedScene = imported_scene.ImportedScene;
+pub const PreparedImportedScene = imported_scene.PreparedImportedScene;
 pub const Scene = struct {
     path: ?[:0]const u8 = null,
     data: ?[]const u8 = null,
