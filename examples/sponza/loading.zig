@@ -468,6 +468,14 @@ fn addCollisionSubmesh(
         positions[i] = vertex.position;
     }
 
+    var packed_vertices = try allocator.alloc(f32, mesh.vertex_count * 3);
+    defer allocator.free(packed_vertices);
+    for (positions, 0..) |position, i| {
+        packed_vertices[i * 3 + 0] = position.x;
+        packed_vertices[i * 3 + 1] = position.y;
+        packed_vertices[i * 3 + 2] = position.z;
+    }
+
     var indices = try allocator.alloc(u32, mesh.index_count);
     defer allocator.free(indices);
     for (parsed.indices[index_start..index_end], 0..) |index, i| {
@@ -480,10 +488,14 @@ fn addCollisionSubmesh(
     });
     const bytes = try builder.finish();
     defer allocator.free(bytes);
-    return collision_store.add(.{
-        .bytes = bytes,
-        .format = .PhysicsMeshV1,
-    });
+    return collision_store.addPreparedTriangleMesh(
+        .{
+            .bytes = bytes,
+            .format = .PhysicsMeshV1,
+        },
+        packed_vertices,
+        indices,
+    );
 }
 
 fn sceneRootNodes(scene_data: *const s.assets.SceneData) []const u32 {

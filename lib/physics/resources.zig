@@ -57,6 +57,12 @@ pub const CollisionMeshBlob = struct {
 
 pub const CollisionMeshAsset = struct {
     blob: CollisionMeshBlob,
+    prepared_triangle_mesh: ?PreparedTriangleMesh = null,
+
+    pub const PreparedTriangleMesh = struct {
+        vertices: []const f32,
+        indices: []const u32,
+    };
 };
 
 pub const CollisionMeshStore = struct {
@@ -72,21 +78,62 @@ pub const CollisionMeshStore = struct {
         var it = self.assets.iterator();
         while (it.next()) |entry| {
             self.allocator.free(entry.value_ptr.blob.bytes);
+            if (entry.value_ptr.prepared_triangle_mesh) |prepared| {
+                self.allocator.free(prepared.vertices);
+                self.allocator.free(prepared.indices);
+            }
         }
         self.assets.deinit(self.allocator);
         self.* = undefined;
     }
 
     pub fn add(self: *CollisionMeshStore, blob: CollisionMeshBlob) !components.CollisionMeshHandle {
+        return self.addWithPrepared(blob, null);
+    }
+
+    pub fn addPreparedTriangleMesh(
+        self: *CollisionMeshStore,
+        blob: CollisionMeshBlob,
+        vertices: []const f32,
+        indices: []const u32,
+    ) !components.CollisionMeshHandle {
+        return self.addWithPrepared(blob, .{
+            .vertices = vertices,
+            .indices = indices,
+        });
+    }
+
+    fn addWithPrepared(
+        self: *CollisionMeshStore,
+        blob: CollisionMeshBlob,
+        prepared: ?CollisionMeshAsset.PreparedTriangleMesh,
+    ) !components.CollisionMeshHandle {
         const handle_value = self.next_handle;
         self.next_handle += 1;
         const owned = try self.allocator.dupe(u8, blob.bytes);
         errdefer self.allocator.free(owned);
+        const owned_vertices = if (prepared) |value|
+            try self.allocator.dupe(f32, value.vertices)
+        else
+            null;
+        errdefer if (owned_vertices) |value| self.allocator.free(value);
+        const owned_indices = if (prepared) |value|
+            try self.allocator.dupe(u32, value.indices)
+        else
+            null;
+        errdefer if (owned_indices) |value| self.allocator.free(value);
         try self.assets.put(self.allocator, handle_value, .{
             .blob = .{
                 .bytes = owned,
                 .format = blob.format,
             },
+            .prepared_triangle_mesh = if (owned_vertices != null and owned_indices != null)
+                .{
+                    .vertices = owned_vertices.?,
+                    .indices = owned_indices.?,
+                }
+            else
+                null,
         });
         return @enumFromInt(handle_value);
     }

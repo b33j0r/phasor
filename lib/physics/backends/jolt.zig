@@ -400,8 +400,9 @@ pub const State = struct {
         var mesh_indices: ?[]const u32 = null;
         var height_samples: ?[]const f32 = null;
         var mesh_file: ?bake.mesh_formats.File = null;
+        var owns_mesh_vertices = false;
         defer if (mesh_file) |*file| file.deinit(self.allocator);
-        defer if (mesh_vertices) |value| self.allocator.free(value);
+        defer if (owns_mesh_vertices and mesh_vertices != null) self.allocator.free(mesh_vertices.?);
 
         switch (collider.shape) {
             .Sphere => |shape| {
@@ -426,18 +427,24 @@ pub const State = struct {
                 desc.shape_kind = .triangle_mesh;
                 const store = commands.getResource(resources.CollisionMeshStore) orelse return null;
                 const asset = store.get(handle) orelse return null;
-                if (asset.blob.format != .PhysicsMeshV1) return null;
-                mesh_file = bake.mesh_formats.parseAlloc(self.allocator, asset.blob.bytes) catch return null;
-                const file = &mesh_file.?;
+                if (asset.prepared_triangle_mesh) |prepared| {
+                    mesh_vertices = prepared.vertices;
+                    mesh_indices = prepared.indices;
+                } else {
+                    if (asset.blob.format != .PhysicsMeshV1) return null;
+                    mesh_file = bake.mesh_formats.parseAlloc(self.allocator, asset.blob.bytes) catch return null;
+                    const file = &mesh_file.?;
 
-                var vertices = self.allocator.alloc(f32, file.vertices.len * 3) catch return null;
-                for (file.vertices, 0..) |vertex, i| {
-                    vertices[i * 3 + 0] = vertex.position.x;
-                    vertices[i * 3 + 1] = vertex.position.y;
-                    vertices[i * 3 + 2] = vertex.position.z;
+                    const vertices = self.allocator.alloc(f32, file.vertices.len * 3) catch return null;
+                    owns_mesh_vertices = true;
+                    for (file.vertices, 0..) |vertex, i| {
+                        vertices[i * 3 + 0] = vertex.position.x;
+                        vertices[i * 3 + 1] = vertex.position.y;
+                        vertices[i * 3 + 2] = vertex.position.z;
+                    }
+                    mesh_vertices = vertices;
+                    mesh_indices = file.indices;
                 }
-                mesh_vertices = vertices;
-                mesh_indices = file.indices;
             },
             .HeightField => |handle| {
                 desc.shape_kind = .height_field;
