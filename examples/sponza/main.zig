@@ -451,8 +451,6 @@ fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []cons
 
 fn updateStatusOverlay(
     elapsed: Res(ElapsedTime),
-    capture_opt: ResOpt(MouseCapture),
-    mouse_opt: ResOpt(Mouse),
     scene_assets: Res(Assets),
     scene_ready: ResOpt(SceneReady),
     spawn_plan: ResOpt(SceneSpawnPlan),
@@ -467,37 +465,29 @@ fn updateStatusOverlay(
     else
         "3/3 ready";
     const spinner = if (loading_active) spinnerFrame(elapsed.ptr.seconds) else ' ';
-    const mouse_state = if (mouse_opt.ptr) |mouse|
-        if (mouse.captured) "mouse look: on (Esc releases)"
-        else if (capture_opt.ptr) |capture|
-            if (capture.enabled) "mouse look: pending capture"
-            else "mouse look: off (Enter captures)"
-        else
-            "mouse look: off (Enter captures)"
+    var header_buffer: [64]u8 = undefined;
+    const header = if (loading_active)
+        std.fmt.bufPrint(&header_buffer, "Sponza {c} stage {s}", .{ spinner, phase }) catch "Sponza stage"
     else
-        "mouse look: unavailable";
+        std.fmt.bufPrint(&header_buffer, "Sponza stage {s}", .{phase}) catch "Sponza stage";
 
     const message = if (scene_ready.ptr == null)
         std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nPreparing scene and collision\n{s}",
-            .{ spinner, phase, mouse_state },
+            "{s}\nPreparing scene and collision",
+            .{header},
         ) catch "Sponza: loading..."
     else if (spawn_plan.ptr != null)
         std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nProbing runtime spawn point\n{s}",
-            .{ spinner, phase, mouse_state },
+            "{s}\nProbing runtime spawn point",
+            .{header},
         ) catch "Sponza: spawning..."
     else blk: {
         break :blk std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nWASD move, mouse look, Space jump\n{s}",
-            .{
-                spinner,
-                phase,
-                mouse_state,
-            },
+            "{s}\nWASD move, mouse look, Space jump",
+            .{header},
         ) catch "Sponza: ready";
     };
 
