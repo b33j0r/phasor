@@ -9,6 +9,7 @@ const SceneReady = struct {};
 const SceneRoot = struct {};
 const StatusTextTag = struct {};
 const LightingReady = struct {};
+const SponzaPhases = modules.PhasesModule.Definition(SponzaPhase, SponzaPhase{ .Loading = .{} });
 const SceneSpawnPlan = struct {
     scene_size: Vec3,
 };
@@ -23,10 +24,76 @@ const sponza_panorama_bytes = @embedFile("assets/hdr/furstenstein_2k.hdr");
 const StatusOverlay = struct {
     buffer: [512]u8 = [_]u8{0} ** 512,
 };
+const SceneLoaderCommand = enum {
+    shutdown,
+};
+const SceneLoaderProgress = struct {
+    label: []const u8,
+    fraction: f32,
+};
 
 const SceneBake = struct {
     bounds: SceneBounds,
     collision_blob: []u8,
+};
+
+const LoadedScenePayload = struct {
+    resolved_path: [:0]u8,
+    scene_data: assets.SceneData,
+    bake: SceneBake,
+
+    fn deinit(self: *LoadedScenePayload, allocator: std.mem.Allocator) void {
+        self.scene_data.deinit();
+        allocator.free(self.resolved_path);
+        allocator.free(self.bake.collision_blob);
+        self.* = undefined;
+    }
+};
+
+const SceneLoaderMessage = union(enum) {
+    progress: SceneLoaderProgress,
+    ready: LoadedScenePayload,
+    failed: []const u8,
+};
+
+const SceneLoader = common.Agent(SceneLoaderCommand, SceneLoaderMessage);
+const SceneLoaderTaskContext = struct {
+    allocator: std.mem.Allocator,
+    path: []const u8,
+};
+
+const SceneLoaderState = struct {
+    allocator: std.mem.Allocator,
+    io: *const std.Io,
+    agent: SceneLoader,
+    started: bool = false,
+    progress: SceneLoaderProgress = .{ .label = "Booting", .fraction = 0.0 },
+    payload: ?LoadedScenePayload = null,
+    failed: ?[]const u8 = null,
+
+    fn init(allocator: std.mem.Allocator, io: *const std.Io) !SceneLoaderState {
+        return .{
+            .allocator = allocator,
+            .io = io,
+            .agent = try SceneLoader.init(allocator, io, 1, 8),
+        };
+    }
+
+    pub fn deinit(self: *SceneLoaderState) void {
+        if (self.payload) |*payload| payload.deinit(self.allocator);
+        self.agent.deinit(self.io.*);
+        self.* = undefined;
+    }
+};
+
+const SponzaPhase = union(enum) {
+    Loading: struct {},
+    InGame: InGame,
+};
+
+const InGame = union(enum) {
+    Playing: struct {},
+    Paused: struct {},
 };
 
 const SpawnChoice = struct {
@@ -96,6 +163,7 @@ const App = struct {
 
     pub fn configure(app: *ecs.App) !void {
         try platform.installDefaultModules(app);
+        try app.installModule(SponzaPhases);
         try app.installModule(modules.ParentModule);
         try app.installModule(modules.SkyModule);
         try app.installModule(modules.LightingModule);
@@ -123,12 +191,14 @@ const App = struct {
 
         try app.addSystemTo("Startup", ensureStatusOverlay);
         try app.addSystemTo("BeforeFrame", ensureStatusOverlay);
-        try app.addSystemTo("Startup", setupScene);
-        try app.addSystemTo("BeforeFrame", setupScene);
+        try app.addSystemTo("Startup", ensureSceneLoader);
+        try app.addSystemTo("BeforeFrame", ensureSceneLoader);
+        try app.addSystemTo("BeforeFrame", drainSceneLoader);
+        try app.addSystemTo("BeforeFrame", finalizeSceneLoad);
         try app.addSystemTo("Startup", setupLighting);
         try app.addSystemTo("BeforeFrame", setupLighting);
         try app.addSystemTo("Update", spawnPlayerFromCollision);
-        try app.addSystemTo("Update", updateMouseCaptureToggle);
+        try app.addSystemTo("Update", handlePhaseInput);
         try app.addSystemTo("Update", updatePlayerCamera);
         try app.addSystemTo("Update", emitSponzaHudMetrics);
         try app.addSystemTo("Update", logPlayerBookmark);
@@ -139,6 +209,28 @@ const App = struct {
 };
 
 pub const main = platform.main(App);
+
+fn isPlayingPhase(current_phase: ?*const SponzaPhases.CurrentPhase) bool {
+    const phase = current_phase orelse return false;
+    return switch (phase.phase) {
+        .Loading => false,
+        .InGame => |in_game| switch (in_game) {
+            .Playing => true,
+            .Paused => false,
+        },
+    };
+}
+
+fn isPausedPhase(current_phase: ?*const SponzaPhases.CurrentPhase) bool {
+    const phase = current_phase orelse return false;
+    return switch (phase.phase) {
+        .Loading => false,
+        .InGame => |in_game| switch (in_game) {
+            .Playing => false,
+            .Paused => true,
+        },
+    };
+}
 
 fn ensureStatusOverlay(commands: *ecs.Commands, existing: Query(.{StatusTextTag})) !void {
     if (!commands.hasResource(StatusOverlay)) {
@@ -152,7 +244,7 @@ fn ensureStatusOverlay(commands: *ecs.Commands, existing: Query(.{StatusTextTag}
             .translation = .{ .x = 24.0, .y = 24.0, .z = 0.0 },
         },
         render.Text{
-            .content = "Sponza: preparing...",
+            .content = "Sponza: booting...",
             .font_size = 22.0,
             .color = Color.rgb(230, 232, 236),
             .horizontal_alignment = .Left,
@@ -163,25 +255,57 @@ fn ensureStatusOverlay(commands: *ecs.Commands, existing: Query(.{StatusTextTag}
     });
 }
 
-fn setupScene(
+fn ensureSceneLoader(commands: *ecs.Commands) !void {
+    if (commands.hasResource(SceneLoaderState)) return;
+
+    var loader = try SceneLoaderState.init(commands.allocator, commands.io);
+    errdefer loader.deinit();
+    try loader.agent.start(commands.io.*, runSceneLoader, SceneLoaderTaskContext{
+        .allocator = commands.allocator,
+        .path = sponza_scene_path,
+    });
+    loader.started = true;
+    loader.progress = .{ .label = "1/3 cache", .fraction = 0.05 };
+    try commands.insertResource(loader);
+}
+
+fn drainSceneLoader(commands: *ecs.Commands, loader: ResMut(SceneLoaderState)) !void {
+    while (loader.ptr.agent.tryRecv()) |message| {
+        switch (message) {
+            .progress => |progress| loader.ptr.progress = progress,
+            .ready => |payload| {
+                if (loader.ptr.payload) |*existing| existing.deinit(commands.allocator);
+                loader.ptr.payload = payload;
+                loader.ptr.progress = .{ .label = "3/3 finalize", .fraction = 0.92 };
+            },
+            .failed => |err_name| loader.ptr.failed = err_name,
+        }
+    }
+}
+
+fn finalizeSceneLoad(
     commands: *ecs.Commands,
     build_ctx: ResOpt(render.BuildContext),
     assets_ctx: ResOpt(assets.AssetsContext),
     collision_store: ResMut(physics.CollisionMeshStore),
     scene_assets: ResMut(Assets),
+    loader: ResMut(SceneLoaderState),
 ) !void {
     if (commands.hasResource(SceneReady)) return;
+    if (loader.ptr.failed != null) return;
+    if (loader.ptr.payload == null) return;
 
     const build_ctx_res = build_ctx.ptr orelse return;
     const assets_ctx_res = assets_ctx.ptr orelse return;
-    const scene_asset = &scene_assets.ptr.sponza;
-    const scene_data = scene_asset.scene_data orelse return;
     if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
     if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
     if (!scene_assets.ptr.sky_shader.handle.isValid()) return error.SkyShaderMissing;
 
-    const baked = try bakeSceneCollision(commands.allocator, &scene_data);
-    defer commands.allocator.free(baked.collision_blob);
+    var payload = loader.ptr.payload.?;
+    loader.ptr.payload = null;
+    defer payload.deinit(commands.allocator);
+
+    const baked = payload.bake;
     try logCollisionBakeStats(commands.allocator, baked);
 
     const bounds = baked.bounds;
@@ -230,8 +354,8 @@ fn setupScene(
         assets_ctx_res.io,
         commands,
         build_ctx_res,
-        scene_asset.resolved_path,
-        &scene_data,
+        payload.resolved_path,
+        &payload.scene_data,
         .{
             .parent = root,
             .shader_handle = scene_assets.ptr.scene_shader.handle,
@@ -246,6 +370,8 @@ fn setupScene(
         .scene_size = scene_size,
     });
     try commands.insertResource(SceneReady{});
+    loader.ptr.progress = .{ .label = "3/3 ready", .fraction = 1.0 };
+    try commands.insertResource(SponzaPhases.NextPhase{ .phase = .{ .InGame = .{ .Playing = .{} } } });
 
     _ = try commands.createEntity(.{
         Transform{},
@@ -260,7 +386,9 @@ fn spawnPlayerFromCollision(
     physics_stats: Res(physics.Stats),
     spawn_plan: ResOpt(SceneSpawnPlan),
     players: Query(.{Player}),
+    current_phase: ResOpt(SponzaPhases.CurrentPhase),
 ) !void {
+    if (!isPlayingPhase(current_phase.ptr)) return;
     if (spawn_plan.ptr == null) return;
     if (physics_stats.ptr.body_count == 0) return;
     var it = players.iterator();
@@ -324,29 +452,34 @@ fn spawnPlayerFromCollision(
     _ = commands.removeResource(SceneSpawnPlan);
 }
 
-fn updateMouseCaptureToggle(
+fn handlePhaseInput(
     keyboard_opt: ResOpt(Keyboard),
     capture_opt: ResOpt(MouseCapture),
     commands: *ecs.Commands,
+    current_phase: ResOpt(SponzaPhases.CurrentPhase),
 ) !void {
     const keyboard = keyboard_opt.ptr orelse return;
     var capture = if (capture_opt.ptr) |existing| existing.* else MouseCapture{};
 
-    if (keyboard.isKeyPressed(.escape)) {
+    if (isPlayingPhase(current_phase.ptr) and keyboard.isKeyPressed(.escape)) {
         capture.enabled = false;
         try commands.insertResource(capture);
+        try commands.insertResource(SponzaPhases.NextPhase{ .phase = .{ .InGame = .{ .Paused = .{} } } });
         return;
     }
-    if (keyboard.isKeyPressed(.enter)) {
+    if (isPausedPhase(current_phase.ptr) and (keyboard.isKeyPressed(.enter) or keyboard.isKeyPressed(.escape))) {
         capture.enabled = true;
         try commands.insertResource(capture);
+        try commands.insertResource(SponzaPhases.NextPhase{ .phase = .{ .InGame = .{ .Playing = .{} } } });
     }
 }
 
 fn updatePlayerCamera(
     players: Query(.{ Transform, FpsController, Player }),
     cameras: Query(.{ Transform, PlayerCamera }),
+    current_phase: ResOpt(SponzaPhases.CurrentPhase),
 ) void {
+    if (!isPlayingPhase(current_phase.ptr)) return;
     var player_transform: ?Transform = null;
     var player_controller: ?FpsController = null;
 
@@ -372,7 +505,9 @@ fn updatePlayerCamera(
 fn logPlayerBookmark(
     keyboard_opt: ResOpt(Keyboard),
     players: Query(.{ Transform, FpsController, Player }),
+    current_phase: ResOpt(SponzaPhases.CurrentPhase),
 ) void {
+    if (!isPlayingPhase(current_phase.ptr)) return;
     const keyboard = keyboard_opt.ptr orelse return;
     if (!keyboard.isKeyPressed(.m)) return;
 
@@ -407,7 +542,9 @@ fn emitSponzaHudMetrics(
     imported: ResOpt(assets.ImportedScene),
     lighting_stats: ResOpt(lighting.AuthoringStats),
     players: Query(.{ Transform, Player }),
+    current_phase: ResOpt(SponzaPhases.CurrentPhase),
 ) void {
+    if (!isPlayingPhase(current_phase.ptr) and !isPausedPhase(current_phase.ptr)) return;
     var it = players.iterator();
     const row = it.next() orelse return;
     const transform = row.get(Transform) orelse return;
@@ -451,45 +588,72 @@ fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []cons
 
 fn updateStatusOverlay(
     elapsed: Res(ElapsedTime),
-    scene_assets: Res(Assets),
+    loader: ResOpt(SceneLoaderState),
+    current_phase: ResOpt(SponzaPhases.CurrentPhase),
     scene_ready: ResOpt(SceneReady),
     spawn_plan: ResOpt(SceneSpawnPlan),
     overlay: ResMut(StatusOverlay),
     texts: Query(.{ render.Text, Transform, StatusTextTag }),
 ) void {
-    const loading_active = scene_assets.ptr.sponza.scene_data == null or scene_ready.ptr == null or spawn_plan.ptr != null;
-    const phase = if (scene_assets.ptr.sponza.scene_data == null)
-        "1/3 cache"
-    else if (scene_ready.ptr == null)
-        "2/3 setup"
-    else
-        "3/3 ready";
-    const spinner = if (loading_active) spinnerFrame(elapsed.ptr.seconds) else ' ';
+    const loader_state = loader.ptr;
+    const spinner = if (scene_ready.ptr == null) spinnerFrame(elapsed.ptr.seconds) else ' ';
     var header_buffer: [64]u8 = undefined;
-    const header = if (loading_active)
-        std.fmt.bufPrint(&header_buffer, "Sponza {c} stage {s}", .{ spinner, phase }) catch "Sponza stage"
-    else
-        std.fmt.bufPrint(&header_buffer, "Sponza stage {s}", .{phase}) catch "Sponza stage";
+    const phase_name = if (current_phase.ptr) |phase| switch (phase.phase) {
+        .Loading => "Loading",
+        .InGame => |in_game| switch (in_game) {
+            .Playing => "InGame.Playing",
+            .Paused => "InGame.Paused",
+        },
+    } else "Boot";
+    const header = std.fmt.bufPrint(&header_buffer, "Sponza {c} {s}", .{ spinner, phase_name }) catch "Sponza";
 
-    const message = if (scene_ready.ptr == null)
+    var bar_buffer: [20]u8 = undefined;
+    const progress = if (loader_state) |state| state.progress else SceneLoaderProgress{ .label = "Booting", .fraction = 0.0 };
+    const clamped_progress = std.math.clamp(progress.fraction, 0.0, 1.0);
+    const filled = @min(@as(usize, @intFromFloat(clamped_progress * 20.0)), bar_buffer.len);
+    for (&bar_buffer, 0..) |*slot, index| {
+        slot.* = if (index < filled) '#' else '-';
+    }
+    const percent = @as(u32, @intFromFloat(clamped_progress * 100.0));
+
+    const message = if (loader_state) |state|
+        if (state.failed) |err_name|
+            std.fmt.bufPrint(
+                &overlay.ptr.buffer,
+                "{s}\nLoad failed: {s}",
+                .{ header, err_name },
+            ) catch "Sponza: load failed"
+        else if (scene_ready.ptr == null)
+            std.fmt.bufPrint(
+                &overlay.ptr.buffer,
+                "{s}\n[{s}] {d}% {s}",
+                .{ header, &bar_buffer, percent, progress.label },
+            ) catch "Sponza: loading..."
+        else if (spawn_plan.ptr != null)
+            std.fmt.bufPrint(
+                &overlay.ptr.buffer,
+                "{s}\n[{s}] {d}% Probing runtime spawn point",
+                .{ header, &bar_buffer, percent },
+            ) catch "Sponza: spawning..."
+        else if (isPausedPhase(current_phase.ptr))
+            std.fmt.bufPrint(
+                &overlay.ptr.buffer,
+                "{s}\nPaused\nPress Enter to resume",
+                .{header},
+            ) catch "Sponza: paused"
+        else blk: {
+            break :blk std.fmt.bufPrint(
+                &overlay.ptr.buffer,
+                "{s}\nWASD move, mouse look, Space jump",
+                .{header},
+            ) catch "Sponza: ready";
+        }
+    else
         std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "{s}\nPreparing scene and collision",
+            "{s}\nPreparing scene loader",
             .{header},
-        ) catch "Sponza: loading..."
-    else if (spawn_plan.ptr != null)
-        std.fmt.bufPrint(
-            &overlay.ptr.buffer,
-            "{s}\nProbing runtime spawn point",
-            .{header},
-        ) catch "Sponza: spawning..."
-    else blk: {
-        break :blk std.fmt.bufPrint(
-            &overlay.ptr.buffer,
-            "{s}\nWASD move, mouse look, Space jump",
-            .{header},
-        ) catch "Sponza: ready";
-    };
+        ) catch "Sponza: booting...";
 
     var it = texts.iterator();
     while (it.next()) |row| {
@@ -510,6 +674,7 @@ fn unloadImportedScene(commands: *ecs.Commands) void {
     _ = commands.removeResource(SceneReady);
     _ = commands.removeResource(SceneSpawnPlan);
     _ = commands.removeResource(SceneMetrics);
+    _ = commands.removeResource(SceneLoaderState);
     _ = commands.removeResource(LightingReady);
     _ = commands.removeResource(StatusOverlay);
 }
@@ -1136,9 +1301,34 @@ fn spinnerFrame(seconds: f64) u8 {
     return frames[frame_index % frames.len];
 }
 
+fn runSceneLoader(
+    _: std.Io,
+    _: common.Channel(SceneLoaderCommand).Receiver,
+    outbox: common.Channel(SceneLoaderMessage).Sender,
+    ctx: SceneLoaderTaskContext,
+) anyerror!void {
+    try outbox.send(.{ .progress = .{ .label = "1/3 cache", .fraction = 0.2 } });
+
+    const resolved_z = try ctx.allocator.dupeZ(u8, ctx.path);
+    errdefer ctx.allocator.free(resolved_z);
+
+    try outbox.send(.{ .progress = .{ .label = "2/3 parse", .fraction = 0.45 } });
+    var scene_data = try assets.gltf.parseFromFile(ctx.allocator, resolved_z);
+    errdefer scene_data.deinit();
+
+    try outbox.send(.{ .progress = .{ .label = "3/3 collision", .fraction = 0.72 } });
+    const bake = try bakeSceneCollision(ctx.allocator, &scene_data);
+    errdefer ctx.allocator.free(bake.collision_blob);
+
+    try outbox.send(.{ .ready = .{
+        .resolved_path = resolved_z,
+        .scene_data = scene_data,
+        .bake = bake,
+    } });
+}
+
 
 const Assets = struct {
-    sponza: assets.Scene = .file(sponza_scene_path),
     sky_panorama: assets.Texture = assets.Texture.embedded(sponza_panorama_bytes).asHdr().asOpaque().equirectangularLinear(),
     scene_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/scene_passthrough.wgsl"),
