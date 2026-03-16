@@ -113,6 +113,11 @@ const App = struct {
             .font_size = 28.0,
             .text_color = Color.WHITE,
             .buffer_capacity = 768,
+            .extra_builtin_lines = &.{
+                .mouse_look,
+                .scene_stats,
+                .light_stats,
+            },
             .extra_lines = &sponza_metric_lines,
         });
 
@@ -125,7 +130,7 @@ const App = struct {
         try app.addSystemTo("Update", spawnPlayerFromCollision);
         try app.addSystemTo("Update", updateMouseCaptureToggle);
         try app.addSystemTo("Update", updatePlayerCamera);
-        try app.addSystemTo("Update", emitPlayerHudMetrics);
+        try app.addSystemTo("Update", emitSponzaHudMetrics);
         try app.addSystemTo("Update", logPlayerBookmark);
         try app.addSystemTo("Update", animateLights);
         try app.addSystemTo("Update", updateStatusOverlay);
@@ -394,18 +399,46 @@ fn logPlayerBookmark(
     );
 }
 
-fn emitPlayerHudMetrics(
+fn emitSponzaHudMetrics(
     bus: ResMut(metrics.Bus),
+    capture_opt: ResOpt(MouseCapture),
+    mouse_opt: ResOpt(Mouse),
+    scene_metrics: ResOpt(SceneMetrics),
+    imported: ResOpt(assets.ImportedScene),
+    lighting_stats: ResOpt(lighting.AuthoringStats),
     players: Query(.{ Transform, Player }),
 ) void {
     var it = players.iterator();
     const row = it.next() orelse return;
     const transform = row.get(Transform) orelse return;
+    const imported_scene = imported.ptr;
+    const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
+        scene_metrics_res.scene_size
+    else if (imported_scene) |scene|
+        scene.bounds.size()
+    else
+        Vec3{};
+    const light_stats = if (lighting_stats.ptr) |stats| stats.* else lighting.AuthoringStats{};
+    const mouse_captured = if (mouse_opt.ptr) |mouse| mouse.captured else false;
+    const mouse_capture_enabled = if (capture_opt.ptr) |capture| capture.enabled else false;
+    const mouse_available = mouse_opt.ptr != null;
+    const mesh_count: usize = if (imported_scene) |scene| scene.mesh_handles.len else 0;
 
     metrics.emitBus(true, bus.ptr, .{
         .player_x = metrics.gauge(transform.translation.x),
         .player_y = metrics.gauge(transform.translation.y),
         .player_z = metrics.gauge(transform.translation.z),
+        .mouse_look_available = metrics.gauge(mouse_available),
+        .mouse_look_captured = metrics.gauge(mouse_captured),
+        .mouse_look_capture_enabled = metrics.gauge(mouse_capture_enabled),
+        .scene_mesh_count = metrics.gauge(mesh_count),
+        .scene_size_x = metrics.gauge(scene_size.x),
+        .scene_size_y = metrics.gauge(scene_size.y),
+        .scene_size_z = metrics.gauge(scene_size.z),
+        .lights_total = metrics.gauge(light_stats.total_lights),
+        .lights_dynamic = metrics.gauge(light_stats.dynamic_lights),
+        .lights_point = metrics.gauge(light_stats.point_lights),
+        .lights_spot = metrics.gauge(light_stats.spot_lights),
     });
 }
 
@@ -460,24 +493,13 @@ fn updateStatusOverlay(
             .{ spinner, phase, mouse_state },
         ) catch "Sponza: spawning..."
     else blk: {
-        const imported_scene = imported.ptr orelse break :blk "Sponza: ready";
-        const scene_size = if (scene_metrics.ptr) |scene_metrics_res| scene_metrics_res.scene_size else imported_scene.bounds.size();
-        const light_stats = if (lighting_stats.ptr) |stats| stats.* else lighting.AuthoringStats{};
         break :blk std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nWASD move, mouse look, Space jump\n{s}\nScene: {d} meshes  {d:.1}m x {d:.1}m x {d:.1}m\nLights: {d} total  {d} dynamic  {d} point  {d} spot",
+            "Sponza {c}  stage {s}\nWASD move, mouse look, Space jump\n{s}",
             .{
                 spinner,
                 phase,
                 mouse_state,
-                imported_scene.mesh_handles.len,
-                scene_size.x,
-                scene_size.y,
-                scene_size.z,
-                light_stats.total_lights,
-                light_stats.dynamic_lights,
-                light_stats.point_lights,
-                light_stats.spot_lights,
             },
         ) catch "Sponza: ready";
     };
