@@ -123,6 +123,7 @@ const App = struct {
         try app.addSystemTo("Update", spawnPlayerFromCollision);
         try app.addSystemTo("Update", updateMouseCaptureToggle);
         try app.addSystemTo("Update", updatePlayerCamera);
+        try app.addSystemTo("Update", logPlayerBookmark);
         try app.addSystemTo("Update", animateLights);
         try app.addSystemTo("Update", updateStatusOverlay);
         try app.addSystemTo("Shutdown", unloadImportedScene);
@@ -358,6 +359,36 @@ fn updatePlayerCamera(
         transform.translation = player_transform.?.translation.add(.{ .x = 0.0, .y = controller.eye_offset_y, .z = 0.0 });
         transform.rotation = camera_rotation;
     }
+}
+
+fn logPlayerBookmark(
+    keyboard_opt: ResOpt(Keyboard),
+    players: Query(.{ Transform, FpsController, Player }),
+) void {
+    const keyboard = keyboard_opt.ptr orelse return;
+    if (!keyboard.isKeyPressed(.m)) return;
+
+    var it = players.iterator();
+    const row = it.next() orelse return;
+    const transform = row.get(Transform) orelse return;
+    const controller = row.get(FpsController) orelse return;
+
+    const camera_translation = transform.translation.add(.{ .x = 0.0, .y = controller.eye_offset_y, .z = 0.0 });
+
+    std.log.debug(
+        "sponza bookmark player_transform = Transform{ .translation = .{{ .x = {d:.3}, .y = {d:.3}, .z = {d:.3} }}, .rotation = quatFromEuler(0.0, {d:.4}, 0.0) }}; camera_transform = Transform{ .translation = .{{ .x = {d:.3}, .y = {d:.3}, .z = {d:.3} }}, .rotation = quatFromEuler({d:.4}, {d:.4}, 0.0) }};",
+        .{
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+            controller.yaw,
+            camera_translation.x,
+            camera_translation.y,
+            camera_translation.z,
+            controller.pitch,
+            controller.yaw,
+        },
+    );
 }
 
 fn updateStatusOverlay(
