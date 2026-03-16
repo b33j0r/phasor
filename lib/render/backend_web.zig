@@ -200,6 +200,7 @@ extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_h
 extern "env" fn webgpu_draw_textured_quads(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_draw_colored_meshes(ctx: u32, mesh_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_draw_textured_meshes_with_shader(ctx: u32, mesh_handle: u32, material_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
+extern "env" fn webgpu_set_scene_uniforms(ctx: u32, uniforms_ptr: [*]const u8, uniforms_len: usize) void;
 extern "env" fn webgpu_draw_post_process(ctx: u32, shader_handle: u32, source_slot: u32, uniforms_ptr: [*]const f32, blend: u32) void;
 extern "env" fn webgpu_end_frame(ctx: u32) void;
 extern "env" fn webgpu_set_viewport_scissor(ctx: u32, x: f32, y: f32, width: f32, height: f32) void;
@@ -440,6 +441,11 @@ pub const Frame = struct {
         webgpu_set_viewport_scissor(self.renderer.ctx, x, y, width, height);
     }
 
+    pub fn setSceneUniforms(self: *Frame, uniforms: scene_uniforms.SceneUniforms) void {
+        const bytes = std.mem.asBytes(&uniforms);
+        webgpu_set_scene_uniforms(self.renderer.ctx, bytes.ptr, bytes.len);
+    }
+
     fn drawTexturedQuad(self: *Frame, quad: TexturedQuad) void {
         if (quad.mesh.vertex_layout != .uv2) return;
         const instance = buildInstanceData(quad.instance);
@@ -543,6 +549,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const utils = @import("utils.zig");
 const common = @import("common");
+const scene_uniforms = @import("scene_uniforms.zig");
 
 const Color = common.Color;
 const Size = utils.Size;

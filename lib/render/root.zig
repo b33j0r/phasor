@@ -28,6 +28,10 @@ pub const BackendMaterial = backend.Material;
 pub const Material = mesh.Material;
 pub const SceneMaterial = mesh.SceneMaterial;
 pub const SceneTexture = mesh.SceneTexture;
+pub const max_scene_lights = @import("scene_uniforms.zig").max_scene_lights;
+pub const SceneLightKind = @import("scene_uniforms.zig").SceneLightKind;
+pub const SceneLight = @import("scene_uniforms.zig").SceneLight;
+pub const SceneUniforms = @import("scene_uniforms.zig").SceneUniforms;
 pub const MaterialInstance = struct {
     material: BackendMaterial,
 

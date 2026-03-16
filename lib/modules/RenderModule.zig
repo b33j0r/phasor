@@ -13,6 +13,7 @@ pub const SpriteMeshCache = render_types.SpriteMeshCache;
 pub const LayerCameras = render_types.LayerCameras;
 pub const LayerCamera = render_types.LayerCamera;
 pub const LayerViewports = render_types.LayerViewports;
+pub const ExtractedSceneLighting = render_types.ExtractedSceneLighting;
 
 pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(common.ClearColor)) {
@@ -26,6 +27,9 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     }
     if (!commands.hasResource(RenderRecovery)) {
         try commands.insertResource(RenderRecovery{});
+    }
+    if (!commands.hasResource(ExtractedSceneLighting)) {
+        try commands.insertResource(ExtractedSceneLighting{});
     }
     if (!commands.hasResource(SpriteMeshCache)) {
         try commands.insertResource(SpriteMeshCache.init(commands.allocator));
@@ -234,6 +238,7 @@ fn shutdownSystem(commands: *Commands) void {
 
     _ = commands.removeResource(LayerCameras);
     _ = commands.removeResource(LayerViewports);
+    _ = commands.removeResource(ExtractedSceneLighting);
     _ = commands.removeResource(assets.AssetsContext);
     _ = commands.removeResource(render.BuildContext);
     _ = commands.removeResource(render.RenderQueue);

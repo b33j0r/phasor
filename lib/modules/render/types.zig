@@ -18,6 +18,12 @@ pub const RenderState = struct {
     }
 };
 
+pub const ExtractedSceneLighting = struct {
+    ambient_color: common.Color.F32 = .{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 },
+    light_count: u32 = 0,
+    lights: [render.max_scene_lights]render.SceneLight = [_]render.SceneLight{render.SceneLight{}} ** render.max_scene_lights,
+};
+
 pub const ViewportSize = struct {
     /// Logical viewport size used by viewport cameras, UI, and layout math.
     width: f32,
@@ -105,6 +111,7 @@ pub const LayerViewports = struct {
 pub const LayerCamera = struct {
     camera: common.Camera3d,
     view: common.Mat4,
+    transform: common.Transform,
 };
 
 pub fn cameraLayerKeyForRow(row: db.QueryResult.Row) i32 {

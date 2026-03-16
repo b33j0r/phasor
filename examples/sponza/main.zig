@@ -1039,8 +1039,8 @@ const Assets = struct {
     sponza: assets.Scene = .file(sponza_scene_path),
     scene_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/scene_passthrough.wgsl"),
-        .vertex_layout = .pos3_uv2,
-        .binding_mode = .material,
+        .vertex_layout = .pos3_norm_uv2,
+        .binding_mode = .material_scene,
     },
 };
 

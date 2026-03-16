@@ -17,6 +17,7 @@ pub fn renderSystem(
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
     const post_process_shader_library = commands.getResourceMut(render.PostProcessShaderLibrary) orelse return;
     const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
+    const extracted_lighting = commands.getResource(types.ExtractedSceneLighting) orelse return;
 
     const surface_size = if (framebuffer_opt.ptr) |bounds|
         render.Size{
@@ -71,6 +72,7 @@ pub fn renderSystem(
         shader_library,
         material_library,
         state.default_material,
+        extracted_lighting,
         .{ .max_layer = processed_max_layer },
     );
 
@@ -119,6 +121,7 @@ pub fn renderSystem(
             shader_library,
             material_library,
             state.default_material,
+            extracted_lighting,
             .{ .min_layer = processed_max_layer + 1 },
         );
     }
@@ -316,6 +319,7 @@ fn drawSceneLayers(
     shader_library: *render.ShaderLibrary,
     material_library: *render.MaterialLibrary,
     default_material: render.BackendMaterial,
+    extracted_lighting: *const types.ExtractedSceneLighting,
     filter: LayerFilter,
 ) !void {
     for (layers) |layer| {
@@ -348,6 +352,7 @@ fn drawSceneLayers(
             common.Mat4.mul(proj, view)
         else
             null;
+        frame.setSceneUniforms(buildSceneUniforms(camera, view_proj, extracted_lighting));
 
         var batch_items: std.ArrayListUnmanaged(BatchItem) = .empty;
         defer batch_items.deinit(allocator);
@@ -373,11 +378,11 @@ fn drawSceneLayers(
                     if (instance.layer != layer) continue;
                     if (instance.blend) continue;
                     const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
-                    const model = resolveModel(instance.transform, view_proj);
+                    const clip_model = resolveModel(instance.transform, view_proj);
 
                     const color_f = common.Color.F32.fromColor(instance.color);
                     const gpu_instance = render.BackendMeshInstance{
-                        .transform = model,
+                        .transform = clipOrWorldTransform(shader_library, instance, clip_model),
                         .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
                     };
 
@@ -414,7 +419,24 @@ fn drawSceneLayers(
                                     .instance = gpu_instance,
                                 });
                             },
-                            .material_scene => continue,
+                            .material_scene => {
+                                const material = if (instance.material_handle) |handle|
+                                    (material_library.get(handle) orelse continue).*
+                                else
+                                    instance.material orelse default_material;
+                                const key = TexturedShaderBatchKey{
+                                    .mesh = instance.mesh_handle,
+                                    .shader = shader_handle,
+                                    .material = materialKey(material),
+                                };
+                                try textured_shader_batch_items.append(allocator, .{
+                                    .key = key,
+                                    .mesh = mesh.*,
+                                    .shader = shader.*,
+                                    .material = material,
+                                    .instance = gpu_instance,
+                                });
+                            },
                         }
                         continue;
                     }
@@ -521,10 +543,10 @@ fn drawSceneLayers(
                     if (instance.layer != layer) continue;
                     if (!instance.blend) continue;
                     const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
-                    const model = resolveModel(instance.transform, view_proj);
+                    const clip_model = resolveModel(instance.transform, view_proj);
                     const color_f = common.Color.F32.fromColor(instance.color);
                     const gpu_instance = render.BackendMeshInstance{
-                        .transform = model,
+                        .transform = clipOrWorldTransform(shader_library, instance, clip_model),
                         .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
                     };
                     if (instance.shader_handle) |shader_handle| {
@@ -538,7 +560,13 @@ fn drawSceneLayers(
                                     instance.material orelse default_material;
                                 frame.drawTexturedMeshesWithShader(mesh.*, material, shader.*, &[_]render.BackendMeshInstance{gpu_instance}, true);
                             },
-                            .material_scene => {},
+                            .material_scene => {
+                                const material = if (instance.material_handle) |handle|
+                                    (material_library.get(handle) orelse continue).*
+                                else
+                                    instance.material orelse default_material;
+                                frame.drawTexturedMeshesWithShader(mesh.*, material, shader.*, &[_]render.BackendMeshInstance{gpu_instance}, true);
+                            },
                         }
                         continue;
                     }
@@ -548,7 +576,7 @@ fn drawSceneLayers(
                         instance.material orelse default_material;
                     try blended.append(allocator, .{
                         .sort_key = instance.sort_key,
-                        .depth = clipDepth(model),
+                        .depth = clipDepth(clip_model),
                         .entity_id = instance.entity_id,
                         .mesh = mesh.*,
                         .material = material,
@@ -586,6 +614,44 @@ fn resolvePresentSlot(
     }
     if (passes.len == 0) return 0;
     return passes[passes.len - 1].pass.output_slot;
+}
+
+fn buildSceneUniforms(
+    camera: ?types.LayerCamera,
+    view_proj: ?common.Mat4,
+    extracted_lighting: *const types.ExtractedSceneLighting,
+) render.SceneUniforms {
+    var uniforms = render.SceneUniforms{};
+    uniforms.view_proj = view_proj orelse common.Mat4.identity();
+    if (camera) |cam| {
+        uniforms.camera_position = .{
+            cam.transform.translation.x,
+            cam.transform.translation.y,
+            cam.transform.translation.z,
+            1.0,
+        };
+    }
+    uniforms.ambient_color = .{
+        extracted_lighting.ambient_color.r,
+        extracted_lighting.ambient_color.g,
+        extracted_lighting.ambient_color.b,
+        1.0,
+    };
+    uniforms.light_counts[0] = extracted_lighting.light_count;
+    var i: usize = 0;
+    while (i < extracted_lighting.light_count and i < render.max_scene_lights) : (i += 1) {
+        uniforms.lights[i] = extracted_lighting.lights[i];
+    }
+    return uniforms;
+}
+
+fn clipOrWorldTransform(shader_library: *render.ShaderLibrary, instance: anytype, clip_model: common.Mat4) common.Mat4 {
+    if (instance.shader_handle) |shader_handle| {
+        if (shader_library.get(shader_handle)) |shader| {
+            if (shader.binding_mode == .material_scene) return instance.transform;
+        }
+    }
+    return clip_model;
 }
 
 fn postProcessPassLessThan(_: void, a: PostProcessPassItem, b: PostProcessPassItem) bool {
@@ -643,12 +709,20 @@ fn cameraForLayer(
     }
     if (!has_layer_cameras) {
         if (fallback) |cam| {
-            return .{ .camera = cam.*, .view = common.Mat4.identity() };
+            return .{
+                .camera = cam.*,
+                .view = common.Mat4.identity(),
+                .transform = common.Transform.identity(),
+            };
         }
     }
     if (layer == 0) {
         if (fallback) |cam| {
-            return .{ .camera = cam.*, .view = common.Mat4.identity() };
+            return .{
+                .camera = cam.*,
+                .view = common.Mat4.identity(),
+                .transform = common.Transform.identity(),
+            };
         }
     }
     return null;

@@ -96,6 +96,7 @@ pub const FrameTarget = union(enum) {
 
 pub const Material = struct {
     bind_group: *wgpu.BindGroup,
+    scene_bind_group: *wgpu.BindGroup,
 };
 
 pub const ShaderSource = struct {
@@ -244,7 +245,9 @@ pub const Renderer = struct {
     mesh_textured_pipeline_opaque: *wgpu.RenderPipeline,
     mesh_textured_pipeline_blend: *wgpu.RenderPipeline,
     quad_bind_group_layout: *wgpu.BindGroupLayout,
+    scene_bind_group_layout: *wgpu.BindGroupLayout,
     post_process_bind_group_layout: *wgpu.BindGroupLayout,
+    scene_uniform_buffer: Buffer,
     post_process_sampler: Sampler,
     post_process_uniform_buffer: Buffer,
 
@@ -317,7 +320,9 @@ pub const Renderer = struct {
             .mesh_textured_pipeline_opaque = undefined,
             .mesh_textured_pipeline_blend = undefined,
             .quad_bind_group_layout = undefined,
+            .scene_bind_group_layout = undefined,
             .post_process_bind_group_layout = undefined,
+            .scene_uniform_buffer = undefined,
             .post_process_sampler = undefined,
             .post_process_uniform_buffer = undefined,
             .triangle_vertex_buffer = undefined,
@@ -368,6 +373,11 @@ pub const Renderer = struct {
             wgpu.BufferUsages.uniform | wgpu.BufferUsages.copy_dst,
             @sizeOf(PostProcessUniformData),
         );
+        self.scene_uniform_buffer = try createEmptyBuffer(
+            self.device,
+            wgpu.BufferUsages.uniform | wgpu.BufferUsages.copy_dst,
+            @sizeOf(scene_uniforms.SceneUniforms),
+        );
 
         self.depth_target = try createDepthTarget(self.device, self.surface_size.width, self.surface_size.height);
 
@@ -394,6 +404,7 @@ pub const Renderer = struct {
         _ = hashCacheKey(quad_key);
         const quad_bind_group_layout = try createQuadBindGroupLayout(self.device);
         self.quad_bind_group_layout = quad_bind_group_layout;
+        self.scene_bind_group_layout = try createSceneBindGroupLayout(self.device);
         self.post_process_bind_group_layout = try createPostProcessBindGroupLayout(self.device);
         self.post_process_sampler = try self.createSampler();
         self.quad_pipeline_opaque = try createQuadPipeline(
@@ -448,6 +459,7 @@ pub const Renderer = struct {
         self.mesh_textured_pipeline_opaque.release();
         self.mesh_textured_pipeline_blend.release();
         self.quad_bind_group_layout.release();
+        self.scene_bind_group_layout.release();
         self.post_process_bind_group_layout.release();
         self.destroySampler(&self.post_process_sampler);
 
@@ -455,6 +467,7 @@ pub const Renderer = struct {
         self.quad_vertex_buffer.buffer.release();
         self.quad_index_buffer.buffer.release();
         self.instance_buffer.buffer.release();
+        self.scene_uniform_buffer.buffer.release();
         self.post_process_uniform_buffer.buffer.release();
         self.depth_target.view.release();
         self.depth_target.texture.release();
@@ -599,11 +612,19 @@ pub const Renderer = struct {
             .entry_count = entries.len,
             .entries = entries[0..].ptr,
         }) orelse return error.BindGroupCreationFailed;
-        return Material{ .bind_group = bind_group };
+        const scene_bind_group = try createSceneBindGroup(
+            self.device,
+            self.scene_bind_group_layout,
+            sampler.sampler,
+            texture.view,
+            self.scene_uniform_buffer.buffer,
+        );
+        return Material{ .bind_group = bind_group, .scene_bind_group = scene_bind_group };
     }
 
     pub fn destroyMaterial(_: *Renderer, material: *Material) void {
         material.bind_group.release();
+        material.scene_bind_group.release();
     }
 
     pub fn createMeshUv(self: *Renderer, vertices: []const VertexUv, indices: []const u16) !Mesh {
@@ -869,7 +890,32 @@ pub const Renderer = struct {
                 .vertex_layout = source.vertex_layout,
                 .binding_mode = source.binding_mode,
             },
-            .material_scene => error.NotImplemented,
+            .material_scene => .{
+                .pipeline_opaque = try createCustomMaterialPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    self.scene_bind_group_layout,
+                    source.vertex_layout,
+                    false,
+                    true,
+                ),
+                .pipeline_blend = try createCustomMaterialPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    self.scene_bind_group_layout,
+                    source.vertex_layout,
+                    true,
+                    false,
+                ),
+                .vertex_layout = source.vertex_layout,
+                .binding_mode = source.binding_mode,
+            },
         };
     }
 
@@ -979,6 +1025,11 @@ pub const Frame = struct {
         render_pass.setScissorRect(sx, sy, sw, sh);
     }
 
+    pub fn setSceneUniforms(self: *Frame, uniforms: scene_uniforms.SceneUniforms) void {
+        const bytes = std.mem.asBytes(&uniforms);
+        self.renderer.queue.writeBuffer(self.renderer.scene_uniform_buffer.buffer, 0, bytes.ptr, bytes.len);
+    }
+
     fn drawTriangle(self: *Frame, triangle: Triangle) void {
         const render_pass = self.render_pass orelse return;
         const data = std.mem.asBytes(&triangle.vertices);
@@ -1049,7 +1100,7 @@ pub const Frame = struct {
 
         const pipeline = if (blend) shader.pipeline_blend else shader.pipeline_opaque;
         render_pass.setPipeline(pipeline);
-        render_pass.setBindGroup(0, material.bind_group, 0, null);
+        render_pass.setBindGroup(0, if (shader.binding_mode == .material_scene) material.scene_bind_group else material.bind_group, 0, null);
         render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
         render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
         render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
@@ -1455,6 +1506,36 @@ fn createQuadBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
     return bind_group_layout;
 }
 
+fn createSceneBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
+    return device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
+        .entry_count = 3,
+        .entries = &[_]wgpu.BindGroupLayoutEntry{
+            .{
+                .binding = 0,
+                .visibility = wgpu.ShaderStages.fragment,
+                .sampler = .{ .type = .filtering },
+            },
+            .{
+                .binding = 1,
+                .visibility = wgpu.ShaderStages.fragment,
+                .texture = .{
+                    .sample_type = .float,
+                    .view_dimension = .@"2d",
+                    .multisampled = @intFromBool(false),
+                },
+            },
+            .{
+                .binding = 2,
+                .visibility = wgpu.ShaderStages.vertex | wgpu.ShaderStages.fragment,
+                .buffer = .{
+                    .type = .uniform,
+                    .min_binding_size = @sizeOf(scene_uniforms.SceneUniforms),
+                },
+            },
+        },
+    }) orelse return error.BindGroupLayoutFailed;
+}
+
 fn createPostProcessBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
     return device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
         .entry_count = 3,
@@ -1483,6 +1564,30 @@ fn createPostProcessBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout
             },
         },
     }) orelse return error.BindGroupLayoutFailed;
+}
+
+fn createSceneBindGroup(
+    device: *wgpu.Device,
+    layout: *wgpu.BindGroupLayout,
+    sampler: *wgpu.Sampler,
+    texture_view: *wgpu.TextureView,
+    uniform_buffer: *wgpu.Buffer,
+) !*wgpu.BindGroup {
+    const entries = [_]wgpu.BindGroupEntry{
+        .{ .binding = 0, .sampler = sampler },
+        .{ .binding = 1, .texture_view = texture_view },
+        .{
+            .binding = 2,
+            .buffer = uniform_buffer,
+            .offset = 0,
+            .size = @sizeOf(scene_uniforms.SceneUniforms),
+        },
+    };
+    return device.createBindGroup(&wgpu.BindGroupDescriptor{
+        .layout = layout,
+        .entry_count = entries.len,
+        .entries = entries[0..].ptr,
+    }) orelse return error.BindGroupCreationFailed;
 }
 
 fn createQuadPipeline(
@@ -2032,6 +2137,7 @@ const std = @import("std");
 const wgpu = @import("wgpu");
 const utils = @import("utils.zig");
 const common = @import("common");
+const scene_uniforms = @import("scene_uniforms.zig");
 
 const Color = common.Color;
 const Size = utils.Size;

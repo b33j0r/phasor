@@ -476,8 +476,26 @@ function createPipelines(ctx) {
     size: 80,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
+  ctx.sceneBindGroupLayout = ctx.device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform", minBindingSize: 2160 },
+      },
+    ],
+  });
+  ctx.scenePipelineLayout = ctx.device.createPipelineLayout({
+    bindGroupLayouts: [ctx.sceneBindGroupLayout],
+  });
+  ctx.sceneUniformBuffer = ctx.device.createBuffer({
+    size: 2160,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
   webgpuCreates.samplers += 1;
-  webgpuCreates.buffers += 1;
+  webgpuCreates.buffers += 2;
 }
 
 function createColorPipelinesFromWgsl(ctx, wgslSource) {
@@ -554,7 +572,7 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
   return { opaque, blend };
 }
 
-function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout) {
+function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMode = 1) {
   const module = ctx.device.createShaderModule({ code: wgslSource });
   const depthState = {
     format: "depth24plus",
@@ -566,9 +584,11 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout) {
     depthWriteEnabled: false,
     depthCompare: "less-equal",
   };
-  const materialPipelineLayout = ctx.device.createPipelineLayout({
-    bindGroupLayouts: [ctx.quadBindGroupLayout],
-  });
+  const materialPipelineLayout = bindingMode === 2
+    ? ctx.scenePipelineLayout
+    : ctx.device.createPipelineLayout({
+        bindGroupLayouts: [ctx.quadBindGroupLayout],
+      });
 
   const vertexBuffers = vertexLayout === 1
     ? [
@@ -654,7 +674,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout) {
     primitive: { topology: "triangle-list" },
   });
   webgpuCreates.pipelines += 2;
-  return { opaque, blend, vertexLayout, bindingMode: 1 };
+  return { opaque, blend, vertexLayout, bindingMode };
 }
 
 function createPostProcessPipelinesFromWgsl(ctx, wgslSource) {
@@ -1588,11 +1608,17 @@ const imports = {
 
       const pipeline = blend ? shader.blend : shader.opaque;
       ctx.pass.setPipeline(pipeline);
-      ctx.pass.setBindGroup(0, material.bindGroup);
+      ctx.pass.setBindGroup(0, shader.bindingMode === 2 ? material.sceneBindGroup : material.bindGroup);
       ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
       ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
       ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
       ctx.pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, 0);
+    },
+    webgpu_set_scene_uniforms(ctxId, uniformsPtr, uniformsLen) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || !ctx.sceneUniformBuffer) return;
+      const bytes = new Uint8Array(memory.buffer, uniformsPtr, uniformsLen);
+      ctx.queue.writeBuffer(ctx.sceneUniformBuffer, 0, bytes);
     },
     webgpu_draw_post_process(ctxId, shaderHandle, sourceSlot, uniformsPtr, blend) {
       const ctx = ctxs.get(ctxId);
@@ -1763,16 +1789,31 @@ const imports = {
           { binding: 1, resource: texture.view },
         ],
       });
-      webgpuCreates.bindGroups += 1;
+      const sceneBindGroup = ctx.device.createBindGroup({
+        layout: ctx.sceneBindGroupLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: texture.view },
+          {
+            binding: 2,
+            resource: {
+              buffer: ctx.sceneUniformBuffer,
+              offset: 0,
+              size: 2160,
+            },
+          },
+        ],
+      });
+      webgpuCreates.bindGroups += 2;
       const handle = ctx.materials.length;
-      ctx.materials.push({ bindGroup });
+      ctx.materials.push({ bindGroup, sceneBindGroup });
       return handle;
     },
     webgpu_destroy_material(ctxId, handle) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
       ctx.materials[handle] = null;
-      webgpuDestroys.bindGroups += 1;
+      webgpuDestroys.bindGroups += 2;
     },
     webgpu_create_mesh(ctxId, vertexLayout, vPtr, vLen, iPtr, iLen) {
       const ctx = ctxs.get(ctxId);
@@ -1848,8 +1889,8 @@ const imports = {
       const wgsl = readString(wgslPtr, wgslLen);
       const shader = bindingMode === 0
         ? createColorPipelinesFromWgsl(ctx, wgsl)
-        : bindingMode === 1
-          ? createMaterialPipelinesFromWgsl(ctx, wgsl, vertexLayout)
+        : bindingMode === 1 || bindingMode === 2
+          ? createMaterialPipelinesFromWgsl(ctx, wgsl, vertexLayout, bindingMode)
           : null;
       if (!shader) return 0;
       let handle = 0;

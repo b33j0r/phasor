@@ -1,27 +1,55 @@
+struct SceneLight {
+    position_range: vec4<f32>,
+    direction_kind: vec4<f32>,
+    color_intensity: vec4<f32>,
+    spot_params: vec4<f32>,
+};
+
+struct SceneUniforms {
+    view_proj: mat4x4<f32>,
+    camera_position: vec4<f32>,
+    ambient_color: vec4<f32>,
+    light_counts: vec4<u32>,
+    lights: array<SceneLight, 32>,
+};
+
 struct VertexIn {
     @location(0) position: vec3<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) model0: vec4<f32>,
-    @location(3) model1: vec4<f32>,
-    @location(4) model2: vec4<f32>,
-    @location(5) model3: vec4<f32>,
-    @location(6) color: vec4<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) model0: vec4<f32>,
+    @location(4) model1: vec4<f32>,
+    @location(5) model2: vec4<f32>,
+    @location(6) model3: vec4<f32>,
+    @location(7) color: vec4<f32>,
 };
 
 struct VertexOut {
     @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-    @location(1) color: vec4<f32>,
+    @location(0) world_position: vec3<f32>,
+    @location(1) world_normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) color: vec4<f32>,
 };
 
 @group(0) @binding(0) var mesh_sampler: sampler;
 @group(0) @binding(1) var mesh_texture: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> scene: SceneUniforms;
+
+fn saturate(value: f32) -> f32 {
+    return clamp(value, 0.0, 1.0);
+}
 
 @vertex
 fn vs_main(input: VertexIn) -> VertexOut {
     let model = mat4x4<f32>(input.model0, input.model1, input.model2, input.model3);
+    let world_position = model * vec4<f32>(input.position, 1.0);
+    let world_normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
+
     var out: VertexOut;
-    out.position = model * vec4<f32>(input.position, 1.0);
+    out.position = scene.view_proj * world_position;
+    out.world_position = world_position.xyz;
+    out.world_normal = world_normal;
     out.uv = input.uv;
     out.color = input.color;
     return out;
@@ -29,6 +57,59 @@ fn vs_main(input: VertexIn) -> VertexOut {
 
 @fragment
 fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
-    let texel = textureSample(mesh_texture, mesh_sampler, input.uv);
-    return texel * input.color;
+    let albedo = textureSample(mesh_texture, mesh_sampler, input.uv) * input.color;
+    if (albedo.a <= 0.01) {
+        discard;
+    }
+
+    let normal = normalize(input.world_normal);
+    let view_dir = normalize(scene.camera_position.xyz - input.world_position);
+
+    var lighting = scene.ambient_color.rgb;
+    let light_count = min(scene.light_counts.x, 32u);
+    var i: u32 = 0u;
+    loop {
+        if (i >= light_count) {
+            break;
+        }
+
+        let light = scene.lights[i];
+        let kind = u32(light.direction_kind.w + 0.5);
+        var light_dir = vec3<f32>(0.0, 0.0, -1.0);
+        var attenuation = 1.0;
+
+        if (kind == 0u) {
+            light_dir = normalize(-light.direction_kind.xyz);
+        } else {
+            let to_light = light.position_range.xyz - input.world_position;
+            let distance_sq = max(dot(to_light, to_light), 0.0001);
+            let distance = sqrt(distance_sq);
+            if (distance > light.position_range.w) {
+                i += 1u;
+                continue;
+            }
+
+            light_dir = to_light / distance;
+            let falloff = saturate(1.0 - distance / max(light.position_range.w, 0.001));
+            attenuation = falloff * falloff;
+
+            if (kind == 2u) {
+                let cone = dot(normalize(-light.direction_kind.xyz), light_dir);
+                let inner_cos = light.spot_params.x;
+                let outer_cos = light.spot_params.y;
+                let cone_range = max(inner_cos - outer_cos, 0.0001);
+                let spot = saturate((cone - outer_cos) / cone_range);
+                attenuation *= spot * spot;
+            }
+        }
+
+        let ndotl = saturate(dot(normal, light_dir));
+        let half_dir = normalize(light_dir + view_dir);
+        let specular = pow(saturate(dot(normal, half_dir)), 32.0) * 0.08;
+        lighting += (ndotl + specular) * light.color_intensity.rgb * light.color_intensity.w * attenuation;
+        i += 1u;
+    }
+
+    let lit_rgb = albedo.rgb * lighting;
+    return vec4<f32>(lit_rgb, albedo.a);
 }
