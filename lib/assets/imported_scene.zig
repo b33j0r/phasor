@@ -18,6 +18,13 @@ pub const ImportedScene = struct {
 
     pub const Options = struct {
         parent: ?u64 = null,
+        shader_handle: render.ShaderHandle = render.ShaderHandle.invalid(),
+        mesh_layout: MeshLayout = .Pos3Uv,
+    };
+
+    pub const MeshLayout = enum {
+        Pos3Uv,
+        Pos3NormUv,
     };
 
     pub const Bounds = struct {
@@ -92,9 +99,13 @@ pub const ImportedScene = struct {
         scene_data: *const scene_mod.SceneData,
         options: Options,
     ) !ImportedScene {
-        const texture_materials = try allocator.alloc(?TextureMaterial, scene_data.textures.len);
-        defer allocator.free(texture_materials);
-        for (texture_materials) |*slot| slot.* = null;
+        const loaded_textures = try allocator.alloc(?render.TextureHandle, scene_data.textures.len);
+        defer allocator.free(loaded_textures);
+        for (loaded_textures) |*slot| slot.* = null;
+
+        const base_color_materials = try allocator.alloc(?render.MaterialHandle, scene_data.textures.len);
+        defer allocator.free(base_color_materials);
+        for (base_color_materials) |*slot| slot.* = null;
 
         var meshes: std.ArrayListUnmanaged(render.MeshHandle) = .empty;
         defer meshes.deinit(allocator);
@@ -159,44 +170,42 @@ pub const ImportedScene = struct {
             if (mesh_index >= scene_data.meshes.len) continue;
             const mesh_data = scene_data.meshes[mesh_index];
             for (mesh_data.primitives) |primitive| {
-                const mesh_handle = try buildPrimitiveMesh(allocator, build_ctx, scene_data, primitive, &result.bounds);
+                const mesh_handle = try buildPrimitiveMesh(allocator, build_ctx, scene_data, primitive, &result.bounds, options.mesh_layout);
                 try meshes.append(allocator, mesh_handle);
 
                 var material = render.Material.default;
+                var scene_material = render.SceneMaterial.default;
                 var color = common.Color.WHITE;
                 if (primitive.material_index) |material_index| {
                     if (material_index < scene_data.materials.len) {
                         const imported_material = scene_data.materials[material_index];
                         color = colorFromFactor(imported_material.base_color_factor);
-                        material.alpha_mode = switch (imported_material.alpha_mode) {
-                            .Opaque => .Opaque,
-                            .Mask => .Mask,
-                            .Blend => .Blend,
-                        };
+                        scene_material = try buildSceneMaterial(
+                            allocator,
+                            io,
+                            build_ctx,
+                            source_path,
+                            scene_data,
+                            imported_material,
+                            loaded_textures,
+                            &textures,
+                        );
+                        material.alpha_mode = scene_material.alpha_mode;
                         if (imported_material.base_color_texture) |base_color_texture| {
-                            if (base_color_texture.texture_index < texture_materials.len) {
-                                if (texture_materials[base_color_texture.texture_index] == null) {
-                                    texture_materials[base_color_texture.texture_index] = try loadTextureMaterial(
-                                        allocator,
-                                        io,
-                                        build_ctx,
-                                        source_path,
-                                        scene_data,
-                                        base_color_texture.texture_index,
-                                    );
-                                    if (texture_materials[base_color_texture.texture_index]) |loaded| {
-                                        try textures.append(allocator, loaded.texture_handle);
-                                        try materials.append(allocator, loaded.material_handle);
-                                    }
-                                }
-                                if (texture_materials[base_color_texture.texture_index]) |loaded| {
-                                    material = render.Material.withTextured(loaded.material_handle);
-                                    material.alpha_mode = switch (imported_material.alpha_mode) {
-                                        .Opaque => .Opaque,
-                                        .Mask => .Mask,
-                                        .Blend => .Blend,
-                                    };
-                                }
+                            if (try ensureBaseColorMaterial(
+                                allocator,
+                                io,
+                                build_ctx,
+                                source_path,
+                                scene_data,
+                                base_color_texture.texture_index,
+                                loaded_textures,
+                                base_color_materials,
+                                &textures,
+                                &materials,
+                            )) |material_handle| {
+                                material = render.Material.withTextured(material_handle);
+                                material.alpha_mode = scene_material.alpha_mode;
                             }
                         }
                     }
@@ -208,8 +217,10 @@ pub const ImportedScene = struct {
                     common.Transform{},
                     render.MeshInstance{
                         .mesh_handle = mesh_handle,
+                        .shader_handle = options.shader_handle,
                         .color = color,
                         .material = material,
+                        .scene_material = scene_material,
                     },
                     render.Layer(0){},
                 });
@@ -222,11 +233,6 @@ pub const ImportedScene = struct {
         result.root_entities = root_entities;
         return result;
     }
-};
-
-const TextureMaterial = struct {
-    texture_handle: render.TextureHandle,
-    material_handle: render.MaterialHandle,
 };
 
 fn transformFromLocal(local: common.LocalTransform) common.Transform {
@@ -266,6 +272,7 @@ fn buildPrimitiveMesh(
     scene_data: *const scene_mod.SceneData,
     primitive: scene_mod.PrimitiveData,
     bounds: *ImportedScene.Bounds,
+    mesh_layout: ImportedScene.MeshLayout,
 ) !render.MeshHandle {
     const position_accessor = primitive.position_accessor orelse return error.MissingPositions;
     if (position_accessor.element_type != .Vec3 or position_accessor.component_type != 5126) {
@@ -277,29 +284,60 @@ fn buildPrimitiveMesh(
     const vertex_count = position_accessor.count;
     if (vertex_count > std.math.maxInt(u16)) return error.TooManyVertices;
 
-    var vertices = try allocator.alloc(render.VertexPos3Uv, vertex_count);
-    defer allocator.free(vertices);
-
     const uv_accessor = primitive.uv0_accessor;
     const uv_meta = if (uv_accessor) |ref| scene_data.accessors[ref.accessor_index] else null;
     const uv_bytes = if (uv_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
 
-    for (0..vertex_count) |i| {
-        const pos = readVec3(position_bytes, position_meta.byte_stride, i);
-        bounds.include(pos);
-        const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
-            readVec2(uv_bytes.?, uv_meta.?.byte_stride, i)
-        else
-            common.Vec2{};
-        vertices[i] = .{
-            .position = .{ pos.x, pos.y, pos.z },
-            .uv = .{ uv.x, uv.y },
-        };
-    }
-
     const indices = try buildIndices(allocator, scene_data, primitive.indices_accessor, vertex_count);
     defer allocator.free(indices);
-    return build_ctx.addMeshPos3Uv(vertices, indices);
+
+    switch (mesh_layout) {
+        .Pos3Uv => {
+            var vertices = try allocator.alloc(render.VertexPos3Uv, vertex_count);
+            defer allocator.free(vertices);
+
+            for (0..vertex_count) |i| {
+                const pos = readVec3(position_bytes, position_meta.byte_stride, i);
+                bounds.include(pos);
+                const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
+                    readVec2(uv_bytes.?, uv_meta.?.byte_stride, i)
+                else
+                    common.Vec2{};
+                vertices[i] = .{
+                    .position = .{ pos.x, pos.y, pos.z },
+                    .uv = .{ uv.x, uv.y },
+                };
+            }
+            return build_ctx.addMeshPos3Uv(vertices, indices);
+        },
+        .Pos3NormUv => {
+            var vertices = try allocator.alloc(render.VertexPos3NormUv, vertex_count);
+            defer allocator.free(vertices);
+
+            const normal_accessor = primitive.normal_accessor;
+            const normal_meta = if (normal_accessor) |ref| scene_data.accessors[ref.accessor_index] else null;
+            const normal_bytes = if (normal_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
+
+            for (0..vertex_count) |i| {
+                const pos = readVec3(position_bytes, position_meta.byte_stride, i);
+                bounds.include(pos);
+                const normal = if (normal_accessor != null and normal_meta != null and normal_bytes != null)
+                    readVec3(normal_bytes.?, normal_meta.?.byte_stride, i)
+                else
+                    common.Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 };
+                const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
+                    readVec2(uv_bytes.?, uv_meta.?.byte_stride, i)
+                else
+                    common.Vec2{};
+                vertices[i] = .{
+                    .position = .{ pos.x, pos.y, pos.z },
+                    .normal = .{ normal.x, normal.y, normal.z },
+                    .uv = .{ uv.x, uv.y },
+                };
+            }
+            return build_ctx.addMeshPos3NormUv(vertices, indices);
+        },
+    }
 }
 
 fn buildIndices(
@@ -332,14 +370,180 @@ fn buildIndices(
     return out;
 }
 
-fn loadTextureMaterial(
+fn buildSceneMaterial(
+    allocator: std.mem.Allocator,
+    io: *const std.Io,
+    build_ctx: *const render.BuildContext,
+    source_path: ?[]const u8,
+    scene_data: *const scene_mod.SceneData,
+    imported_material: scene_mod.MaterialData,
+    loaded_textures: []?render.TextureHandle,
+    textures: *std.ArrayListUnmanaged(render.TextureHandle),
+) !render.SceneMaterial {
+    return .{
+        .base_color_factor = imported_material.base_color_factor,
+        .emissive_factor = imported_material.emissive_factor,
+        .metallic_factor = imported_material.metallic_factor,
+        .roughness_factor = imported_material.roughness_factor,
+        .normal_scale = imported_material.normal_scale,
+        .occlusion_strength = imported_material.occlusion_strength,
+        .alpha_cutoff = imported_material.alpha_cutoff,
+        .alpha_mode = alphaModeFromScene(imported_material.alpha_mode),
+        .double_sided = imported_material.double_sided,
+        .base_color_texture = try loadSceneTexture(
+            allocator,
+            io,
+            build_ctx,
+            source_path,
+            scene_data,
+            imported_material.base_color_texture,
+            loaded_textures,
+            textures,
+        ),
+        .metallic_roughness_texture = try loadSceneTexture(
+            allocator,
+            io,
+            build_ctx,
+            source_path,
+            scene_data,
+            imported_material.metallic_roughness_texture,
+            loaded_textures,
+            textures,
+        ),
+        .normal_texture = try loadSceneTexture(
+            allocator,
+            io,
+            build_ctx,
+            source_path,
+            scene_data,
+            imported_material.normal_texture,
+            loaded_textures,
+            textures,
+        ),
+        .occlusion_texture = try loadSceneTexture(
+            allocator,
+            io,
+            build_ctx,
+            source_path,
+            scene_data,
+            imported_material.occlusion_texture,
+            loaded_textures,
+            textures,
+        ),
+        .emissive_texture = try loadSceneTexture(
+            allocator,
+            io,
+            build_ctx,
+            source_path,
+            scene_data,
+            imported_material.emissive_texture,
+            loaded_textures,
+            textures,
+        ),
+    };
+}
+
+fn alphaModeFromScene(mode: scene_mod.AlphaMode) render.Material.AlphaMode {
+    return switch (mode) {
+        .Opaque => .Opaque,
+        .Mask => .Mask,
+        .Blend => .Blend,
+    };
+}
+
+fn loadSceneTexture(
+    allocator: std.mem.Allocator,
+    io: *const std.Io,
+    build_ctx: *const render.BuildContext,
+    source_path: ?[]const u8,
+    scene_data: *const scene_mod.SceneData,
+    texture_ref: ?scene_mod.TextureRef,
+    loaded_textures: []?render.TextureHandle,
+    textures: *std.ArrayListUnmanaged(render.TextureHandle),
+) !render.SceneTexture {
+    const texture_data = texture_ref orelse return .{};
+    const texture_handle = try ensureTextureHandle(
+        allocator,
+        io,
+        build_ctx,
+        source_path,
+        scene_data,
+        texture_data.texture_index,
+        loaded_textures,
+        textures,
+    ) orelse return .{};
+    return .{
+        .texture_handle = texture_handle,
+        .texcoord_set = texture_data.texcoord_set,
+    };
+}
+
+fn ensureBaseColorMaterial(
     allocator: std.mem.Allocator,
     io: *const std.Io,
     build_ctx: *const render.BuildContext,
     source_path: ?[]const u8,
     scene_data: *const scene_mod.SceneData,
     texture_index: u32,
-) !?TextureMaterial {
+    loaded_textures: []?render.TextureHandle,
+    base_color_materials: []?render.MaterialHandle,
+    textures: *std.ArrayListUnmanaged(render.TextureHandle),
+    materials: *std.ArrayListUnmanaged(render.MaterialHandle),
+) !?render.MaterialHandle {
+    if (texture_index >= base_color_materials.len) return null;
+    if (base_color_materials[texture_index]) |handle| return handle;
+
+    const texture_handle = try ensureTextureHandle(
+        allocator,
+        io,
+        build_ctx,
+        source_path,
+        scene_data,
+        texture_index,
+        loaded_textures,
+        textures,
+    ) orelse return null;
+    const material_handle = try build_ctx.createMaterial(texture_handle, null);
+    errdefer _ = build_ctx.destroyMaterial(material_handle);
+    try materials.append(allocator, material_handle);
+    base_color_materials[texture_index] = material_handle;
+    return material_handle;
+}
+
+fn ensureTextureHandle(
+    allocator: std.mem.Allocator,
+    io: *const std.Io,
+    build_ctx: *const render.BuildContext,
+    source_path: ?[]const u8,
+    scene_data: *const scene_mod.SceneData,
+    texture_index: u32,
+    loaded_textures: []?render.TextureHandle,
+    textures: *std.ArrayListUnmanaged(render.TextureHandle),
+) !?render.TextureHandle {
+    if (texture_index >= loaded_textures.len) return null;
+    if (loaded_textures[texture_index]) |handle| return handle;
+
+    const handle = try loadTextureHandle(
+        allocator,
+        io,
+        build_ctx,
+        source_path,
+        scene_data,
+        texture_index,
+    ) orelse return null;
+    try textures.append(allocator, handle);
+    loaded_textures[texture_index] = handle;
+    return handle;
+}
+
+fn loadTextureHandle(
+    allocator: std.mem.Allocator,
+    io: *const std.Io,
+    build_ctx: *const render.BuildContext,
+    source_path: ?[]const u8,
+    scene_data: *const scene_mod.SceneData,
+    texture_index: u32,
+) !?render.TextureHandle {
     if (texture_index >= scene_data.textures.len) return null;
     const texture_data = scene_data.textures[texture_index];
     const image_index = texture_data.image_index orelse return null;
@@ -360,12 +564,7 @@ fn loadTextureMaterial(
     defer allocator.free(decoded.data);
 
     const texture_handle = try build_ctx.createTextureRgba8(decoded.width, decoded.height, decoded.data);
-    errdefer _ = build_ctx.destroyTexture(texture_handle);
-    const material_handle = try build_ctx.createMaterial(texture_handle, null);
-    return .{
-        .texture_handle = texture_handle,
-        .material_handle = material_handle,
-    };
+    return texture_handle;
 }
 
 const DecodedImage = struct {

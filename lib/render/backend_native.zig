@@ -80,6 +80,8 @@ pub const Pipeline = struct {
 pub const Shader = struct {
     pipeline_opaque: *wgpu.RenderPipeline,
     pipeline_blend: *wgpu.RenderPipeline,
+    vertex_layout: ShaderVertexLayout,
+    binding_mode: ShaderBindingMode,
 };
 
 pub const PostProcessShader = struct {
@@ -94,18 +96,34 @@ pub const FrameTarget = union(enum) {
 
 pub const Material = struct {
     bind_group: *wgpu.BindGroup,
+    scene_bind_group: *wgpu.BindGroup,
 };
 
 pub const ShaderSource = struct {
     wgsl: ?[]const u8 = null,
     glsl_vertex: ?[]const u8 = null,
     glsl_fragment: ?[]const u8 = null,
+    vertex_layout: ShaderVertexLayout = .pos3_color4,
+    binding_mode: ShaderBindingMode = .none,
+};
+
+pub const ShaderVertexLayout = enum(u8) {
+    pos3_color4,
+    pos3_uv2,
+    pos3_norm_uv2,
+};
+
+pub const ShaderBindingMode = enum(u8) {
+    none,
+    material,
+    material_scene,
 };
 
 pub const MeshVertexLayout = enum(u8) {
     uv2,
     pos3_uv2,
     pos3_color4,
+    pos3_norm_uv2,
 };
 
 pub const Mesh = struct {
@@ -130,7 +148,8 @@ pub const RendererStats = extern struct {
 };
 
 pub const MeshInstance = extern struct {
-    transform: common.Mat4 = common.Mat4.identity(),
+    clip_transform: common.Mat4 = common.Mat4.identity(),
+    model_transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
 };
 
@@ -146,6 +165,12 @@ pub const VertexUv = extern struct {
 
 pub const VertexPos3Uv = extern struct {
     position: [3]f32,
+    uv: [2]f32,
+};
+
+pub const VertexPos3NormUv = extern struct {
+    position: [3]f32,
+    normal: [3]f32,
     uv: [2]f32,
 };
 
@@ -171,6 +196,10 @@ pub const DrawCmd = union(enum) {
 };
 
 const InstanceData = extern struct {
+    clip0: [4]f32,
+    clip1: [4]f32,
+    clip2: [4]f32,
+    clip3: [4]f32,
     model0: [4]f32,
     model1: [4]f32,
     model2: [4]f32,
@@ -221,7 +250,9 @@ pub const Renderer = struct {
     mesh_textured_pipeline_opaque: *wgpu.RenderPipeline,
     mesh_textured_pipeline_blend: *wgpu.RenderPipeline,
     quad_bind_group_layout: *wgpu.BindGroupLayout,
+    scene_bind_group_layout: *wgpu.BindGroupLayout,
     post_process_bind_group_layout: *wgpu.BindGroupLayout,
+    scene_uniform_buffer: Buffer,
     post_process_sampler: Sampler,
     post_process_uniform_buffer: Buffer,
 
@@ -294,7 +325,9 @@ pub const Renderer = struct {
             .mesh_textured_pipeline_opaque = undefined,
             .mesh_textured_pipeline_blend = undefined,
             .quad_bind_group_layout = undefined,
+            .scene_bind_group_layout = undefined,
             .post_process_bind_group_layout = undefined,
+            .scene_uniform_buffer = undefined,
             .post_process_sampler = undefined,
             .post_process_uniform_buffer = undefined,
             .triangle_vertex_buffer = undefined,
@@ -345,6 +378,11 @@ pub const Renderer = struct {
             wgpu.BufferUsages.uniform | wgpu.BufferUsages.copy_dst,
             @sizeOf(PostProcessUniformData),
         );
+        self.scene_uniform_buffer = try createEmptyBuffer(
+            self.device,
+            wgpu.BufferUsages.uniform | wgpu.BufferUsages.copy_dst,
+            @sizeOf(scene_uniforms.SceneUniforms),
+        );
 
         self.depth_target = try createDepthTarget(self.device, self.surface_size.width, self.surface_size.height);
 
@@ -371,6 +409,7 @@ pub const Renderer = struct {
         _ = hashCacheKey(quad_key);
         const quad_bind_group_layout = try createQuadBindGroupLayout(self.device);
         self.quad_bind_group_layout = quad_bind_group_layout;
+        self.scene_bind_group_layout = try createSceneBindGroupLayout(self.device);
         self.post_process_bind_group_layout = try createPostProcessBindGroupLayout(self.device);
         self.post_process_sampler = try self.createSampler();
         self.quad_pipeline_opaque = try createQuadPipeline(
@@ -425,6 +464,7 @@ pub const Renderer = struct {
         self.mesh_textured_pipeline_opaque.release();
         self.mesh_textured_pipeline_blend.release();
         self.quad_bind_group_layout.release();
+        self.scene_bind_group_layout.release();
         self.post_process_bind_group_layout.release();
         self.destroySampler(&self.post_process_sampler);
 
@@ -432,6 +472,7 @@ pub const Renderer = struct {
         self.quad_vertex_buffer.buffer.release();
         self.quad_index_buffer.buffer.release();
         self.instance_buffer.buffer.release();
+        self.scene_uniform_buffer.buffer.release();
         self.post_process_uniform_buffer.buffer.release();
         self.depth_target.view.release();
         self.depth_target.texture.release();
@@ -558,6 +599,68 @@ pub const Renderer = struct {
         };
     }
 
+    pub fn createTextureRgba16Float(self: *Renderer, width: u32, height: u32, data: []const f32) !Texture {
+        const texture = self.device.createTexture(&wgpu.TextureDescriptor{
+            .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
+            .format = .rgba16_float,
+            .usage = wgpu.TextureUsages.texture_binding | wgpu.TextureUsages.copy_dst,
+            .mip_level_count = 1,
+            .sample_count = 1,
+            .dimension = .@"2d",
+        }) orelse return error.TextureCreationFailed;
+        errdefer texture.release();
+
+        const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.TextureViewFailed;
+        errdefer view.release();
+
+        const pixel_count: usize = @intCast(width * height);
+        if (data.len != pixel_count * 4) return error.InvalidTextureData;
+
+        const bytes_per_row = width * 8;
+        const aligned_bpr = std.mem.alignForward(u32, bytes_per_row, 256);
+        const upload_len: usize = aligned_bpr * height;
+        const upload = try self.allocator.alloc(u8, upload_len);
+        defer self.allocator.free(upload);
+        @memset(upload, 0);
+
+        var row: u32 = 0;
+        while (row < height) : (row += 1) {
+            const src_row_start: usize = @intCast(row * width * 4);
+            const dst_row_start: usize = @intCast(row * aligned_bpr);
+            var x: u32 = 0;
+            while (x < width) : (x += 1) {
+                const src_base = src_row_start + @as(usize, @intCast(x)) * 4;
+                const dst_base = dst_row_start + @as(usize, @intCast(x)) * 8;
+                writeHalf4(upload[dst_base .. dst_base + 8], data[src_base .. src_base + 4]);
+            }
+        }
+
+        const layout = wgpu.TexelCopyBufferLayout{
+            .bytes_per_row = aligned_bpr,
+            .rows_per_image = height,
+        };
+        const dst = wgpu.TexelCopyTextureInfo{
+            .texture = texture,
+            .origin = .{},
+            .mip_level = 0,
+            .aspect = .all,
+        };
+        const copy_size = wgpu.Extent3D{
+            .width = width,
+            .height = height,
+            .depth_or_array_layers = 1,
+        };
+        self.queue.writeTexture(&dst, upload.ptr, upload.len, &layout, &copy_size);
+
+        return Texture{
+            .texture = texture,
+            .view = view,
+            .width = width,
+            .height = height,
+            .format = .rgba16_float,
+        };
+    }
+
     pub fn destroyTexture(_: *Renderer, texture: *Texture) void {
         destroyTextureStorage(texture);
     }
@@ -576,11 +679,19 @@ pub const Renderer = struct {
             .entry_count = entries.len,
             .entries = entries[0..].ptr,
         }) orelse return error.BindGroupCreationFailed;
-        return Material{ .bind_group = bind_group };
+        const scene_bind_group = try createSceneBindGroup(
+            self.device,
+            self.scene_bind_group_layout,
+            sampler.sampler,
+            texture.view,
+            self.scene_uniform_buffer.buffer,
+        );
+        return Material{ .bind_group = bind_group, .scene_bind_group = scene_bind_group };
     }
 
     pub fn destroyMaterial(_: *Renderer, material: *Material) void {
         material.bind_group.release();
+        material.scene_bind_group.release();
     }
 
     pub fn createMeshUv(self: *Renderer, vertices: []const VertexUv, indices: []const u16) !Mesh {
@@ -685,6 +796,57 @@ pub const Renderer = struct {
         mesh.index_count = @intCast(indices.len);
     }
 
+    pub fn createMeshPos3NormUv(self: *Renderer, vertices: []const VertexPos3NormUv, indices: []const u16) !Mesh {
+        const vertex_buf = try createBufferWithData(
+            self.allocator,
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(vertices),
+        );
+        const index_buf = try createBufferWithData(
+            self.allocator,
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(indices),
+        );
+        return Mesh{
+            .vertex_buffer = vertex_buf,
+            .index_buffer = index_buf,
+            .index_count = @intCast(indices.len),
+            .vertex_layout = .pos3_norm_uv2,
+        };
+    }
+
+    pub fn updateMeshPos3NormUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3NormUv, indices: []const u16) !void {
+        if (mesh.vertex_layout != .pos3_norm_uv2) return error.InvalidMeshLayout;
+        const vertex_bytes = std.mem.sliceAsBytes(vertices);
+        const index_bytes = std.mem.sliceAsBytes(indices);
+        if (vertex_bytes.len > mesh.vertex_buffer.size or index_bytes.len > mesh.index_buffer.size) {
+            mesh.vertex_buffer.buffer.release();
+            mesh.index_buffer.buffer.release();
+            mesh.vertex_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+                vertex_bytes,
+            );
+            mesh.index_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+                index_bytes,
+            );
+        } else {
+            self.queue.writeBuffer(mesh.vertex_buffer.buffer, 0, vertex_bytes.ptr, vertex_bytes.len);
+            self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
+        }
+        mesh.index_count = @intCast(indices.len);
+    }
+
     pub fn createMeshPos3Color(self: *Renderer, vertices: []const VertexPos3Color, indices: []const u16) !Mesh {
         const vertex_buf = try createBufferWithData(
             self.allocator,
@@ -746,26 +908,85 @@ pub const Renderer = struct {
         defer shader_vertex.release();
         const shader_fragment = try createShaderModule(self.device, .fragment, source);
         defer shader_fragment.release();
-
-        return Shader{
-            .pipeline_opaque = try createColorPipeline(
-                self.device,
-                shader_vertex,
-                shader_fragment,
-                self.surface_format,
-                depth_format,
-                false,
-                true,
-            ),
-            .pipeline_blend = try createColorPipeline(
-                self.device,
-                shader_vertex,
-                shader_fragment,
-                self.surface_format,
-                depth_format,
-                true,
-                false,
-            ),
+        return switch (source.binding_mode) {
+            .none => .{
+                .pipeline_opaque = try createColorPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    false,
+                    true,
+                ),
+                .pipeline_blend = try createColorPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    true,
+                    false,
+                ),
+                .vertex_layout = source.vertex_layout,
+                .binding_mode = source.binding_mode,
+            },
+            .material => .{
+                .pipeline_opaque = try createCustomMaterialPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    self.quad_bind_group_layout,
+                    source.vertex_layout,
+                    source.binding_mode,
+                    false,
+                    true,
+                ),
+                .pipeline_blend = try createCustomMaterialPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    self.quad_bind_group_layout,
+                    source.vertex_layout,
+                    source.binding_mode,
+                    true,
+                    false,
+                ),
+                .vertex_layout = source.vertex_layout,
+                .binding_mode = source.binding_mode,
+            },
+            .material_scene => .{
+                .pipeline_opaque = try createCustomMaterialPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    self.scene_bind_group_layout,
+                    source.vertex_layout,
+                    source.binding_mode,
+                    false,
+                    true,
+                ),
+                .pipeline_blend = try createCustomMaterialPipeline(
+                    self.device,
+                    shader_vertex,
+                    shader_fragment,
+                    self.surface_format,
+                    depth_format,
+                    self.scene_bind_group_layout,
+                    source.vertex_layout,
+                    source.binding_mode,
+                    true,
+                    false,
+                ),
+                .vertex_layout = source.vertex_layout,
+                .binding_mode = source.binding_mode,
+            },
         };
     }
 
@@ -875,6 +1096,11 @@ pub const Frame = struct {
         render_pass.setScissorRect(sx, sy, sw, sh);
     }
 
+    pub fn setSceneUniforms(self: *Frame, uniforms: scene_uniforms.SceneUniforms) void {
+        const bytes = std.mem.asBytes(&uniforms);
+        self.renderer.queue.writeBuffer(self.renderer.scene_uniform_buffer.buffer, 0, bytes.ptr, bytes.len);
+    }
+
     fn drawTriangle(self: *Frame, triangle: Triangle) void {
         const render_pass = self.render_pass orelse return;
         const data = std.mem.asBytes(&triangle.vertices);
@@ -922,6 +1148,30 @@ pub const Frame = struct {
 
         render_pass.setPipeline(pipeline);
         render_pass.setBindGroup(0, material.bind_group, 0, null);
+        render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
+        render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
+        render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
+        render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
+    }
+
+    pub fn drawTexturedMeshesWithShader(self: *Frame, mesh: Mesh, material: Material, shader: Shader, instances: []const MeshInstance, blend: bool) void {
+        if (instances.len == 0) return;
+        if (!shaderMatchesMesh(shader, mesh.vertex_layout)) return;
+        const render_pass = self.render_pass orelse return;
+        const total_bytes: usize = instances.len * @sizeOf(InstanceData);
+        const offset = self.renderer.instance_ring.allocate(total_bytes, 256);
+
+        var i: usize = 0;
+        while (i < instances.len) : (i += 1) {
+            const data = buildInstanceData(instances[i]);
+            const bytes = std.mem.asBytes(&data);
+            const byte_offset = offset + i * @sizeOf(InstanceData);
+            self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, byte_offset, bytes.ptr, bytes.len);
+        }
+
+        const pipeline = if (blend) shader.pipeline_blend else shader.pipeline_opaque;
+        render_pass.setPipeline(pipeline);
+        render_pass.setBindGroup(0, if (shader.binding_mode == .material_scene) material.scene_bind_group else material.bind_group, 0, null);
         render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
         render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
         render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
@@ -1040,12 +1290,17 @@ pub const Frame = struct {
 };
 
 fn buildInstanceData(instance: MeshInstance) InstanceData {
-    const m = instance.transform.m;
+    const clip = instance.clip_transform.m;
+    const model = instance.model_transform.m;
     return .{
-        .model0 = .{ m[0][0], m[0][1], m[0][2], m[0][3] },
-        .model1 = .{ m[1][0], m[1][1], m[1][2], m[1][3] },
-        .model2 = .{ m[2][0], m[2][1], m[2][2], m[2][3] },
-        .model3 = .{ m[3][0], m[3][1], m[3][2], m[3][3] },
+        .clip0 = .{ clip[0][0], clip[0][1], clip[0][2], clip[0][3] },
+        .clip1 = .{ clip[1][0], clip[1][1], clip[1][2], clip[1][3] },
+        .clip2 = .{ clip[2][0], clip[2][1], clip[2][2], clip[2][3] },
+        .clip3 = .{ clip[3][0], clip[3][1], clip[3][2], clip[3][3] },
+        .model0 = .{ model[0][0], model[0][1], model[0][2], model[0][3] },
+        .model1 = .{ model[1][0], model[1][1], model[1][2], model[1][3] },
+        .model2 = .{ model[2][0], model[2][1], model[2][2], model[2][3] },
+        .model3 = .{ model[3][0], model[3][1], model[3][2], model[3][3] },
         .color = instance.color,
     };
 }
@@ -1256,6 +1511,16 @@ fn destroyTextureStorage(texture: *Texture) void {
     texture.texture.release();
 }
 
+fn writeHalf4(dst: []u8, src: []const f32) void {
+    std.debug.assert(dst.len == 8);
+    std.debug.assert(src.len == 4);
+    var i: usize = 0;
+    while (i < 4) : (i += 1) {
+        const half_bits: u16 = @bitCast(@as(f16, @floatCast(src[i])));
+        std.mem.writeInt(u16, dst[i * 2 ..][0..2], half_bits, .little);
+    }
+}
+
 fn createTrianglePipeline(
     device: *wgpu.Device,
     shader: *wgpu.ShaderModule,
@@ -1327,6 +1592,36 @@ fn createQuadBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
     return bind_group_layout;
 }
 
+fn createSceneBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
+    return device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
+        .entry_count = 3,
+        .entries = &[_]wgpu.BindGroupLayoutEntry{
+            .{
+                .binding = 0,
+                .visibility = wgpu.ShaderStages.fragment,
+                .sampler = .{ .type = .filtering },
+            },
+            .{
+                .binding = 1,
+                .visibility = wgpu.ShaderStages.fragment,
+                .texture = .{
+                    .sample_type = .float,
+                    .view_dimension = .@"2d",
+                    .multisampled = @intFromBool(false),
+                },
+            },
+            .{
+                .binding = 2,
+                .visibility = wgpu.ShaderStages.vertex | wgpu.ShaderStages.fragment,
+                .buffer = .{
+                    .type = .uniform,
+                    .min_binding_size = @sizeOf(scene_uniforms.SceneUniforms),
+                },
+            },
+        },
+    }) orelse return error.BindGroupLayoutFailed;
+}
+
 fn createPostProcessBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
     return device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
         .entry_count = 3,
@@ -1357,6 +1652,30 @@ fn createPostProcessBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout
     }) orelse return error.BindGroupLayoutFailed;
 }
 
+fn createSceneBindGroup(
+    device: *wgpu.Device,
+    layout: *wgpu.BindGroupLayout,
+    sampler: *wgpu.Sampler,
+    texture_view: *wgpu.TextureView,
+    uniform_buffer: *wgpu.Buffer,
+) !*wgpu.BindGroup {
+    const entries = [_]wgpu.BindGroupEntry{
+        .{ .binding = 0, .sampler = sampler },
+        .{ .binding = 1, .texture_view = texture_view },
+        .{
+            .binding = 2,
+            .buffer = uniform_buffer,
+            .offset = 0,
+            .size = @sizeOf(scene_uniforms.SceneUniforms),
+        },
+    };
+    return device.createBindGroup(&wgpu.BindGroupDescriptor{
+        .layout = layout,
+        .entry_count = entries.len,
+        .entries = entries[0..].ptr,
+    }) orelse return error.BindGroupCreationFailed;
+}
+
 fn createQuadPipeline(
     device: *wgpu.Device,
     shader: *wgpu.ShaderModule,
@@ -1381,7 +1700,7 @@ fn createQuadPipeline(
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 3 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 4 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 5 },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = 6 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = 6 },
     };
     const vertex_buffers = [_]wgpu.VertexBufferLayout{
         .{
@@ -1471,7 +1790,7 @@ fn createMeshTexturedPipeline(
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 3 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 4 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 5 },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = 6 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = 6 },
     };
     const vertex_buffers = [_]wgpu.VertexBufferLayout{
         .{
@@ -1536,6 +1855,136 @@ fn createMeshTexturedPipeline(
     }) orelse return error.PipelineCreationFailed;
 }
 
+fn shaderMatchesMesh(shader: Shader, layout: MeshVertexLayout) bool {
+    return switch (shader.vertex_layout) {
+        .pos3_color4 => layout == .pos3_color4,
+        .pos3_uv2 => layout == .pos3_uv2,
+        .pos3_norm_uv2 => layout == .pos3_norm_uv2,
+    };
+}
+
+fn createCustomMaterialPipeline(
+    device: *wgpu.Device,
+    vertex_shader: *wgpu.ShaderModule,
+    fragment_shader: *wgpu.ShaderModule,
+    format: wgpu.TextureFormat,
+    depth_format_param: wgpu.TextureFormat,
+    bind_group_layout: *wgpu.BindGroupLayout,
+    vertex_layout_kind: ShaderVertexLayout,
+    binding_mode: ShaderBindingMode,
+    enable_blend: bool,
+    depth_write_enabled: bool,
+) !*wgpu.RenderPipeline {
+    const pipeline_layout = device.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
+        .bind_group_layout_count = 1,
+        .bind_group_layouts = &[_]*wgpu.BindGroupLayout{bind_group_layout},
+    }) orelse return error.PipelineLayoutFailed;
+    defer pipeline_layout.release();
+
+    const pos3_uv_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x2, .offset = @sizeOf([3]f32), .shader_location = 1 },
+    };
+    const pos3_norm_uv_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x3, .offset = @sizeOf([3]f32), .shader_location = 1 },
+        .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
+    };
+    const instance_attributes_default = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 2, .pos3_norm_uv2 => 3, else => 2 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 3, .pos3_norm_uv2 => 4, else => 3 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 4, .pos3_norm_uv2 => 5, else => 4 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 5, .pos3_norm_uv2 => 6, else => 5 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 6, .pos3_norm_uv2 => 7, else => 6 } },
+    };
+    const instance_attributes_scene = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 2, .pos3_norm_uv2 => 3, else => 2 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 3, .pos3_norm_uv2 => 4, else => 3 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 4, .pos3_norm_uv2 => 5, else => 4 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 5, .pos3_norm_uv2 => 6, else => 5 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 6, .pos3_norm_uv2 => 7, else => 6 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 5, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 7, .pos3_norm_uv2 => 8, else => 7 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 6, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 8, .pos3_norm_uv2 => 9, else => 8 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 7, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 9, .pos3_norm_uv2 => 10, else => 9 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 10, .pos3_norm_uv2 => 11, else => 10 } },
+    };
+    const instance_attributes = if (binding_mode == .material_scene) instance_attributes_scene[0..] else instance_attributes_default[0..];
+    const vertex_buffers = switch (vertex_layout_kind) {
+        .pos3_uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3Uv),
+                .attribute_count = pos3_uv_attributes.len,
+                .attributes = pos3_uv_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = instance_attributes.len,
+                .attributes = instance_attributes[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+        .pos3_norm_uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3NormUv),
+                .attribute_count = pos3_norm_uv_attributes.len,
+                .attributes = pos3_norm_uv_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = instance_attributes.len,
+                .attributes = instance_attributes[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+        else => return error.PipelineCreationFailed,
+    };
+    const blend_state = wgpu.BlendState{
+        .color = .{
+            .operation = .add,
+            .src_factor = .src_alpha,
+            .dst_factor = .one_minus_src_alpha,
+        },
+        .alpha = .{
+            .operation = .add,
+            .src_factor = .one,
+            .dst_factor = .one_minus_src_alpha,
+        },
+    };
+    const color_targets = [_]wgpu.ColorTargetState{wgpu.ColorTargetState{
+        .format = format,
+        .blend = if (enable_blend) &blend_state else null,
+    }};
+    const depth_state = wgpu.DepthStencilState{
+        .format = depth_format_param,
+        .depth_write_enabled = if (depth_write_enabled) .true else .false,
+        .depth_compare = .less_equal,
+        .stencil_front = .{},
+        .stencil_back = .{},
+    };
+    return device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
+        .layout = pipeline_layout,
+        .vertex = wgpu.VertexState{
+            .module = vertex_shader,
+            .entry_point = wgpu.StringView.fromSlice("vs_main"),
+            .buffer_count = vertex_buffers.len,
+            .buffers = vertex_buffers[0..].ptr,
+        },
+        .primitive = wgpu.PrimitiveState{
+            .topology = .triangle_list,
+        },
+        .depth_stencil = &depth_state,
+        .fragment = &wgpu.FragmentState{
+            .module = fragment_shader,
+            .entry_point = wgpu.StringView.fromSlice("fs_main"),
+            .target_count = color_targets.len,
+            .targets = color_targets[0..].ptr,
+        },
+        .multisample = wgpu.MultisampleState{},
+    }) orelse return error.PipelineCreationFailed;
+}
+
 const ShaderStageKind = enum {
     vertex,
     fragment,
@@ -1581,7 +2030,7 @@ fn createColorPipeline(
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 3 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 4 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 5 },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = 6 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = 6 },
     };
     const vertex_buffers = [_]wgpu.VertexBufferLayout{
         .{
@@ -1787,6 +2236,7 @@ const std = @import("std");
 const wgpu = @import("wgpu");
 const utils = @import("utils.zig");
 const common = @import("common");
+const scene_uniforms = @import("scene_uniforms.zig");
 
 const Color = common.Color;
 const Size = utils.Size;

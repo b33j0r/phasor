@@ -1,5 +1,9 @@
 pub fn extractSystem(
     queue: ResMut(render.RenderQueue),
+    extracted_lighting: ResMut(types.ExtractedSceneLighting),
+    ambient_light: ResOpt(lighting.AmbientLight),
+    environment_light: ResOpt(lighting.EnvironmentLight),
+    exposure_settings: ResOpt(lighting.ExposureSettings),
     mesh_override_query: Query(.{ render.MeshInstance, common.Transform, render.LayerOverride }),
     mesh_zero_query: Query(.{ render.MeshInstance, common.Transform, render.Layer(0), Without(render.LayerOverride) }),
     mesh_unlayered_query: Query(.{ render.MeshInstance, common.Transform, Without(render.LayerN), Without(render.LayerOverride) }),
@@ -8,8 +12,33 @@ pub fn extractSystem(
     triangle_zero_query: Query(.{ render.Triangle, render.Layer(0), Without(render.LayerOverride) }),
     triangle_unlayered_query: Query(.{ render.Triangle, Without(render.LayerN), Without(render.LayerOverride) }),
     triangle_layer_groups: GroupBy(render.LayerN),
+    visible_lights: Query(.{ common.Transform, lighting.Light, lighting.LightVisibility }),
+    untagged_lights: Query(.{ common.Transform, lighting.Light, Without(lighting.LightVisibility) }),
 ) !void {
     queue.ptr.reset();
+    extracted_lighting.ptr.* = .{};
+    if (ambient_light.ptr) |ambient| {
+        extracted_lighting.ptr.ambient_color = .{
+            .r = ambient.color.r * ambient.intensity,
+            .g = ambient.color.g * ambient.intensity,
+            .b = ambient.color.b * ambient.intensity,
+            .a = 1.0,
+        };
+    }
+    if (environment_light.ptr) |environment| {
+        extracted_lighting.ptr.environment_intensity = environment.intensity;
+        extracted_lighting.ptr.environment_diffuse_strength = environment.diffuse_strength;
+        extracted_lighting.ptr.environment_specular_strength = environment.specular_strength;
+        extracted_lighting.ptr.environment_dominant_direction = environment.dominant_direction;
+        extracted_lighting.ptr.environment_dominant_color = environment.dominant_color;
+        extracted_lighting.ptr.environment_irradiance_sh = environment.irradiance_sh;
+    }
+    if (exposure_settings.ptr) |settings| {
+        extracted_lighting.ptr.exposure_enabled = settings.enabled;
+        extracted_lighting.ptr.exposure = settings.exposure;
+    }
+    extractLights(extracted_lighting.ptr, visible_lights, true);
+    extractLights(extracted_lighting.ptr, untagged_lights, false);
 
     try extractTrianglesForRows(queue.ptr, triangle_override_query, null);
     try extractTrianglesForRows(queue.ptr, triangle_zero_query, 0);
@@ -20,6 +49,49 @@ pub fn extractSystem(
     try extractMeshesForRows(queue.ptr, mesh_zero_query, 0);
     try extractMeshesForRows(queue.ptr, mesh_unlayered_query, 0);
     try extractMeshesForGroups(queue.ptr, mesh_layer_groups);
+}
+
+fn extractLights(store: *types.ExtractedSceneLighting, query: anytype, comptime has_visibility: bool) void {
+    var it = query.iterator();
+    while (it.next()) |row| {
+        const transform = row.get(common.Transform) orelse continue;
+        const light = row.get(lighting.Light) orelse continue;
+        if (has_visibility) {
+            const visibility = row.get(lighting.LightVisibility) orelse continue;
+            if (!visibility.enabled) continue;
+        }
+        if (store.light_count >= render.max_scene_lights) break;
+        store.lights[store.light_count] = buildSceneLight(transform.*, light.*);
+        store.light_count += 1;
+    }
+}
+
+fn buildSceneLight(transform: common.Transform, light: lighting.Light) render.SceneLight {
+    const forward = transform.rotation.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 }).normalize();
+    return switch (light) {
+        .directional => |directional| .{
+            .position_range = .{ 0.0, 0.0, 0.0, 0.0 },
+            .direction_kind = .{ forward.x, forward.y, forward.z, @floatFromInt(@intFromEnum(render.SceneLightKind.directional)) },
+            .color_intensity = .{
+                directional.color.r,
+                directional.color.g,
+                directional.color.b,
+                directional.illuminance_lux * 0.00008,
+            },
+        },
+        .point => |point| .{
+            .position_range = .{ transform.translation.x, transform.translation.y, transform.translation.z, point.range },
+            .direction_kind = .{ 0.0, 0.0, 0.0, @floatFromInt(@intFromEnum(render.SceneLightKind.point)) },
+            .color_intensity = .{ point.color.r, point.color.g, point.color.b, point.intensity_candela * 0.0035 },
+            .spot_params = .{ 1.0, 0.0, point.radius, 0.0 },
+        },
+        .spot => |spot| .{
+            .position_range = .{ transform.translation.x, transform.translation.y, transform.translation.z, spot.range },
+            .direction_kind = .{ forward.x, forward.y, forward.z, @floatFromInt(@intFromEnum(render.SceneLightKind.spot)) },
+            .color_intensity = .{ spot.color.r, spot.color.g, spot.color.b, spot.intensity_candela * 0.0035 },
+            .spot_params = .{ @cos(spot.inner_angle_rad), @cos(spot.outer_angle_rad), spot.radius, 0.0 },
+        },
+    };
 }
 
 fn extractTrianglesForRows(queue: *render.RenderQueue, query: anytype, forced_layer: ?i32) !void {
@@ -92,10 +164,13 @@ fn layerKeyForTable(table: *const db.table.Table) i32 {
 const common = @import("common");
 const ecs = @import("ecs");
 const render = @import("render");
+const lighting = @import("lighting");
 const db = @import("db");
+const types = @import("types.zig");
 
 const system_params = ecs.system_params;
 const GroupBy = system_params.GroupBy;
 const Query = system_params.Query;
 const ResMut = system_params.ResMut;
+const ResOpt = system_params.ResOpt;
 const Without = system_params.Without;

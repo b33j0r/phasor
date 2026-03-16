@@ -150,10 +150,25 @@ fn buildMaterials(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]sc
             .b = @floatCast(src.pbr_metallic_roughness.base_color_factor[2]),
             .a = @floatCast(src.pbr_metallic_roughness.base_color_factor[3]),
         };
+        const emissive = common.Color.F32{
+            .r = @floatCast(src.emissive_factor[0]),
+            .g = @floatCast(src.emissive_factor[1]),
+            .b = @floatCast(src.emissive_factor[2]),
+            .a = 1.0,
+        };
         dst.* = .{
             .name = try dupCString(allocator, src.name),
             .base_color_factor = base_color,
             .base_color_texture = textureRef(data, src.pbr_metallic_roughness.base_color_texture),
+            .metallic_factor = @floatCast(src.pbr_metallic_roughness.metallic_factor),
+            .roughness_factor = @floatCast(src.pbr_metallic_roughness.roughness_factor),
+            .metallic_roughness_texture = textureRef(data, src.pbr_metallic_roughness.metallic_roughness_texture),
+            .normal_texture = textureRef(data, src.normal_texture),
+            .normal_scale = @floatCast(src.normal_texture.scale),
+            .occlusion_texture = textureRef(data, src.occlusion_texture),
+            .occlusion_strength = @floatCast(src.occlusion_texture.scale),
+            .emissive_factor = emissive,
+            .emissive_texture = textureRef(data, src.emissive_texture),
             .alpha_mode = switch (src.alpha_mode) {
                 c.cgltf_alpha_mode_mask => .Mask,
                 c.cgltf_alpha_mode_blend => .Blend,
@@ -421,14 +436,33 @@ test "parse gltf metadata from bytes" {
         \\    "name": "MatA",
         \\    "pbrMetallicRoughness": {
         \\      "baseColorTexture": { "index": 0, "texCoord": 0 },
-        \\      "baseColorFactor": [0.5, 0.6, 0.7, 1.0]
+        \\      "baseColorFactor": [0.5, 0.6, 0.7, 1.0],
+        \\      "metallicFactor": 0.2,
+        \\      "roughnessFactor": 0.8,
+        \\      "metallicRoughnessTexture": { "index": 1, "texCoord": 0 }
         \\    },
+        \\    "normalTexture": { "index": 2, "scale": 0.7 },
+        \\    "occlusionTexture": { "index": 3, "strength": 0.6 },
+        \\    "emissiveTexture": { "index": 4, "texCoord": 1 },
+        \\    "emissiveFactor": [0.1, 0.2, 0.3],
         \\    "alphaMode": "MASK",
         \\    "alphaCutoff": 0.42,
         \\    "doubleSided": true
         \\  }],
-        \\  "textures": [{ "name": "TexA", "source": 0 }],
-        \\  "images": [{ "name": "ImgA", "uri": "albedo.png", "mimeType": "image/png" }],
+        \\  "textures": [
+        \\    { "name": "TexA", "source": 0 },
+        \\    { "name": "TexMR", "source": 1 },
+        \\    { "name": "TexN", "source": 2 },
+        \\    { "name": "TexO", "source": 3 },
+        \\    { "name": "TexE", "source": 4 }
+        \\  ],
+        \\  "images": [
+        \\    { "name": "ImgA", "uri": "albedo.png", "mimeType": "image/png" },
+        \\    { "name": "ImgMR", "uri": "mr.png", "mimeType": "image/png" },
+        \\    { "name": "ImgN", "uri": "normal.png", "mimeType": "image/png" },
+        \\    { "name": "ImgO", "uri": "occ.png", "mimeType": "image/png" },
+        \\    { "name": "ImgE", "uri": "emit.png", "mimeType": "image/png" }
+        \\  ],
         \\  "buffers": [{ "byteLength": 128, "uri": "mesh.bin" }],
         \\  "bufferViews": [{ "buffer": 0, "byteOffset": 0, "byteLength": 36 }],
         \\  "accessors": [
@@ -468,8 +502,19 @@ test "parse gltf metadata from bytes" {
     try std.testing.expectEqual(scene.AlphaMode.Mask, parsed.materials[0].alpha_mode);
     try std.testing.expect(parsed.materials[0].double_sided);
     try std.testing.expectEqual(@as(?u32, 0), parsed.materials[0].base_color_texture.?.texture_index);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), parsed.materials[0].metallic_factor, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), parsed.materials[0].roughness_factor, 0.0001);
+    try std.testing.expectEqual(@as(?u32, 1), parsed.materials[0].metallic_roughness_texture.?.texture_index);
+    try std.testing.expectEqual(@as(?u32, 2), parsed.materials[0].normal_texture.?.texture_index);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.7), parsed.materials[0].normal_scale, 0.0001);
+    try std.testing.expectEqual(@as(?u32, 3), parsed.materials[0].occlusion_texture.?.texture_index);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), parsed.materials[0].occlusion_strength, 0.0001);
+    try std.testing.expectEqual(@as(?u32, 4), parsed.materials[0].emissive_texture.?.texture_index);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), parsed.materials[0].emissive_factor.r, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), parsed.materials[0].emissive_factor.g, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), parsed.materials[0].emissive_factor.b, 0.0001);
 
-    try std.testing.expectEqual(@as(usize, 1), parsed.images.len);
+    try std.testing.expectEqual(@as(usize, 5), parsed.images.len);
     try std.testing.expectEqualStrings("albedo.png", parsed.images[0].uri.?);
 
     try std.testing.expectEqual(@as(usize, 1), parsed.buffers.len);

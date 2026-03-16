@@ -14,6 +14,7 @@ const wasmUrl = new URL("app.wasm", import.meta.url);
 const triangleShaderUrl = new URL("shaders/triangle.wgsl", import.meta.url);
 const quadShaderUrl = new URL("shaders/quad.wgsl", import.meta.url);
 const meshTexturedShaderUrl = new URL("shaders/mesh_textured.wgsl", import.meta.url);
+const sceneUniformsSize = 2352;
 
 const ctxs = new Map();
 let nextCtxId = 1;
@@ -116,6 +117,33 @@ function mapKeyboardEvent(event) {
 
 function getMemoryView() {
   return new DataView(memory.buffer);
+}
+
+function float32ToFloat16(value) {
+  if (!Number.isFinite(value)) {
+    return value > 0 ? 0x7c00 : 0xfc00;
+  }
+  if (value === 0) {
+    return (1 / value) === -Infinity ? 0x8000 : 0;
+  }
+
+  const floatView = new Float32Array(1);
+  const intView = new Uint32Array(floatView.buffer);
+  floatView[0] = value;
+  const bits = intView[0];
+  const sign = (bits >>> 16) & 0x8000;
+  let exponent = ((bits >>> 23) & 0xff) - 127 + 15;
+  let mantissa = bits & 0x7fffff;
+
+  if (exponent <= 0) {
+    if (exponent < -10) return sign;
+    mantissa = (mantissa | 0x800000) >>> (1 - exponent);
+    return sign | ((mantissa + 0x1000) >>> 13);
+  }
+  if (exponent >= 0x1f) {
+    return sign | 0x7c00;
+  }
+  return sign | (exponent << 10) | ((mantissa + 0x1000) >>> 13);
 }
 
 function ensureAudioContext() {
@@ -310,14 +338,14 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 80,
+          arrayStride: 144,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
             { shaderLocation: 3, offset: 16, format: "float32x4" },
             { shaderLocation: 4, offset: 32, format: "float32x4" },
             { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 64, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
           ],
         },
       ],
@@ -347,14 +375,14 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 80,
+          arrayStride: 144,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
             { shaderLocation: 3, offset: 16, format: "float32x4" },
             { shaderLocation: 4, offset: 32, format: "float32x4" },
             { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 64, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
           ],
         },
       ],
@@ -388,14 +416,14 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 80,
+          arrayStride: 144,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
             { shaderLocation: 3, offset: 16, format: "float32x4" },
             { shaderLocation: 4, offset: 32, format: "float32x4" },
             { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 64, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
           ],
         },
       ],
@@ -423,14 +451,14 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 80,
+          arrayStride: 144,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
             { shaderLocation: 3, offset: 16, format: "float32x4" },
             { shaderLocation: 4, offset: 32, format: "float32x4" },
             { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 64, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
           ],
         },
       ],
@@ -476,8 +504,26 @@ function createPipelines(ctx) {
     size: 80,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
+  ctx.sceneBindGroupLayout = ctx.device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform", minBindingSize: sceneUniformsSize },
+      },
+    ],
+  });
+  ctx.scenePipelineLayout = ctx.device.createPipelineLayout({
+    bindGroupLayouts: [ctx.sceneBindGroupLayout],
+  });
+  ctx.sceneUniformBuffer = ctx.device.createBuffer({
+    size: sceneUniformsSize,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
   webgpuCreates.samplers += 1;
-  webgpuCreates.buffers += 1;
+  webgpuCreates.buffers += 2;
 }
 
 function createColorPipelinesFromWgsl(ctx, wgslSource) {
@@ -501,14 +547,14 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
       ],
     },
     {
-      arrayStride: 80,
+      arrayStride: 144,
       stepMode: "instance",
       attributes: [
         { shaderLocation: 2, offset: 0, format: "float32x4" },
         { shaderLocation: 3, offset: 16, format: "float32x4" },
         { shaderLocation: 4, offset: 32, format: "float32x4" },
         { shaderLocation: 5, offset: 48, format: "float32x4" },
-        { shaderLocation: 6, offset: 64, format: "float32x4" },
+        { shaderLocation: 6, offset: 128, format: "float32x4" },
       ],
     },
   ];
@@ -552,6 +598,123 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
   });
   webgpuCreates.pipelines += 2;
   return { opaque, blend };
+}
+
+function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMode = 1) {
+  const module = ctx.device.createShaderModule({ code: wgslSource });
+  const depthState = {
+    format: "depth24plus",
+    depthWriteEnabled: true,
+    depthCompare: "less-equal",
+  };
+  const depthStateBlend = {
+    format: "depth24plus",
+    depthWriteEnabled: false,
+    depthCompare: "less-equal",
+  };
+  const materialPipelineLayout = bindingMode === 2
+    ? ctx.scenePipelineLayout
+    : ctx.device.createPipelineLayout({
+        bindGroupLayouts: [ctx.quadBindGroupLayout],
+      });
+
+  const vertexBuffers = vertexLayout === 1
+    ? [
+        {
+          arrayStride: 20,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x2" },
+          ],
+        },
+        {
+          arrayStride: 144,
+          stepMode: "instance",
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: "float32x4" },
+            { shaderLocation: 3, offset: 16, format: "float32x4" },
+            { shaderLocation: 4, offset: 32, format: "float32x4" },
+            { shaderLocation: 5, offset: 48, format: "float32x4" },
+            { shaderLocation: 6, offset: 128, format: "float32x4" },
+          ],
+        },
+      ]
+    : vertexLayout === 2
+      ? [
+          {
+            arrayStride: 32,
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "float32x3" },
+              { shaderLocation: 2, offset: 24, format: "float32x2" },
+            ],
+          },
+          {
+            arrayStride: bindingMode === 2 ? 144 : 144,
+            stepMode: "instance",
+            attributes: bindingMode === 2
+              ? [
+                  { shaderLocation: 3, offset: 0, format: "float32x4" },
+                  { shaderLocation: 4, offset: 16, format: "float32x4" },
+                  { shaderLocation: 5, offset: 32, format: "float32x4" },
+                  { shaderLocation: 6, offset: 48, format: "float32x4" },
+                  { shaderLocation: 7, offset: 64, format: "float32x4" },
+                  { shaderLocation: 8, offset: 80, format: "float32x4" },
+                  { shaderLocation: 9, offset: 96, format: "float32x4" },
+                  { shaderLocation: 10, offset: 112, format: "float32x4" },
+                  { shaderLocation: 11, offset: 128, format: "float32x4" },
+                ]
+              : [
+                  { shaderLocation: 3, offset: 0, format: "float32x4" },
+                  { shaderLocation: 4, offset: 16, format: "float32x4" },
+                  { shaderLocation: 5, offset: 32, format: "float32x4" },
+                  { shaderLocation: 6, offset: 48, format: "float32x4" },
+                  { shaderLocation: 7, offset: 128, format: "float32x4" },
+                ],
+          },
+        ]
+      : null;
+  if (!vertexBuffers) return null;
+
+  const opaque = ctx.device.createRenderPipeline({
+    layout: materialPipelineLayout,
+    vertex: {
+      module,
+      entryPoint: "vs_main",
+      buffers: vertexBuffers,
+    },
+    fragment: {
+      module,
+      entryPoint: "fs_main",
+      targets: [{ format: ctx.format }],
+    },
+    depthStencil: depthState,
+    primitive: { topology: "triangle-list" },
+  });
+
+  const blend = ctx.device.createRenderPipeline({
+    layout: materialPipelineLayout,
+    vertex: {
+      module,
+      entryPoint: "vs_main",
+      buffers: vertexBuffers,
+    },
+    fragment: {
+      module,
+      entryPoint: "fs_main",
+      targets: [{
+        format: ctx.format,
+        blend: {
+          color: { operation: "add", srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" },
+          alpha: { operation: "add", srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+        },
+      }],
+    },
+    depthStencil: depthStateBlend,
+    primitive: { topology: "triangle-list" },
+  });
+  webgpuCreates.pipelines += 2;
+  return { opaque, blend, vertexLayout, bindingMode };
 }
 
 function createPostProcessPipelinesFromWgsl(ctx, wgslSource) {
@@ -1369,7 +1532,7 @@ const imports = {
           : null;
       if (!pipeline) return;
       const instanceData = new Float32Array(memory.buffer, instancePtr, 20);
-      const stride = 80;
+      const stride = 144;
       const alignment = 256;
       let offset = Math.ceil(ctx.instanceOffset / alignment) * alignment;
       if (offset + stride > ctx.instanceBufferSize) {
@@ -1398,14 +1561,14 @@ const imports = {
           : null;
       if (!pipeline) return;
       if (!instanceCount) return;
-      const stride = 80;
+      const stride = 144;
       const alignment = 256;
       const byteLength = instanceCount * stride;
       if (byteLength > ctx.instanceBufferSize) {
         console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
         return;
       }
-      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 20);
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 36);
       ensureInstanceScratch(byteLength);
       const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
       scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
@@ -1431,14 +1594,14 @@ const imports = {
       if (!mesh || !shader) return;
       if (mesh.vertexLayout !== 3) return;
       if (!instanceCount) return;
-      const stride = 80;
+      const stride = 144;
       const alignment = 256;
       const byteLength = instanceCount * stride;
       if (byteLength > ctx.instanceBufferSize) {
         console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
         return;
       }
-      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 20);
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 36);
       ensureInstanceScratch(byteLength);
       const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
       scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
@@ -1455,6 +1618,47 @@ const imports = {
       ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
       ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
       ctx.pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, 0);
+    },
+    webgpu_draw_textured_meshes_with_shader(ctxId, meshHandle, materialHandle, shaderHandle, instancePtr, instanceCount, blend) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || deviceLost || recoveringDevice || !ctx.pass) return;
+      const mesh = ctx.meshes[meshHandle];
+      const material = ctx.materials[materialHandle];
+      const shader = ctx.shaders[shaderHandle];
+      if (!mesh || !material || !shader) return;
+      if (mesh.vertexLayout !== 2 && mesh.vertexLayout !== 4) return;
+      if (!instanceCount) return;
+      const stride = 144;
+      const alignment = 256;
+      const byteLength = instanceCount * stride;
+      if (byteLength > ctx.instanceBufferSize) {
+        console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
+        return;
+      }
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 36);
+      ensureInstanceScratch(byteLength);
+      const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
+      scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
+      let offset = Math.ceil(ctx.instanceOffset / alignment) * alignment;
+      if (offset + byteLength > ctx.instanceBufferSize) {
+        offset = 0;
+      }
+      ctx.instanceOffset = offset + byteLength;
+      ctx.queue.writeBuffer(ctx.instanceBuffer, offset, scratch);
+
+      const pipeline = blend ? shader.blend : shader.opaque;
+      ctx.pass.setPipeline(pipeline);
+      ctx.pass.setBindGroup(0, shader.bindingMode === 2 ? material.sceneBindGroup : material.bindGroup);
+      ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
+      ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
+      ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
+      ctx.pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, 0);
+    },
+    webgpu_set_scene_uniforms(ctxId, uniformsPtr, uniformsLen) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || !ctx.sceneUniformBuffer) return;
+      const bytes = new Uint8Array(memory.buffer, uniformsPtr, uniformsLen);
+      ctx.queue.writeBuffer(ctx.sceneUniformBuffer, 0, bytes);
     },
     webgpu_draw_post_process(ctxId, shaderHandle, sourceSlot, uniformsPtr, blend) {
       const ctx = ctxs.get(ctxId);
@@ -1602,6 +1806,44 @@ const imports = {
       ctx.textures.push({ texture, view });
       return handle;
     },
+    webgpu_create_texture_rgba16f(ctxId, _samplerHandle, dataPtr, dataLen, width, height) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const texture = ctx.device.createTexture({
+        size: { width, height },
+        format: "rgba16float",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      webgpuCreates.textures += 1;
+      const view = texture.createView();
+      webgpuCreates.textureViews += 1;
+      const bytesPerRow = width * 8;
+      const alignedBpr = Math.ceil(bytesPerRow / 256) * 256;
+      const src = new Float32Array(memory.buffer, dataPtr, dataLen);
+      const padded = new Uint16Array((alignedBpr / 2) * height);
+      const pixelStride = 4;
+      for (let row = 0; row < height; row += 1) {
+        const srcRow = row * width * pixelStride;
+        const dstRow = row * (alignedBpr / 2);
+        for (let x = 0; x < width; x += 1) {
+          const srcBase = srcRow + x * pixelStride;
+          const dstBase = dstRow + x * pixelStride;
+          padded[dstBase + 0] = float32ToFloat16(src[srcBase + 0]);
+          padded[dstBase + 1] = float32ToFloat16(src[srcBase + 1]);
+          padded[dstBase + 2] = float32ToFloat16(src[srcBase + 2]);
+          padded[dstBase + 3] = float32ToFloat16(src[srcBase + 3]);
+        }
+      }
+      ctx.queue.writeTexture(
+        { texture },
+        padded,
+        { bytesPerRow: alignedBpr },
+        { width, height }
+      );
+      const handle = ctx.textures.length;
+      ctx.textures.push({ texture, view });
+      return handle;
+    },
     webgpu_destroy_texture(ctxId, handle) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
@@ -1625,16 +1867,31 @@ const imports = {
           { binding: 1, resource: texture.view },
         ],
       });
-      webgpuCreates.bindGroups += 1;
+      const sceneBindGroup = ctx.device.createBindGroup({
+        layout: ctx.sceneBindGroupLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: texture.view },
+          {
+            binding: 2,
+            resource: {
+              buffer: ctx.sceneUniformBuffer,
+              offset: 0,
+              size: sceneUniformsSize,
+            },
+          },
+        ],
+      });
+      webgpuCreates.bindGroups += 2;
       const handle = ctx.materials.length;
-      ctx.materials.push({ bindGroup });
+      ctx.materials.push({ bindGroup, sceneBindGroup });
       return handle;
     },
     webgpu_destroy_material(ctxId, handle) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
       ctx.materials[handle] = null;
-      webgpuDestroys.bindGroups += 1;
+      webgpuDestroys.bindGroups += 2;
     },
     webgpu_create_mesh(ctxId, vertexLayout, vPtr, vLen, iPtr, iLen) {
       const ctx = ctxs.get(ctxId);
@@ -1694,6 +1951,26 @@ const imports = {
       if (!ctx) return 0;
       const wgsl = readString(wgslPtr, wgslLen);
       const shader = createColorPipelinesFromWgsl(ctx, wgsl);
+      let handle = 0;
+      if (ctx.shaderFree.length > 0) {
+        handle = ctx.shaderFree.pop();
+        ctx.shaders[handle] = shader;
+      } else {
+        handle = ctx.shaders.length;
+        ctx.shaders.push(shader);
+      }
+      return handle;
+    },
+    webgpu_create_shader_configured(ctxId, wgslPtr, wgslLen, vertexLayout, bindingMode) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const wgsl = readString(wgslPtr, wgslLen);
+      const shader = bindingMode === 0
+        ? createColorPipelinesFromWgsl(ctx, wgsl)
+        : bindingMode === 1 || bindingMode === 2
+          ? createMaterialPipelinesFromWgsl(ctx, wgsl, vertexLayout, bindingMode)
+          : null;
+      if (!shader) return 0;
       let handle = 0;
       if (ctx.shaderFree.length > 0) {
         handle = ctx.shaderFree.pop();

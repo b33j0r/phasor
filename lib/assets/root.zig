@@ -67,10 +67,16 @@ pub const AssetsContext = struct {
 };
 
 pub const Texture = struct {
+    pub const DynamicRange = enum {
+        ldr,
+        hdr,
+    };
+
     path: ?[:0]const u8 = null,
     data: ?[]const u8 = null,
     alpha_mode: ?render.Material.AlphaMode = null,
     sampler_descriptor: ?render.SamplerDescriptor = null,
+    dynamic_range: DynamicRange = .ldr,
     width: u32 = 0,
     height: u32 = 0,
     texture_handle: render.TextureHandle = render.TextureHandle.invalid(),
@@ -106,6 +112,12 @@ pub const Texture = struct {
         return out;
     }
 
+    pub fn asHdr(self: Texture) Texture {
+        var out = self;
+        out.dynamic_range = .hdr;
+        return out;
+    }
+
     pub fn tiledLinear(self: Texture) Texture {
         return self.withSampler(render.SamplerDescriptor.tiledLinear());
     }
@@ -133,71 +145,56 @@ pub const Texture = struct {
         const texture_library = ctx.texture_library orelse return error.MissingTextureLibrary;
         const material_library = ctx.material_library orelse return error.MissingMaterialLibrary;
 
-        if (builtin.target.cpu.arch.isWasm()) {
-            const image = if (self.data) |bytes|
-                try loadImageFromBytes(ctx.allocator, bytes)
-            else
-                return error.MissingImageSource;
-            defer ctx.allocator.free(image.data);
-
-            self.width = image.width;
-            self.height = image.height;
-
-            const texture = try renderer.createTextureRgba8(self.width, self.height, image.data);
-            errdefer {
-                var t = texture;
-                renderer.destroyTexture(&t);
-            }
-            const texture_handle = try texture_library.addTexture(texture);
-            errdefer _ = texture_library.destroyTexture(renderer, texture_handle);
-
-            var active_sampler = sampler.*;
-            var owned_sampler: ?render.Sampler = null;
-            if (self.sampler_descriptor) |descriptor| {
-                var custom_sampler = try renderer.createSamplerWithDescriptor(descriptor);
-                errdefer renderer.destroySampler(&custom_sampler);
-                owned_sampler = custom_sampler;
-                active_sampler = custom_sampler;
-            }
-
-            const texture_ptr = texture_library.get(texture_handle) orelse return error.MissingTexture;
-            const material = try renderer.createMaterial(texture_ptr.*, active_sampler);
-            errdefer {
-                var m = material;
-                renderer.destroyMaterial(&m);
-            }
-            const material_handle = try material_library.addMaterial(material);
-            errdefer _ = material_library.destroyMaterial(renderer, material_handle);
-
-            self.texture_handle = texture_handle;
-            self.material_handle = material_handle;
-            self.owned_sampler = owned_sampler;
-            var material_instance = render.Material.withTextured(material_handle);
-            if (self.alpha_mode) |mode| {
-                material_instance.alpha_mode = mode;
-            }
-            self.material = material_instance;
-            log.debug("loaded wasm texture {}x{}", .{ self.width, self.height });
-            return;
+        if (builtin.target.cpu.arch.isWasm() and self.dynamic_range == .hdr and self.path != null) {
+            return error.WasmHdrTextureRequiresEmbeddedSource;
         }
 
-        const image = if (self.data) |bytes|
-            try loadImageFromBytes(ctx.allocator, bytes)
-        else if (self.path) |path|
-            try loadImage(ctx.allocator, ctx.io, path)
-        else
-            return error.MissingImageSource;
-        defer ctx.allocator.free(image.data);
+        const texture_handle = switch (self.dynamic_range) {
+            .ldr => blk: {
+                const image = if (builtin.target.cpu.arch.isWasm()) blk2: {
+                    const bytes = self.data orelse return error.MissingImageSource;
+                    break :blk2 try loadImageFromBytes(ctx.allocator, bytes);
+                } else if (self.data) |bytes|
+                    try loadImageFromBytes(ctx.allocator, bytes)
+                else if (self.path) |path|
+                    try loadImage(ctx.allocator, ctx.io, path)
+                else
+                    return error.MissingImageSource;
+                defer ctx.allocator.free(image.data);
 
-        self.width = image.width;
-        self.height = image.height;
+                self.width = image.width;
+                self.height = image.height;
 
-        const texture = try renderer.createTextureRgba8(self.width, self.height, image.data);
-        errdefer {
-            var t = texture;
-            renderer.destroyTexture(&t);
-        }
-        const texture_handle = try texture_library.addTexture(texture);
+                const texture = try renderer.createTextureRgba8(self.width, self.height, image.data);
+                errdefer {
+                    var t = texture;
+                    renderer.destroyTexture(&t);
+                }
+                break :blk try texture_library.addTexture(texture);
+            },
+            .hdr => blk: {
+                const image = if (builtin.target.cpu.arch.isWasm()) blk2: {
+                    const bytes = self.data orelse return error.MissingImageSource;
+                    break :blk2 try loadHdrImageFromBytes(ctx.allocator, bytes);
+                } else if (self.data) |bytes|
+                    try loadHdrImageFromBytes(ctx.allocator, bytes)
+                else if (self.path) |path|
+                    try loadHdrImage(ctx.allocator, ctx.io, path)
+                else
+                    return error.MissingImageSource;
+                defer ctx.allocator.free(image.data);
+
+                self.width = image.width;
+                self.height = image.height;
+
+                const texture = try renderer.createTextureRgba16Float(self.width, self.height, image.data);
+                errdefer {
+                    var t = texture;
+                    renderer.destroyTexture(&t);
+                }
+                break :blk try texture_library.addTexture(texture);
+            },
+        };
         errdefer _ = texture_library.destroyTexture(renderer, texture_handle);
 
         var active_sampler = sampler.*;
@@ -308,6 +305,8 @@ pub const Shader = struct {
     wgsl_source: ?[]const u8 = null,
     glsl_vertex_source: ?[]const u8 = null,
     glsl_fragment_source: ?[]const u8 = null,
+    vertex_layout: render.ShaderVertexLayout = .pos3_color4,
+    binding_mode: render.ShaderBindingMode = .none,
     handle: render.ShaderHandle = render.ShaderHandle.invalid(),
 
     pub fn load(self: *Shader, ctx: AssetsContext) !void {
@@ -319,6 +318,8 @@ pub const Shader = struct {
             .wgsl = self.wgsl_source,
             .glsl_vertex = self.glsl_vertex_source,
             .glsl_fragment = self.glsl_fragment_source,
+            .vertex_layout = self.vertex_layout,
+            .binding_mode = self.binding_mode,
         });
         self.handle = try library.addShader(shader);
         log.debug("loaded shader", .{});
@@ -504,6 +505,12 @@ const ImageData = struct {
     data: []u8,
 };
 
+const HdrImageData = struct {
+    width: u32,
+    height: u32,
+    data: []f32,
+};
+
 fn loadImageFromBytes(allocator: std.mem.Allocator, bytes: []const u8) !ImageData {
     var width: c_int = 0;
     var height: c_int = 0;
@@ -561,6 +568,40 @@ fn loadImage(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8
         .height = @intCast(height),
         .data = rgba_data,
     };
+}
+
+fn loadHdrImageFromBytes(allocator: std.mem.Allocator, bytes: []const u8) !HdrImageData {
+    var width: c_int = 0;
+    var height: c_int = 0;
+    var channels: c_int = 0;
+
+    const data_ptr = stb_image.c.stbi_loadf_from_memory(
+        bytes.ptr,
+        @intCast(bytes.len),
+        &width,
+        &height,
+        &channels,
+        4,
+    );
+    if (data_ptr == null) return error.ImageLoadFailed;
+    defer stb_image.c.stbi_image_free(data_ptr);
+
+    const pixel_count: usize = @intCast(width * height);
+    const rgba_data = try allocator.alloc(f32, pixel_count * 4);
+    const src_data: [*]const f32 = @ptrCast(@alignCast(data_ptr));
+    @memcpy(rgba_data, src_data[0 .. pixel_count * 4]);
+
+    return .{
+        .width = @intCast(width),
+        .height = @intCast(height),
+        .data = rgba_data,
+    };
+}
+
+fn loadHdrImage(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8) !HdrImageData {
+    const bytes = try readFileSearch(allocator, io, path);
+    defer allocator.free(bytes);
+    return loadHdrImageFromBytes(allocator, bytes);
 }
 
 fn readFileSearch(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8) ![]u8 {

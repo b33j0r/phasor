@@ -186,6 +186,7 @@ fn collectLayerCameras(layer_cameras: *types.LayerCameras, query: anytype, force
         try layer_cameras.map.put(forced_layer, .{
             .camera = cam.*,
             .view = viewMatrix(transform.*),
+            .transform = transform.*,
         });
     }
 }

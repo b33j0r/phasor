@@ -20,6 +20,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
         margin: f32 = 12.0,
         buffer_capacity: usize = 512,
         use_default_lines: bool = true,
+        extra_builtin_lines: []const BuiltinMetricLine = &[_]BuiltinMetricLine{},
         prepend_lines: []const MetricLine = &[_]MetricLine{},
         extra_lines: []const MetricLine = &[_]MetricLine{},
         bus_capacity: usize = 256,
@@ -53,6 +54,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
                 .margin = self.margin,
                 .buffer_capacity = self.buffer_capacity,
                 .use_default_lines = self.use_default_lines,
+                .extra_builtin_lines = self.extra_builtin_lines,
                 .prepend_lines = self.prepend_lines,
                 .extra_lines = self.extra_lines,
                 .log_interval_seconds = self.log_interval_seconds,
@@ -128,6 +130,7 @@ const MetricsConfig = struct {
     margin: f32,
     buffer_capacity: usize,
     use_default_lines: bool,
+    extra_builtin_lines: []const BuiltinMetricLine,
     prepend_lines: []const MetricLine,
     extra_lines: []const MetricLine,
     log_interval_seconds: f64,
@@ -322,12 +325,26 @@ pub const MetricLineFontName = lineFormat(0, formatFontNameLine);
 pub const MetricLineFontMetrics = lineFormat(0, formatFontMetricsLine);
 pub const MetricLineFontAtlas = lineFormat(0, formatFontAtlasLine);
 
+pub const BuiltinMetricLine = enum {
+    fps,
+    frame_time,
+    elapsed_time,
+    font_name,
+    font_size,
+    font_atlas,
+    mouse_look,
+    scene_stats,
+    light_stats,
+};
+
+pub const DefaultBuiltinLines: []const BuiltinMetricLine = &[_]BuiltinMetricLine{
+    .fps,
+    .frame_time,
+};
+
 pub const DefaultLines: []const MetricLine = &[_]MetricLine{
     MetricLineFps,
     MetricLineFrameMs,
-    MetricLineFontName,
-    MetricLineFontMetrics,
-    MetricLineFontAtlas,
 };
 
 fn writeMetricLines(config: *const MetricsConfig, ctx: *const MetricContext, buffer: []u8) []const u8 {
@@ -341,6 +358,15 @@ fn writeMetricLines(config: *const MetricsConfig, ctx: *const MetricContext, buf
 
     if (config.use_default_lines) {
         offset = appendMetricLines(ctx, buffer, offset, DefaultLines);
+        wrote_any = offset > 0;
+    }
+
+    if (config.extra_builtin_lines.len > 0 and offset < buffer.len) {
+        if (wrote_any and offset + 1 <= buffer.len) {
+            buffer[offset] = '\n';
+            offset += 1;
+        }
+        offset = appendBuiltinMetricLines(ctx, buffer, offset, config.extra_builtin_lines);
         wrote_any = offset > 0;
     }
 
@@ -416,6 +442,31 @@ fn appendMetricLines(ctx: *const MetricContext, buffer: []u8, start: usize, line
     return offset;
 }
 
+fn appendBuiltinMetricLines(ctx: *const MetricContext, buffer: []u8, start: usize, lines: []const BuiltinMetricLine) usize {
+    var offset = start;
+    for (lines, 0..) |line, idx| {
+        if (offset >= buffer.len) break;
+        const slice = switch (line) {
+            .fps => formatFpsLine(ctx, buffer[offset..]),
+            .frame_time => formatFrameMsLine(ctx, buffer[offset..]),
+            .elapsed_time => formatElapsedTimeLine(ctx, buffer[offset..]),
+            .font_name => formatFontNameLine(ctx, buffer[offset..]),
+            .font_size => formatFontMetricsLine(ctx, buffer[offset..]),
+            .font_atlas => formatFontAtlasLine(ctx, buffer[offset..]),
+            .mouse_look => formatMouseLookLine(ctx, buffer[offset..]),
+            .scene_stats => formatSceneStatsLine(ctx, buffer[offset..]),
+            .light_stats => formatLightStatsLine(ctx, buffer[offset..]),
+        };
+        if (slice.len == 0) continue;
+        offset += slice.len;
+        if (idx + 1 < lines.len and offset + 1 <= buffer.len) {
+            buffer[offset] = '\n';
+            offset += 1;
+        }
+    }
+    return offset;
+}
+
 fn formatFpsLine(ctx: *const MetricContext, out: []u8) []const u8 {
     return std.fmt.bufPrint(out, "FPS: {d:0.1}", .{ctx.fps}) catch copyLine(out, "FPS: ERR");
 }
@@ -453,6 +504,32 @@ fn formatFontAtlasLine(ctx: *const MetricContext, out: []u8) []const u8 {
     return std.fmt.bufPrint(out, "Atlas: {d}x{d}", .{ ctx.font_atlas_width, ctx.font_atlas_height }) catch copyLine(out, "Atlas: ERR");
 }
 
+fn formatMouseLookLine(ctx: *const MetricContext, out: []u8) []const u8 {
+    const available = metricBool(ctx.store, "mouse_look_available", false);
+    if (!available) return copyLine(out, "Mouse Look: unavailable");
+    const captured = metricBool(ctx.store, "mouse_look_captured", false);
+    if (captured) return copyLine(out, "Mouse Look: on");
+    const enabled = metricBool(ctx.store, "mouse_look_capture_enabled", false);
+    if (enabled) return copyLine(out, "Mouse Look: pending");
+    return copyLine(out, "Mouse Look: off");
+}
+
+fn formatSceneStatsLine(ctx: *const MetricContext, out: []u8) []const u8 {
+    const meshes = metricU64(ctx.store, "scene_mesh_count", 0);
+    const size_x = metricF64Store(ctx.store, "scene_size_x", 0.0);
+    const size_y = metricF64Store(ctx.store, "scene_size_y", 0.0);
+    const size_z = metricF64Store(ctx.store, "scene_size_z", 0.0);
+    return std.fmt.bufPrint(out, "Scene: {d} meshes  {d:.1}m x {d:.1}m x {d:.1}m", .{ meshes, size_x, size_y, size_z }) catch copyLine(out, "Scene: ERR");
+}
+
+fn formatLightStatsLine(ctx: *const MetricContext, out: []u8) []const u8 {
+    const total = metricU64(ctx.store, "lights_total", 0);
+    const dynamic = metricU64(ctx.store, "lights_dynamic", 0);
+    const point = metricU64(ctx.store, "lights_point", 0);
+    const spot = metricU64(ctx.store, "lights_spot", 0);
+    return std.fmt.bufPrint(out, "Lights: {d} total  {d} dynamic  {d} point  {d} spot", .{ total, dynamic, point, spot }) catch copyLine(out, "Lights: ERR");
+}
+
 fn formatStoreLine(ctx: *const MetricContext, line: MetricLineStore, out: []u8) []const u8 {
     const sample = ctx.store.get(line.name) orelse {
         return copyLine(out, line.label);
@@ -472,6 +549,21 @@ fn copyLine(out: []u8, text: []const u8) []const u8 {
     if (len == 0) return out[0..0];
     @memcpy(out[0..len], text[0..len]);
     return out[0..len];
+}
+
+fn metricF64Store(store: *metrics.Store, name: []const u8, fallback: f64) f64 {
+    const sample = store.get(name) orelse return fallback;
+    return sample.value.asF64();
+}
+
+fn metricU64(store: *metrics.Store, name: []const u8, fallback: u64) u64 {
+    const sample = store.get(name) orelse return fallback;
+    return @intFromFloat(sample.value.asF64());
+}
+
+fn metricBool(store: *metrics.Store, name: []const u8, fallback: bool) bool {
+    const sample = store.get(name) orelse return fallback;
+    return sample.value.asF64() != 0.0;
 }
 
 fn drainMetrics(bus: *metrics.Bus, store: *metrics.Store) void {

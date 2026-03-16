@@ -70,6 +70,8 @@ pub const Pipeline = struct {
 
 pub const Shader = struct {
     handle: u32,
+    vertex_layout: ShaderVertexLayout,
+    binding_mode: ShaderBindingMode,
 };
 
 pub const PostProcessShader = struct {
@@ -89,12 +91,27 @@ pub const ShaderSource = struct {
     wgsl: ?[]const u8 = null,
     glsl_vertex: ?[]const u8 = null,
     glsl_fragment: ?[]const u8 = null,
+    vertex_layout: ShaderVertexLayout = .pos3_color4,
+    binding_mode: ShaderBindingMode = .none,
+};
+
+pub const ShaderVertexLayout = enum(u32) {
+    pos3_color4 = 0,
+    pos3_uv2 = 1,
+    pos3_norm_uv2 = 2,
+};
+
+pub const ShaderBindingMode = enum(u32) {
+    none = 0,
+    material = 1,
+    material_scene = 2,
 };
 
 pub const MeshVertexLayout = enum(u32) {
     uv2 = 1,
     pos3_uv2 = 2,
     pos3_color4 = 3,
+    pos3_norm_uv2 = 4,
 };
 
 pub const Mesh = struct {
@@ -117,7 +134,8 @@ pub const RendererStats = extern struct {
 };
 
 pub const MeshInstance = extern struct {
-    transform: common.Mat4 = common.Mat4.identity(),
+    clip_transform: common.Mat4 = common.Mat4.identity(),
+    model_transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
 };
 
@@ -133,6 +151,12 @@ pub const VertexUv = extern struct {
 
 pub const VertexPos3Uv = extern struct {
     position: [3]f32,
+    uv: [2]f32,
+};
+
+pub const VertexPos3NormUv = extern struct {
+    position: [3]f32,
+    normal: [3]f32,
     uv: [2]f32,
 };
 
@@ -158,6 +182,10 @@ pub const DrawCmd = union(enum) {
 };
 
 const InstanceData = extern struct {
+    clip0: [4]f32,
+    clip1: [4]f32,
+    clip2: [4]f32,
+    clip3: [4]f32,
     model0: [4]f32,
     model1: [4]f32,
     model2: [4]f32,
@@ -176,6 +204,8 @@ extern "env" fn webgpu_draw_triangle(ctx: u32) void;
 extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: *const InstanceData, blend: u32) void;
 extern "env" fn webgpu_draw_textured_quads(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_draw_colored_meshes(ctx: u32, mesh_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
+extern "env" fn webgpu_draw_textured_meshes_with_shader(ctx: u32, mesh_handle: u32, material_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
+extern "env" fn webgpu_set_scene_uniforms(ctx: u32, uniforms_ptr: [*]const u8, uniforms_len: usize) void;
 extern "env" fn webgpu_draw_post_process(ctx: u32, shader_handle: u32, source_slot: u32, uniforms_ptr: [*]const f32, blend: u32) void;
 extern "env" fn webgpu_end_frame(ctx: u32) void;
 extern "env" fn webgpu_set_viewport_scissor(ctx: u32, x: f32, y: f32, width: f32, height: f32) void;
@@ -183,11 +213,13 @@ extern "env" fn webgpu_create_sampler(ctx: u32) u32;
 extern "env" fn webgpu_create_sampler_desc(ctx: u32, mag_filter: u32, min_filter: u32, mipmap_filter: u32, address_mode_u: u32, address_mode_v: u32, address_mode_w: u32) u32;
 extern "env" fn webgpu_destroy_sampler(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_texture_rgba8(ctx: u32, sampler_handle: u32, data_ptr: [*]const u8, data_len: usize, width: u32, height: u32) u32;
+extern "env" fn webgpu_create_texture_rgba16f(ctx: u32, sampler_handle: u32, data_ptr: [*]const f32, data_len: usize, width: u32, height: u32) u32;
 extern "env" fn webgpu_destroy_texture(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_mesh(ctx: u32, vertex_layout: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) u32;
 extern "env" fn webgpu_update_mesh(ctx: u32, handle: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) void;
 extern "env" fn webgpu_destroy_mesh(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_shader(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize) u32;
+extern "env" fn webgpu_create_shader_configured(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize, vertex_layout: u32, binding_mode: u32) u32;
 extern "env" fn webgpu_destroy_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_post_process_shader(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize) u32;
 extern "env" fn webgpu_destroy_post_process_shader(ctx: u32, handle: u32) void;
@@ -257,6 +289,15 @@ pub const Renderer = struct {
         };
     }
 
+    pub fn createTextureRgba16Float(self: *Renderer, width: u32, height: u32, data: []const f32) !Texture {
+        const handle = webgpu_create_texture_rgba16f(self.ctx, 0, data.ptr, data.len, width, height);
+        return Texture{
+            .handle = handle,
+            .width = width,
+            .height = height,
+        };
+    }
+
     pub fn destroyTexture(self: *Renderer, texture: *Texture) void {
         if (texture.handle == 0) return;
         webgpu_destroy_texture(self.ctx, texture.handle);
@@ -304,6 +345,21 @@ pub const Renderer = struct {
         webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
     }
 
+    pub fn createMeshPos3NormUv(self: *Renderer, vertices: []const VertexPos3NormUv, indices: []const u16) !Mesh {
+        const vbytes = std.mem.sliceAsBytes(vertices);
+        const ibytes = std.mem.sliceAsBytes(indices);
+        const handle = webgpu_create_mesh(self.ctx, @intFromEnum(MeshVertexLayout.pos3_norm_uv2), vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        return Mesh{ .handle = handle, .vertex_layout = .pos3_norm_uv2 };
+    }
+
+    pub fn updateMeshPos3NormUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3NormUv, indices: []const u16) !void {
+        if (mesh.vertex_layout != .pos3_norm_uv2) return error.InvalidMeshLayout;
+        if (mesh.handle == 0) return;
+        const vbytes = std.mem.sliceAsBytes(vertices);
+        const ibytes = std.mem.sliceAsBytes(indices);
+        webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+    }
+
     pub fn createMeshPos3Color(self: *Renderer, vertices: []const VertexPos3Color, indices: []const u16) !Mesh {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
@@ -327,9 +383,19 @@ pub const Renderer = struct {
 
     pub fn createShader(self: *Renderer, source: ShaderSource) !Shader {
         const wgsl = source.wgsl orelse return error.MissingShaderSource;
-        const handle = webgpu_create_shader(self.ctx, wgsl.ptr, wgsl.len);
+        const handle = webgpu_create_shader_configured(
+            self.ctx,
+            wgsl.ptr,
+            wgsl.len,
+            @intFromEnum(source.vertex_layout),
+            @intFromEnum(source.binding_mode),
+        );
         if (handle == 0) return error.ShaderCreationFailed;
-        return Shader{ .handle = handle };
+        return Shader{
+            .handle = handle,
+            .vertex_layout = source.vertex_layout,
+            .binding_mode = source.binding_mode,
+        };
     }
 
     pub fn destroyShader(self: *Renderer, shader: *Shader) void {
@@ -390,6 +456,11 @@ pub const Frame = struct {
         webgpu_set_viewport_scissor(self.renderer.ctx, x, y, width, height);
     }
 
+    pub fn setSceneUniforms(self: *Frame, uniforms: scene_uniforms.SceneUniforms) void {
+        const bytes = std.mem.asBytes(&uniforms);
+        webgpu_set_scene_uniforms(self.renderer.ctx, bytes.ptr, bytes.len);
+    }
+
     fn drawTexturedQuad(self: *Frame, quad: TexturedQuad) void {
         if (quad.mesh.vertex_layout != .uv2) return;
         const instance = buildInstanceData(quad.instance);
@@ -421,6 +492,20 @@ pub const Frame = struct {
         webgpu_draw_colored_meshes(
             self.renderer.ctx,
             mesh.handle,
+            shader.handle,
+            instances.ptr,
+            @intCast(instances.len),
+            blend_flag,
+        );
+    }
+
+    pub fn drawTexturedMeshesWithShader(self: *Frame, mesh: Mesh, material: Material, shader: Shader, instances: []const MeshInstance, blend: bool) void {
+        if (instances.len == 0) return;
+        const blend_flag: u32 = if (blend) 1 else 0;
+        webgpu_draw_textured_meshes_with_shader(
+            self.renderer.ctx,
+            mesh.handle,
+            material.handle,
             shader.handle,
             instances.ptr,
             @intCast(instances.len),
@@ -464,12 +549,17 @@ fn targetSlotValue(target: FrameTarget) u32 {
 }
 
 fn buildInstanceData(instance: MeshInstance) InstanceData {
-    const m = instance.transform.m;
+    const clip = instance.clip_transform.m;
+    const model = instance.model_transform.m;
     return .{
-        .model0 = .{ m[0][0], m[0][1], m[0][2], m[0][3] },
-        .model1 = .{ m[1][0], m[1][1], m[1][2], m[1][3] },
-        .model2 = .{ m[2][0], m[2][1], m[2][2], m[2][3] },
-        .model3 = .{ m[3][0], m[3][1], m[3][2], m[3][3] },
+        .clip0 = .{ clip[0][0], clip[0][1], clip[0][2], clip[0][3] },
+        .clip1 = .{ clip[1][0], clip[1][1], clip[1][2], clip[1][3] },
+        .clip2 = .{ clip[2][0], clip[2][1], clip[2][2], clip[2][3] },
+        .clip3 = .{ clip[3][0], clip[3][1], clip[3][2], clip[3][3] },
+        .model0 = .{ model[0][0], model[0][1], model[0][2], model[0][3] },
+        .model1 = .{ model[1][0], model[1][1], model[1][2], model[1][3] },
+        .model2 = .{ model[2][0], model[2][1], model[2][2], model[2][3] },
+        .model3 = .{ model[3][0], model[3][1], model[3][2], model[3][3] },
         .color = instance.color,
     };
 }
@@ -479,6 +569,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const utils = @import("utils.zig");
 const common = @import("common");
+const scene_uniforms = @import("scene_uniforms.zig");
 
 const Color = common.Color;
 const Size = utils.Size;

@@ -8,6 +8,7 @@ const PlayerCamera = struct {};
 const SceneReady = struct {};
 const SceneRoot = struct {};
 const StatusTextTag = struct {};
+const LightingReady = struct {};
 const SceneSpawnPlan = struct {
     scene_size: Vec3,
 };
@@ -18,6 +19,7 @@ const FpsPhysics = modules.FpsPhysicsModule(Player);
 const FpsController = FpsPhysics.FpsController;
 
 const sponza_scene_path = "local/cache/sponza/source/Models/Sponza/glTF/Sponza.gltf";
+const sponza_panorama_bytes = @embedFile("assets/hdr/furstenstein_2k.hdr");
 const StatusOverlay = struct {
     buffer: [512]u8 = [_]u8{0} ** 512,
 };
@@ -30,6 +32,17 @@ const SceneBake = struct {
 const SpawnChoice = struct {
     position: Vec3,
     yaw: f32,
+};
+
+const AnimatedLight = struct {
+    center: Vec3,
+    orbit_radius: f32 = 0.0,
+    angular_speed: f32 = 0.0,
+    phase: f32 = 0.0,
+    base_height: f32,
+    pulse_base: f32,
+    pulse_amplitude: f32 = 0.0,
+    pulse_speed: f32 = 0.0,
 };
 
 const SceneBounds = struct {
@@ -84,6 +97,8 @@ const App = struct {
     pub fn configure(app: *ecs.App) !void {
         try platform.installDefaultModules(app);
         try app.installModule(modules.ParentModule);
+        try app.installModule(modules.SkyModule);
+        try app.installModule(modules.LightingModule);
         try app.installModule(physics.PhysicsModule{
             .config = .{
                 .backend = .Jolt,
@@ -97,15 +112,27 @@ const App = struct {
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
             .font_size = 28.0,
             .text_color = Color.WHITE,
+            .buffer_capacity = 768,
+            .extra_builtin_lines = &.{
+                .mouse_look,
+                .scene_stats,
+                .light_stats,
+            },
+            .extra_lines = &sponza_metric_lines,
         });
 
         try app.addSystemTo("Startup", ensureStatusOverlay);
         try app.addSystemTo("BeforeFrame", ensureStatusOverlay);
         try app.addSystemTo("Startup", setupScene);
         try app.addSystemTo("BeforeFrame", setupScene);
+        try app.addSystemTo("Startup", setupLighting);
+        try app.addSystemTo("BeforeFrame", setupLighting);
         try app.addSystemTo("Update", spawnPlayerFromCollision);
         try app.addSystemTo("Update", updateMouseCaptureToggle);
         try app.addSystemTo("Update", updatePlayerCamera);
+        try app.addSystemTo("Update", emitSponzaHudMetrics);
+        try app.addSystemTo("Update", logPlayerBookmark);
+        try app.addSystemTo("Update", animateLights);
         try app.addSystemTo("Update", updateStatusOverlay);
         try app.addSystemTo("Shutdown", unloadImportedScene);
     }
@@ -149,6 +176,9 @@ fn setupScene(
     const assets_ctx_res = assets_ctx.ptr orelse return;
     const scene_asset = &scene_assets.ptr.sponza;
     const scene_data = scene_asset.scene_data orelse return;
+    if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
+    if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
+    if (!scene_assets.ptr.sky_shader.handle.isValid()) return error.SkyShaderMissing;
 
     const baked = try bakeSceneCollision(commands.allocator, &scene_data);
     defer commands.allocator.free(baked.collision_blob);
@@ -173,6 +203,24 @@ fn setupScene(
         render.Layer(0){},
     });
 
+    _ = try commands.createEntity(.{
+        Transform{
+            .translation = .{
+                .x = 0.0,
+                .y = scene_size.y * 0.35,
+                .z = 0.0,
+            },
+        },
+        modules.SkyModule.PanoramaSky{
+            .material = scene_assets.ptr.sky_panorama.material,
+            .shader_handle = scene_assets.ptr.sky_shader.handle,
+            .size = @max(@max(scene_size.x, scene_size.y), scene_size.z) * 4.0,
+            .follow_camera = true,
+            .face_segments = 56,
+        },
+        render.Layer(-1){},
+    });
+
     var parsed_collision = try physics.CollisionBake.mesh_formats.parseAlloc(commands.allocator, baked.collision_blob);
     defer parsed_collision.deinit(commands.allocator);
     try instantiateCollisionBodies(commands, collision_store.ptr, parsed_collision, root_translation);
@@ -186,6 +234,8 @@ fn setupScene(
         &scene_data,
         .{
             .parent = root,
+            .shader_handle = scene_assets.ptr.scene_shader.handle,
+            .mesh_layout = .Pos3NormUv,
         },
     );
     try commands.insertResource(imported);
@@ -267,6 +317,7 @@ fn spawnPlayerFromCollision(
             .near = 0.05,
             .far = 250.0,
         } },
+        CameraLayer(-1){},
         CameraLayer(0){},
     });
 
@@ -318,62 +369,125 @@ fn updatePlayerCamera(
     }
 }
 
-fn updateStatusOverlay(
-    elapsed: Res(ElapsedTime),
+fn logPlayerBookmark(
+    keyboard_opt: ResOpt(Keyboard),
+    players: Query(.{ Transform, FpsController, Player }),
+) void {
+    const keyboard = keyboard_opt.ptr orelse return;
+    if (!keyboard.isKeyPressed(.m)) return;
+
+    var it = players.iterator();
+    const row = it.next() orelse return;
+    const transform = row.get(Transform) orelse return;
+    const controller = row.get(FpsController) orelse return;
+
+    const camera_translation = transform.translation.add(.{ .x = 0.0, .y = controller.eye_offset_y, .z = 0.0 });
+
+    std.log.debug(
+        "sponza bookmark player_transform = Transform{{ .translation = .{{ .x = {d:.3}, .y = {d:.3}, .z = {d:.3} }}, .rotation = quatFromEuler(0.0, {d:.4}, 0.0) }}; camera_transform = Transform{{ .translation = .{{ .x = {d:.3}, .y = {d:.3}, .z = {d:.3} }}, .rotation = quatFromEuler({d:.4}, {d:.4}, 0.0) }};",
+        .{
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z,
+            controller.yaw,
+            camera_translation.x,
+            camera_translation.y,
+            camera_translation.z,
+            controller.pitch,
+            controller.yaw,
+        },
+    );
+}
+
+fn emitSponzaHudMetrics(
+    bus: ResMut(metrics.Bus),
     capture_opt: ResOpt(MouseCapture),
     mouse_opt: ResOpt(Mouse),
+    scene_metrics: ResOpt(SceneMetrics),
+    imported: ResOpt(assets.ImportedScene),
+    lighting_stats: ResOpt(lighting.AuthoringStats),
+    players: Query(.{ Transform, Player }),
+) void {
+    var it = players.iterator();
+    const row = it.next() orelse return;
+    const transform = row.get(Transform) orelse return;
+    const imported_scene = imported.ptr;
+    const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
+        scene_metrics_res.scene_size
+    else if (imported_scene) |scene|
+        scene.bounds.size()
+    else
+        Vec3{};
+    const light_stats = if (lighting_stats.ptr) |stats| stats.* else lighting.AuthoringStats{};
+    const mouse_captured = if (mouse_opt.ptr) |mouse| mouse.captured else false;
+    const mouse_capture_enabled = if (capture_opt.ptr) |capture| capture.enabled else false;
+    const mouse_available = mouse_opt.ptr != null;
+    const mesh_count: usize = if (imported_scene) |scene| scene.mesh_handles.len else 0;
+
+    metrics.emitBus(true, bus.ptr, .{
+        .player_x = metrics.gauge(transform.translation.x),
+        .player_y = metrics.gauge(transform.translation.y),
+        .player_z = metrics.gauge(transform.translation.z),
+        .mouse_look_available = metrics.gauge(mouse_available),
+        .mouse_look_captured = metrics.gauge(mouse_captured),
+        .mouse_look_capture_enabled = metrics.gauge(mouse_capture_enabled),
+        .scene_mesh_count = metrics.gauge(mesh_count),
+        .scene_size_x = metrics.gauge(scene_size.x),
+        .scene_size_y = metrics.gauge(scene_size.y),
+        .scene_size_z = metrics.gauge(scene_size.z),
+        .lights_total = metrics.gauge(light_stats.total_lights),
+        .lights_dynamic = metrics.gauge(light_stats.dynamic_lights),
+        .lights_point = metrics.gauge(light_stats.point_lights),
+        .lights_spot = metrics.gauge(light_stats.spot_lights),
+    });
+}
+
+fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
+    const x = if (ctx.store.get("player_x")) |sample| sample.value.asF64() else 0.0;
+    const y = if (ctx.store.get("player_y")) |sample| sample.value.asF64() else 0.0;
+    const z = if (ctx.store.get("player_z")) |sample| sample.value.asF64() else 0.0;
+    return std.fmt.bufPrint(out, "Player XYZ: {d:.2}, {d:.2}, {d:.2}", .{ x, y, z }) catch "Player XYZ: ERR";
+}
+
+fn updateStatusOverlay(
+    elapsed: Res(ElapsedTime),
     scene_assets: Res(Assets),
     scene_ready: ResOpt(SceneReady),
     spawn_plan: ResOpt(SceneSpawnPlan),
-    scene_metrics: ResOpt(SceneMetrics),
-    imported: ResOpt(assets.ImportedScene),
     overlay: ResMut(StatusOverlay),
     texts: Query(.{ render.Text, Transform, StatusTextTag }),
 ) void {
+    const loading_active = scene_assets.ptr.sponza.scene_data == null or scene_ready.ptr == null or spawn_plan.ptr != null;
     const phase = if (scene_assets.ptr.sponza.scene_data == null)
         "1/3 cache"
     else if (scene_ready.ptr == null)
         "2/3 setup"
     else
         "3/3 ready";
-    const spinner = spinnerFrame(elapsed.ptr.seconds);
-    const mouse_state = if (mouse_opt.ptr) |mouse|
-        if (mouse.captured) "mouse look: on (Esc releases)"
-        else if (capture_opt.ptr) |capture|
-            if (capture.enabled) "mouse look: pending capture"
-            else "mouse look: off (Enter captures)"
-        else
-            "mouse look: off (Enter captures)"
+    const spinner = if (loading_active) spinnerFrame(elapsed.ptr.seconds) else ' ';
+    var header_buffer: [64]u8 = undefined;
+    const header = if (loading_active)
+        std.fmt.bufPrint(&header_buffer, "Sponza {c} stage {s}", .{ spinner, phase }) catch "Sponza stage"
     else
-        "mouse look: unavailable";
+        std.fmt.bufPrint(&header_buffer, "Sponza stage {s}", .{phase}) catch "Sponza stage";
 
     const message = if (scene_ready.ptr == null)
         std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nPreparing scene and collision\n{s}",
-            .{ spinner, phase, mouse_state },
+            "{s}\nPreparing scene and collision",
+            .{header},
         ) catch "Sponza: loading..."
     else if (spawn_plan.ptr != null)
         std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nProbing runtime spawn point\n{s}",
-            .{ spinner, phase, mouse_state },
+            "{s}\nProbing runtime spawn point",
+            .{header},
         ) catch "Sponza: spawning..."
     else blk: {
-        const imported_scene = imported.ptr orelse break :blk "Sponza: ready";
-        const scene_size = if (scene_metrics.ptr) |metrics| metrics.scene_size else imported_scene.bounds.size();
         break :blk std.fmt.bufPrint(
             &overlay.ptr.buffer,
-            "Sponza {c}  stage {s}\nWASD move, mouse look, Space jump\n{s}\nScene: {d} meshes  {d:.1}m x {d:.1}m x {d:.1}m",
-            .{
-                spinner,
-                phase,
-                mouse_state,
-                imported_scene.mesh_handles.len,
-                scene_size.x,
-                scene_size.y,
-                scene_size.z,
-            },
+            "{s}\nWASD move, mouse look, Space jump",
+            .{header},
         ) catch "Sponza: ready";
     };
 
@@ -396,7 +510,189 @@ fn unloadImportedScene(commands: *ecs.Commands) void {
     _ = commands.removeResource(SceneReady);
     _ = commands.removeResource(SceneSpawnPlan);
     _ = commands.removeResource(SceneMetrics);
+    _ = commands.removeResource(LightingReady);
     _ = commands.removeResource(StatusOverlay);
+}
+
+fn setupLighting(
+    commands: *ecs.Commands,
+    scene_ready: ResOpt(SceneReady),
+    scene_metrics: ResOpt(SceneMetrics),
+) !void {
+    if (commands.hasResource(LightingReady)) return;
+    if (scene_ready.ptr == null) return;
+
+    const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
+        scene_metrics_res.scene_size
+    else
+        Vec3{ .x = 40.0, .y = 20.0, .z = 40.0 };
+
+    try commands.insertResource(lighting.AmbientLight{
+        .color = .{ .r = 0.65, .g = 0.68, .b = 0.74, .a = 1.0 },
+        .intensity = 0.001,
+    });
+    try commands.insertResource(lighting.ExposureSettings{
+        .enabled = true,
+        .exposure = 0.9,
+    });
+    try commands.insertResource(try lighting.buildEnvironmentLightFromHdrBytes(
+        commands.allocator,
+        sponza_panorama_bytes,
+        .{
+            .intensity = 0.05,
+            .diffuse_strength = 0.8,
+            .specular_strength = 0.18,
+        },
+    ));
+
+    _ = try commands.createEntity(.{
+        Transform{
+            .translation = .{
+                .x = 0.0,
+                .y = scene_size.y * 0.65,
+                .z = 0.0,
+            },
+            .rotation = quatFromEuler(-0.95, 0.65, 0.0),
+        },
+        lighting.Light{ .directional = .{
+            .color = .{ .r = 1.0, .g = 0.95, .b = 0.86, .a = 1.0 },
+            .illuminance_lux = 16000.0,
+        } },
+        lighting.LightVisibility{
+            .enabled = true,
+            .casts_shadows = false,
+            .is_static = true,
+        },
+    });
+
+    const point_positions = [_]struct {
+        pos: Vec3,
+        color: Color.F32,
+        intensity: f32,
+        range: f32,
+        dynamic: bool,
+    }{
+        .{ .pos = .{ .x = -scene_size.x * 0.18, .y = 2.8, .z = scene_size.z * 0.18 }, .color = .{ .r = 1.0, .g = 0.42, .b = 0.28, .a = 1.0 }, .intensity = 1400.0, .range = 10.0, .dynamic = false },
+        .{ .pos = .{ .x = scene_size.x * 0.18, .y = 2.8, .z = scene_size.z * 0.18 }, .color = .{ .r = 0.22, .g = 0.75, .b = 1.0, .a = 1.0 }, .intensity = 1250.0, .range = 10.5, .dynamic = false },
+        .{ .pos = .{ .x = -scene_size.x * 0.2, .y = 3.2, .z = -scene_size.z * 0.16 }, .color = .{ .r = 0.82, .g = 0.34, .b = 1.0, .a = 1.0 }, .intensity = 1600.0, .range = 11.5, .dynamic = true },
+        .{ .pos = .{ .x = scene_size.x * 0.2, .y = 3.2, .z = -scene_size.z * 0.16 }, .color = .{ .r = 0.24, .g = 1.0, .b = 0.66, .a = 1.0 }, .intensity = 1500.0, .range = 11.5, .dynamic = true },
+        .{ .pos = .{ .x = 0.0, .y = 4.4, .z = 0.0 }, .color = .{ .r = 1.0, .g = 0.8, .b = 0.3, .a = 1.0 }, .intensity = 1900.0, .range = 13.0, .dynamic = false },
+        .{ .pos = .{ .x = 0.0, .y = 2.6, .z = -scene_size.z * 0.26 }, .color = .{ .r = 0.3, .g = 0.55, .b = 1.0, .a = 1.0 }, .intensity = 1350.0, .range = 9.5, .dynamic = false },
+    };
+
+    for (point_positions, 0..) |spec, i| {
+        const entity = try commands.createEntity(.{
+            Transform{
+                .translation = spec.pos,
+            },
+            lighting.Light{ .point = .{
+                .color = spec.color,
+                .intensity_candela = spec.intensity,
+                .range = spec.range,
+                .radius = 0.1,
+            } },
+            lighting.LightVisibility{
+                .enabled = true,
+                .casts_shadows = false,
+                .is_static = !spec.dynamic,
+            },
+        });
+
+        if (!spec.dynamic) continue;
+        try commands.addComponent(entity, AnimatedLight{
+            .center = spec.pos,
+            .orbit_radius = 0.8 + @as(f32, @floatFromInt(i)) * 0.15,
+            .angular_speed = 0.22 + @as(f32, @floatFromInt(i)) * 0.04,
+            .phase = @as(f32, @floatFromInt(i)) * 0.9,
+            .base_height = spec.pos.y,
+            .pulse_base = spec.intensity,
+            .pulse_amplitude = spec.intensity * 0.3,
+            .pulse_speed = 1.2 + @as(f32, @floatFromInt(i)) * 0.15,
+        });
+    }
+
+    _ = try commands.createEntity(.{
+        Transform{
+            .translation = .{ .x = -scene_size.x * 0.12, .y = 5.8, .z = scene_size.z * 0.04 },
+            .rotation = quatFromEuler(-0.55, 0.8, 0.0),
+        },
+        lighting.Light{ .spot = .{
+            .color = .{ .r = 1.0, .g = 0.88, .b = 0.7, .a = 1.0 },
+            .intensity_candela = 2400.0,
+            .range = 22.0,
+            .inner_angle_rad = 0.24,
+            .outer_angle_rad = 0.42,
+            .radius = 0.08,
+        } },
+        lighting.LightVisibility{
+            .enabled = true,
+            .casts_shadows = false,
+            .is_static = true,
+        },
+    });
+
+    const moving_spot = try commands.createEntity(.{
+        Transform{
+            .translation = .{ .x = scene_size.x * 0.14, .y = 5.0, .z = -scene_size.z * 0.02 },
+            .rotation = quatFromEuler(-0.5, -0.9, 0.0),
+        },
+        lighting.Light{ .spot = .{
+            .color = .{ .r = 0.55, .g = 0.8, .b = 1.0, .a = 1.0 },
+            .intensity_candela = 2100.0,
+            .range = 20.0,
+            .inner_angle_rad = 0.22,
+            .outer_angle_rad = 0.38,
+            .radius = 0.08,
+        } },
+        lighting.LightVisibility{
+            .enabled = true,
+            .casts_shadows = false,
+            .is_static = false,
+        },
+    });
+    try commands.addComponent(moving_spot, AnimatedLight{
+        .center = .{ .x = scene_size.x * 0.14, .y = 5.0, .z = -scene_size.z * 0.02 },
+        .orbit_radius = 1.2,
+        .angular_speed = -0.18,
+        .phase = 0.4,
+        .base_height = 5.0,
+        .pulse_base = 2100.0,
+        .pulse_amplitude = 320.0,
+        .pulse_speed = 0.9,
+    });
+
+    try commands.insertResource(LightingReady{});
+}
+
+fn animateLights(
+    elapsed: Res(ElapsedTime),
+    animated_lights: Query(.{ Transform, lighting.Light, AnimatedLight }),
+) void {
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
+
+    var it = animated_lights.iterator();
+    while (it.next()) |row| {
+        const transform = row.get(Transform) orelse continue;
+        const light = row.get(lighting.Light) orelse continue;
+        const motion = row.get(AnimatedLight) orelse continue;
+
+        const orbit_phase = t * motion.angular_speed + motion.phase;
+        transform.translation = .{
+            .x = motion.center.x + std.math.cos(orbit_phase) * motion.orbit_radius,
+            .y = motion.base_height + std.math.sin(orbit_phase * 0.7) * 0.35,
+            .z = motion.center.z + std.math.sin(orbit_phase) * motion.orbit_radius,
+        };
+
+        const pulse = motion.pulse_base + motion.pulse_amplitude * (0.5 + 0.5 * std.math.sin(t * motion.pulse_speed + motion.phase));
+        switch (light.*) {
+            .point => |*point| point.intensity_candela = pulse,
+            .spot => |*spot| {
+                spot.intensity_candela = pulse;
+                transform.rotation = quatFromEuler(-0.45, -orbit_phase - std.math.pi * 0.5, 0.0);
+            },
+            .directional => {},
+        }
+    }
 }
 
 fn findSpawnPoint(world: *physics.BackendWorld, scene_size: Vec3, controller: FpsController) ?SpawnChoice {
@@ -843,11 +1139,28 @@ fn spinnerFrame(seconds: f64) u8 {
 
 const Assets = struct {
     sponza: assets.Scene = .file(sponza_scene_path),
+    sky_panorama: assets.Texture = assets.Texture.embedded(sponza_panorama_bytes).asHdr().asOpaque().equirectangularLinear(),
+    scene_shader: assets.Shader = .{
+        .wgsl_source = @embedFile("shaders/scene_passthrough.wgsl"),
+        .vertex_layout = .pos3_norm_uv2,
+        .binding_mode = .material_scene,
+    },
+    sky_shader: assets.Shader = .{
+        .wgsl_source = @embedFile("shaders/sky_panorama_hdr.wgsl"),
+        .vertex_layout = .pos3_uv2,
+        .binding_mode = .material_scene,
+    },
+};
+
+const sponza_metric_lines = [_]modules.MetricLine{
+    modules.lineFormat(-90, formatPlayerPositionLine),
 };
 
 const ecs = phasor.ecs;
 const assets = phasor.assets;
 const common = phasor.common;
+const lighting = phasor.lighting;
+const metrics = phasor.metrics;
 const modules = phasor.modules;
 const physics = phasor.physics;
 const platform = phasor.platform;

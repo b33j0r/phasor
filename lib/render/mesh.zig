@@ -52,14 +52,48 @@ pub const MaterialHandle = struct {
 
 pub const MeshInstance = struct {
     mesh_handle: MeshHandle = MeshHandle.invalid(),
+    shader_handle: ShaderHandle = ShaderHandle.invalid(),
     color: common.Color = common.Color.WHITE,
     material: Material = Material.default,
+    scene_material: SceneMaterial = .{},
 
     pub const default: MeshInstance = .{
         .mesh_handle = MeshHandle.invalid(),
+        .shader_handle = ShaderHandle.invalid(),
         .color = common.Color.WHITE,
         .material = Material.default,
+        .scene_material = .{},
     };
+};
+
+pub const SceneTexture = struct {
+    texture_handle: TextureHandle = TextureHandle.invalid(),
+    texcoord_set: u32 = 0,
+
+    pub const default: SceneTexture = .{};
+
+    pub fn isValid(self: SceneTexture) bool {
+        return self.texture_handle.isValid();
+    }
+};
+
+pub const SceneMaterial = struct {
+    base_color_factor: common.Color.F32 = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+    emissive_factor: common.Color.F32 = .{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 },
+    metallic_factor: f32 = 1.0,
+    roughness_factor: f32 = 1.0,
+    normal_scale: f32 = 1.0,
+    occlusion_strength: f32 = 1.0,
+    alpha_cutoff: f32 = 0.5,
+    alpha_mode: Material.AlphaMode = .Opaque,
+    double_sided: bool = false,
+    base_color_texture: SceneTexture = .{},
+    metallic_roughness_texture: SceneTexture = .{},
+    normal_texture: SceneTexture = .{},
+    occlusion_texture: SceneTexture = .{},
+    emissive_texture: SceneTexture = .{},
+
+    pub const default: SceneMaterial = .{};
 };
 
 pub const Material = struct {
@@ -188,6 +222,30 @@ pub const MeshLibrary = struct {
         return .{ .index = index, .generation = 1 };
     }
 
+    pub fn addMeshPos3NormUv(
+        self: *MeshLibrary,
+        renderer: *backend.Renderer,
+        vertices: []const backend.VertexPos3NormUv,
+        indices: []const u16,
+    ) !MeshHandle {
+        const mesh = try renderer.createMeshPos3NormUv(vertices, indices);
+        if (self.free_list.items.len > 0) {
+            const index = self.free_list.pop() orelse unreachable;
+            var slot = &self.slots.items[@intCast(index)];
+            slot.mesh = mesh;
+            slot.alive = true;
+            return .{ .index = index, .generation = slot.generation };
+        }
+
+        const index: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(self.allocator, .{
+            .mesh = mesh,
+            .generation = 1,
+            .alive = true,
+        });
+        return .{ .index = index, .generation = 1 };
+    }
+
     pub fn addMeshPos3Color(
         self: *MeshLibrary,
         renderer: *backend.Renderer,
@@ -247,6 +305,18 @@ pub const MeshLibrary = struct {
     ) !bool {
         const slot = self.slotPtr(handle) orelse return false;
         try renderer.updateMeshPos3Uv(&slot.mesh, vertices, indices);
+        return true;
+    }
+
+    pub fn updateMeshPos3NormUv(
+        self: *MeshLibrary,
+        renderer: *backend.Renderer,
+        handle: MeshHandle,
+        vertices: []const backend.VertexPos3NormUv,
+        indices: []const u16,
+    ) !bool {
+        const slot = self.slotPtr(handle) orelse return false;
+        try renderer.updateMeshPos3NormUv(&slot.mesh, vertices, indices);
         return true;
     }
 

@@ -8,6 +8,7 @@ test "import tests" {
     _ = graph;
     _ = metrics;
     _ = physics;
+    _ = lighting;
     _ = modules;
     _ = platform;
     _ = renderer;
@@ -23,6 +24,7 @@ pub const ecs = @import("ecs");
 pub const graph = @import("graph");
 pub const metrics = @import("metrics");
 pub const physics = @import("physics");
+pub const lighting = @import("lighting");
 pub const modules = @import("modules");
 pub const platform = @import("platform");
 pub const renderer = @import("render");

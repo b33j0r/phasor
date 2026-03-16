@@ -21,8 +21,17 @@ pub const SamplerFilter = backend.SamplerFilter;
 pub const SamplerAddressMode = backend.SamplerAddressMode;
 pub const Pipeline = backend.Pipeline;
 pub const Shader = backend.Shader;
+pub const ShaderSource = backend.ShaderSource;
+pub const ShaderVertexLayout = backend.ShaderVertexLayout;
+pub const ShaderBindingMode = backend.ShaderBindingMode;
 pub const BackendMaterial = backend.Material;
 pub const Material = mesh.Material;
+pub const SceneMaterial = mesh.SceneMaterial;
+pub const SceneTexture = mesh.SceneTexture;
+pub const max_scene_lights = @import("scene_uniforms.zig").max_scene_lights;
+pub const SceneLightKind = @import("scene_uniforms.zig").SceneLightKind;
+pub const SceneLight = @import("scene_uniforms.zig").SceneLight;
+pub const SceneUniforms = @import("scene_uniforms.zig").SceneUniforms;
 pub const MaterialInstance = struct {
     material: BackendMaterial,
 
@@ -50,6 +59,7 @@ pub const VSync = struct {
 pub const VertexColor = backend.VertexColor;
 pub const VertexUv = backend.VertexUv;
 pub const VertexPos3Uv = backend.VertexPos3Uv;
+pub const VertexPos3NormUv = backend.VertexPos3NormUv;
 pub const VertexPos3Color = backend.VertexPos3Color;
 pub const Triangle = backend.Triangle;
 pub const TexturedQuad = backend.TexturedQuad;
