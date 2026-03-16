@@ -2,15 +2,11 @@ pub fn Events(comptime T: type) type {
     return struct {
         allocator: std.mem.Allocator,
         io: *const std.Io,
-        queue_capacity: usize,
+        broadcast: common.Broadcast(T),
         subs: std.AutoHashMap(u64, *Subscription),
-        mutex: std.Io.Mutex = .init,
 
         const Self = @This();
-        const Subscription = struct {
-            queue: std.Io.Queue(T),
-            buffer: []T,
-        };
+        const Subscription = common.Broadcast(T).Receiver;
 
         pub const Error = error{
             QueueClosed,
@@ -24,59 +20,34 @@ pub fn Events(comptime T: type) type {
             return .{
                 .allocator = allocator,
                 .io = io,
-                .queue_capacity = queue_capacity,
+                .broadcast = try common.Broadcast(T).init(allocator, io, queue_capacity),
                 .subs = std.AutoHashMap(u64, *Subscription).init(allocator),
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.mutex.lockUncancelable(self.io.*);
             var it = self.subs.valueIterator();
             while (it.next()) |sub_ptr| {
                 const sub = sub_ptr.*;
-                sub.queue.close(self.io.*);
-                self.allocator.free(sub.buffer);
+                sub.deinit();
                 self.allocator.destroy(sub);
             }
             self.subs.deinit();
-            self.mutex.unlock(self.io.*);
+            self.broadcast.deinit();
         }
 
         pub fn send(self: *Self, value: T) Error!void {
-            const subs = try self.snapshotSubscriptions();
-            defer self.allocator.free(subs);
-
-            var futures: std.ArrayListUnmanaged(std.Io.Future(Error!void)) = .{};
-            defer futures.deinit(self.allocator);
-
-            const io_value = self.io.*;
-            for (subs) |sub| {
-                const future = std.Io.concurrent(io_value, sendToSubscription, .{ io_value, sub, value }) catch |err| switch (err) {
-                    error.ConcurrencyUnavailable => {
-                        try sendToSubscription(io_value, sub, value);
-                        continue;
-                    },
-                };
-                try futures.append(self.allocator, future);
-            }
-
-            for (futures.items) |*future| {
-                try future.await(io_value);
-            }
+            self.broadcast.send(value) catch |err| switch (err) {
+                error.Closed => return Error.QueueClosed,
+            };
         }
 
         pub fn trySend(self: *Self, value: T) Error!void {
-            const subs = try self.snapshotSubscriptions();
-            defer self.allocator.free(subs);
-
-            for (subs) |sub| {
-                var buffer = [_]T{value};
-                const queued = sub.queue.put(self.io.*, &buffer, 0) catch |err| switch (err) {
-                    error.Closed => return Error.QueueClosed,
-                    error.Canceled => return Error.Canceled,
-                };
-                if (queued == 0) return Error.QueueFull;
-            }
+            self.broadcast.trySend(value) catch |err| switch (err) {
+                error.Closed => return Error.QueueClosed,
+                error.Canceled => return Error.Canceled,
+                error.QueueFull => return Error.QueueFull,
+            };
         }
 
         pub fn makeKey(comptime system_fn: anytype) u64 {
@@ -89,37 +60,23 @@ pub fn Events(comptime T: type) type {
         }
 
         pub fn subscribe(self: *Self, key: u64) !*Subscription {
-            self.mutex.lockUncancelable(self.io.*);
-            defer self.mutex.unlock(self.io.*);
-
             if (self.subs.get(key)) |existing| return existing;
 
             const sub = try self.allocator.create(Subscription);
             errdefer self.allocator.destroy(sub);
-            const buffer = try self.allocator.alloc(T, self.queue_capacity);
-            errdefer self.allocator.free(buffer);
-
-            sub.* = .{
-                .queue = std.Io.Queue(T).init(buffer),
-                .buffer = buffer,
-            };
+            sub.* = try self.broadcast.subscribe();
             try self.subs.put(key, sub);
             return sub;
         }
 
         pub fn get(self: *Self, key: u64) ?*Subscription {
-            self.mutex.lockUncancelable(self.io.*);
-            defer self.mutex.unlock(self.io.*);
             return self.subs.get(key);
         }
 
         pub fn remove(self: *Self, key: u64) bool {
-            self.mutex.lockUncancelable(self.io.*);
-            defer self.mutex.unlock(self.io.*);
             if (self.subs.fetchRemove(key)) |kv| {
                 const sub = kv.value;
-                sub.queue.close(self.io.*);
-                self.allocator.free(sub.buffer);
+                sub.deinit();
                 self.allocator.destroy(sub);
                 return true;
             }
@@ -127,31 +84,7 @@ pub fn Events(comptime T: type) type {
         }
 
         pub fn getSubscriptionCount(self: *Self) usize {
-            self.mutex.lockUncancelable(self.io.*);
-            defer self.mutex.unlock(self.io.*);
             return self.subs.count();
-        }
-
-        fn snapshotSubscriptions(self: *Self) ![]*Subscription {
-            self.mutex.lockUncancelable(self.io.*);
-            const count = self.subs.count();
-            const subs = self.allocator.alloc(*Subscription, count) catch |err| {
-                self.mutex.unlock(self.io.*);
-                return err;
-            };
-            var i: usize = 0;
-            var it = self.subs.valueIterator();
-            while (it.next()) |sub_ptr| : (i += 1) {
-                subs[i] = sub_ptr.*;
-            }
-            self.mutex.unlock(self.io.*);
-            return subs;
-        }
-
-        fn sendToSubscription(io: std.Io, sub: *Subscription, value: T) Error!void {
-            sub.queue.putOneUncancelable(io, value) catch |err| switch (err) {
-                error.Closed => return Error.QueueClosed,
-            };
         }
     };
 }
@@ -225,22 +158,16 @@ pub fn EventReader(comptime T: type) type {
         }
 
         pub fn recv(self: Self) Error!T {
-            const events = self.events orelse return error.EventNotInitialized;
             const sub = self.subscription orelse return error.EventNotInitialized;
-            return sub.queue.getOneUncancelable(events.io.*) catch |err| switch (err) {
+            return sub.recv() catch |err| switch (err) {
                 error.Closed => return Error.QueueClosed,
             };
         }
 
         pub fn tryRecv(self: Self) ?T {
-            const events = self.events orelse return null;
+            _ = self.events orelse return null;
             const sub = self.subscription orelse return null;
-            var buffer: [1]T = undefined;
-            const count = sub.queue.get(events.io.*, &buffer, 0) catch |err| switch (err) {
-                error.Closed, error.Canceled => return null,
-            };
-            if (count == 0) return null;
-            return buffer[0];
+            return sub.tryRecv();
         }
 
         pub fn next(self: Self) ?T {
@@ -354,6 +281,7 @@ test "events trySend reports full queues" {
 
 // Imports
 const std = @import("std");
+const common = @import("common");
 const App = @import("App.zig");
 const Commands = @import("Commands.zig");
 const World = @import("World.zig");

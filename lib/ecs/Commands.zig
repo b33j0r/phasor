@@ -224,14 +224,14 @@ pub const CommandBatch = struct {
     }
 };
 
-pub fn flushToQueue(commands: *Self, queue: *std.Io.Queue(CommandBatch)) !void {
+pub fn flushToChannel(commands: *Self, channel: *common.Channel(CommandBatch)) !void {
     if (commands.commands.items.len == 0) return;
     const owned = try commands.commands.toOwnedSlice(commands.allocator);
     const batch = CommandBatch{
         .allocator = commands.allocator,
         .commands = owned,
     };
-    queue.putOneUncancelable(commands.io.*, batch) catch |err| {
+    channel.send(batch) catch |err| {
         commands.commands = .{
             .items = owned,
             .capacity = owned.len,
@@ -240,10 +240,37 @@ pub fn flushToQueue(commands: *Self, queue: *std.Io.Queue(CommandBatch)) !void {
     };
 }
 
+test "commands flush batches through common channel" {
+    const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var world = World.init(allocator);
+    defer world.deinit();
+
+    var commands = Self.init(allocator, &io, &world);
+    defer commands.deinit();
+
+    const Marker = struct { value: u32 };
+    try commands.insertResource(Marker{ .value = 42 });
+
+    var channel = try common.Channel(CommandBatch).init(allocator, &io, 2);
+    defer channel.deinit();
+
+    try commands.flushToChannel(&channel);
+    var batch = try channel.recv();
+    defer batch.deinit();
+
+    try batch.apply(&world);
+    try std.testing.expectEqual(@as(u32, 42), world.getResource(Marker).?.value);
+}
+
 const Entity = db.Entity;
 
 // Imports
 const std = @import("std");
+const common = @import("common");
 const db = @import("db");
 const Command = @import("Command.zig");
 const World = @import("World.zig");

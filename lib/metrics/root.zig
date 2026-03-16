@@ -121,15 +121,15 @@ pub inline fn emitBus(comptime enabled: bool, bus: *Bus, payload: anytype) void 
 pub fn tryEmitBus(bus: *Bus, payload: anytype) !void {
     if (!bus.enabled) return;
     const metric_event = try buildEvent(payload);
-    try putMetric(bus.channel.io.*, bus, metric_event);
+    try putMetric(bus, metric_event);
 }
 
-fn putMetric(io: std.Io, bus: *Bus, metric_event: Event) !void {
+fn putMetric(bus: *Bus, metric_event: Event) !void {
     if (builtin.target.cpu.arch.isWasm()) {
-        _ = try bus.channel.put(io, &.{metric_event}, 0);
+        _ = try bus.channel.trySend(metric_event);
         return;
     }
-    try bus.channel.putOneUncancelable(io, metric_event);
+    try bus.channel.send(metric_event);
 }
 
 fn buildEvent(payload: anytype) !Event {

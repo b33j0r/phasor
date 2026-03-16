@@ -32,6 +32,7 @@ pub const Vec3 = vec.Vec3;
 pub const Mat4 = mat4.Mat4;
 pub const Quat = quat.Quat;
 pub const Channel = channel.Channel;
+pub const Broadcast = channel.Broadcast;
 pub const Camera3d = camera.Camera3d;
 pub const ViewportLayout = layout.ViewportLayout;
 pub const LayoutValue = layout.LayoutValue;

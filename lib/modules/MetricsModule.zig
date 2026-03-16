@@ -567,15 +567,8 @@ fn metricBool(store: *metrics.Store, name: []const u8, fallback: bool) bool {
 }
 
 fn drainMetrics(bus: *metrics.Bus, store: *metrics.Store) void {
-    var buffer: [8]metrics.Event = undefined;
-    while (true) {
-        const count = bus.channel.get(bus.channel.io.*, &buffer, 0) catch |err| switch (err) {
-            error.Closed, error.Canceled => return,
-        };
-        if (count == 0) return;
-        for (buffer[0..count]) |event| {
-            store.applyEvent(event);
-        }
+    while (bus.channel.tryRecv()) |event| {
+        store.applyEvent(event);
     }
 }
 
