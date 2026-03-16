@@ -13,6 +13,7 @@ pub fn renderSystem(
     present_query: Query(.{render.PostProcessPresentSlot}),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
+    state.submit_scratch.clearFrame();
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
     const post_process_shader_library = commands.getResourceMut(render.PostProcessShaderLibrary) orelse return;
@@ -48,19 +49,17 @@ pub fn renderSystem(
         render.Size{ .width = @intFromFloat(vp.width), .height = @intFromFloat(vp.height) }
     else
         surface_size;
-    var post_process_passes = try collectPostProcessPasses(commands.allocator, ordered_post_process, unordered_post_process);
-    defer post_process_passes.deinit(commands.allocator);
-    const processed_max_layer = resolveProcessedMaxLayer(post_process_passes.items);
-    const scene_target = if (post_process_passes.items.len > 0) blk: {
+    const post_process_passes = try collectPostProcessPasses(&state.submit_scratch, ordered_post_process, unordered_post_process);
+    const processed_max_layer = resolveProcessedMaxLayer(post_process_passes);
+    const scene_target = if (post_process_passes.len > 0) blk: {
         break :blk try frameTargetForSlot(&state.renderer, 0, surface_size);
     } else render.FrameTarget.surface;
     try frame.beginScenePass(scene_target, clear);
 
-    const layers = try collectLayers(commands.allocator, queue.ptr.items.items);
-    defer commands.allocator.free(layers);
+    const layers = try collectLayers(&state.submit_scratch, queue.ptr.items.items);
     try drawSceneLayers(
         &frame,
-        commands.allocator,
+        &state.submit_scratch,
         queue.ptr.items.items,
         layers,
         layer_cameras_opt.ptr,
@@ -76,10 +75,10 @@ pub fn renderSystem(
         .{ .max_layer = processed_max_layer },
     );
 
-    if (post_process_passes.items.len == 0) return;
+    if (post_process_passes.len == 0) return;
 
-    const present_slot = resolvePresentSlot(post_process_passes.items, present_query);
-    for (post_process_passes.items) |pass_item| {
+    const present_slot = resolvePresentSlot(post_process_passes, present_query);
+    for (post_process_passes) |pass_item| {
         const pass = pass_item.pass;
         if (pass.input_slot == pass.output_slot) continue;
         const shader = post_process_shader_library.get(pass.material.shader) orelse continue;
@@ -109,7 +108,7 @@ pub fn renderSystem(
         try frame.beginScenePassLoad(render.FrameTarget.surface);
         try drawSceneLayers(
             &frame,
-            commands.allocator,
+            &state.submit_scratch,
             queue.ptr.items.items,
             layers,
             layer_cameras_opt.ptr,
@@ -127,48 +126,14 @@ pub fn renderSystem(
     }
 }
 
-const BatchKey = struct {
-    mesh: render.MeshHandle,
-    material: usize,
-};
-
-const BatchItem = struct {
-    key: BatchKey,
-    mesh: render.Mesh,
-    material: render.BackendMaterial,
-    instance: render.BackendMeshInstance,
-};
-
-const ShaderBatchKey = struct {
-    mesh: render.MeshHandle,
-    shader: render.ShaderHandle,
-};
-
-const TexturedShaderBatchKey = struct {
-    mesh: render.MeshHandle,
-    shader: render.ShaderHandle,
-    material: usize,
-};
-
-const ShaderBatchItem = struct {
-    key: ShaderBatchKey,
-    mesh: render.Mesh,
-    shader: render.Shader,
-    instance: render.BackendMeshInstance,
-};
-
-const TexturedShaderBatchItem = struct {
-    key: TexturedShaderBatchKey,
-    mesh: render.Mesh,
-    shader: render.Shader,
-    material: render.BackendMaterial,
-    instance: render.BackendMeshInstance,
-};
-
-const PostProcessPassItem = struct {
-    order: i32,
-    pass: render.PostProcessPass,
-};
+const BatchKey = types.BatchKey;
+const BatchItem = types.BatchItem;
+const ShaderBatchKey = types.ShaderBatchKey;
+const TexturedShaderBatchKey = types.TexturedShaderBatchKey;
+const ShaderBatchItem = types.ShaderBatchItem;
+const TexturedShaderBatchItem = types.TexturedShaderBatchItem;
+const PostProcessPassItem = types.PostProcessPassItem;
+const BlendItem = types.BlendItem;
 
 const LayerFilter = struct {
     min_layer: ?i32 = null,
@@ -223,61 +188,58 @@ fn materialKey(material: render.BackendMaterial) usize {
     return @intFromPtr(material.bind_group);
 }
 
-fn collectLayers(allocator: std.mem.Allocator, items: []const render.RenderItem) ![]i32 {
-    var list: std.ArrayListUnmanaged(i32) = .empty;
-    defer list.deinit(allocator);
-
+fn collectLayers(scratch: *types.SubmitScratch, items: []const render.RenderItem) ![]const i32 {
+    scratch.layers.clearRetainingCapacity();
     for (items) |item| {
         const layer = switch (item) {
             .triangle => |tri| tri.layer,
             .mesh => |mesh| mesh.layer,
         };
-        try list.append(allocator, layer);
+        try scratch.layers.append(scratch.allocator, layer);
     }
 
-    if (list.items.len == 0) {
-        return allocator.alloc(i32, 0);
+    if (scratch.layers.items.len == 0) {
+        return scratch.layers.items;
     }
 
-    std.sort.pdq(i32, list.items, {}, std.sort.asc(i32));
+    std.sort.pdq(i32, scratch.layers.items, {}, std.sort.asc(i32));
 
     var unique_count: usize = 1;
-    for (list.items[1..]) |value| {
-        if (value != list.items[unique_count - 1]) {
-            list.items[unique_count] = value;
+    for (scratch.layers.items[1..]) |value| {
+        if (value != scratch.layers.items[unique_count - 1]) {
+            scratch.layers.items[unique_count] = value;
             unique_count += 1;
         }
     }
-
-    return allocator.dupe(i32, list.items[0..unique_count]);
+    scratch.layers.items.len = unique_count;
+    return scratch.layers.items;
 }
 
 fn collectPostProcessPasses(
-    allocator: std.mem.Allocator,
+    scratch: *types.SubmitScratch,
     ordered_query: Query(.{ render.PostProcessPass, render.PostProcessOrder }),
     unordered_query: Query(.{ render.PostProcessPass, Without(render.PostProcessOrder) }),
-) !std.ArrayListUnmanaged(PostProcessPassItem) {
-    var list: std.ArrayListUnmanaged(PostProcessPassItem) = .empty;
-
+) ![]const PostProcessPassItem {
+    scratch.post_process_passes.clearRetainingCapacity();
     var ordered_it = ordered_query.iterator();
     while (ordered_it.next()) |row| {
         const pass = row.get(render.PostProcessPass) orelse continue;
         const order = row.get(render.PostProcessOrder) orelse continue;
         if (!pass.enabled or !pass.material.shader.isValid()) continue;
-        try list.append(allocator, .{ .order = order.value, .pass = pass.* });
+        try scratch.post_process_passes.append(scratch.allocator, .{ .order = order.value, .pass = pass.* });
     }
 
     var unordered_it = unordered_query.iterator();
     while (unordered_it.next()) |row| {
         const pass = row.get(render.PostProcessPass) orelse continue;
         if (!pass.enabled or !pass.material.shader.isValid()) continue;
-        try list.append(allocator, .{ .order = 0, .pass = pass.* });
+        try scratch.post_process_passes.append(scratch.allocator, .{ .order = 0, .pass = pass.* });
     }
 
-    if (list.items.len > 1) {
-        std.sort.pdq(PostProcessPassItem, list.items, {}, postProcessPassLessThan);
+    if (scratch.post_process_passes.items.len > 1) {
+        std.sort.pdq(PostProcessPassItem, scratch.post_process_passes.items, {}, postProcessPassLessThan);
     }
-    return list;
+    return scratch.post_process_passes.items;
 }
 
 fn resolveProcessedMaxLayer(passes: []const PostProcessPassItem) i32 {
@@ -307,7 +269,7 @@ fn layerIncluded(layer: i32, filter: LayerFilter) bool {
 
 fn drawSceneLayers(
     frame: *render.Frame,
-    allocator: std.mem.Allocator,
+    scratch: *types.SubmitScratch,
     items: []const render.RenderItem,
     layers: []const i32,
     layer_cameras: ?*const types.LayerCameras,
@@ -365,12 +327,9 @@ fn drawSceneLayers(
             null;
         frame.setSceneUniforms(buildSceneUniforms(camera, view_proj, extracted_lighting));
 
-        var batch_items: std.ArrayListUnmanaged(BatchItem) = .empty;
-        defer batch_items.deinit(allocator);
-        var shader_batch_items: std.ArrayListUnmanaged(ShaderBatchItem) = .empty;
-        defer shader_batch_items.deinit(allocator);
-        var textured_shader_batch_items: std.ArrayListUnmanaged(TexturedShaderBatchItem) = .empty;
-        defer textured_shader_batch_items.deinit(allocator);
+        scratch.batch_items.clearRetainingCapacity();
+        scratch.shader_batch_items.clearRetainingCapacity();
+        scratch.textured_shader_batch_items.clearRetainingCapacity();
 
         for (items) |item| {
             switch (item) {
@@ -406,7 +365,7 @@ fn drawSceneLayers(
                                     .mesh = instance.mesh_handle,
                                     .shader = shader_handle,
                                 };
-                                try shader_batch_items.append(allocator, .{
+                                try scratch.shader_batch_items.append(scratch.allocator, .{
                                     .key = key,
                                     .mesh = mesh.*,
                                     .shader = shader.*,
@@ -423,7 +382,7 @@ fn drawSceneLayers(
                                     .shader = shader_handle,
                                     .material = materialKey(material),
                                 };
-                                try textured_shader_batch_items.append(allocator, .{
+                                try scratch.textured_shader_batch_items.append(scratch.allocator, .{
                                     .key = key,
                                     .mesh = mesh.*,
                                     .shader = shader.*,
@@ -441,7 +400,7 @@ fn drawSceneLayers(
                                     .shader = shader_handle,
                                     .material = materialKey(material),
                                 };
-                                try textured_shader_batch_items.append(allocator, .{
+                                try scratch.textured_shader_batch_items.append(scratch.allocator, .{
                                     .key = key,
                                     .mesh = mesh.*,
                                     .shader = shader.*,
@@ -461,7 +420,7 @@ fn drawSceneLayers(
                         .mesh = instance.mesh_handle,
                         .material = materialKey(material),
                     };
-                    try batch_items.append(allocator, .{
+                    try scratch.batch_items.append(scratch.allocator, .{
                         .key = key,
                         .mesh = mesh.*,
                         .material = material,
@@ -471,83 +430,76 @@ fn drawSceneLayers(
             }
         }
 
-        if (batch_items.items.len > 0) {
-            std.sort.pdq(BatchItem, batch_items.items, {}, batchItemLessThan);
-            var batch_instances: std.ArrayListUnmanaged(render.BackendMeshInstance) = .empty;
-            defer batch_instances.deinit(allocator);
-
+        if (scratch.batch_items.items.len > 0) {
+            std.sort.pdq(BatchItem, scratch.batch_items.items, {}, batchItemLessThan);
+            scratch.batch_instances.clearRetainingCapacity();
             var idx: usize = 0;
-            while (idx < batch_items.items.len) {
-                const first = batch_items.items[idx];
+            while (idx < scratch.batch_items.items.len) {
+                const first = scratch.batch_items.items[idx];
                 const key = first.key;
-                batch_instances.clearRetainingCapacity();
-                try batch_instances.append(allocator, first.instance);
+                scratch.batch_instances.clearRetainingCapacity();
+                try scratch.batch_instances.append(scratch.allocator, first.instance);
                 idx += 1;
-                while (idx < batch_items.items.len and batchKeyEqual(batch_items.items[idx].key, key)) : (idx += 1) {
-                    try batch_instances.append(allocator, batch_items.items[idx].instance);
+                while (idx < scratch.batch_items.items.len and batchKeyEqual(scratch.batch_items.items[idx].key, key)) : (idx += 1) {
+                    try scratch.batch_instances.append(scratch.allocator, scratch.batch_items.items[idx].instance);
                 }
                 const max_instances: usize = render.max_instances_per_draw;
                 var start: usize = 0;
-                while (start < batch_instances.items.len) {
-                    const end = @min(start + max_instances, batch_instances.items.len);
-                    frame.drawTexturedQuads(first.mesh, first.material, batch_instances.items[start..end], false);
+                while (start < scratch.batch_instances.items.len) {
+                    const end = @min(start + max_instances, scratch.batch_instances.items.len);
+                    frame.drawTexturedQuads(first.mesh, first.material, scratch.batch_instances.items[start..end], false);
                     start = end;
                 }
             }
         }
 
-        if (shader_batch_items.items.len > 0) {
-            std.sort.pdq(ShaderBatchItem, shader_batch_items.items, {}, shaderBatchItemLessThan);
-            var shader_instances: std.ArrayListUnmanaged(render.BackendMeshInstance) = .empty;
-            defer shader_instances.deinit(allocator);
-
+        if (scratch.shader_batch_items.items.len > 0) {
+            std.sort.pdq(ShaderBatchItem, scratch.shader_batch_items.items, {}, shaderBatchItemLessThan);
+            scratch.shader_instances.clearRetainingCapacity();
             var idx_shader: usize = 0;
-            while (idx_shader < shader_batch_items.items.len) {
-                const first = shader_batch_items.items[idx_shader];
+            while (idx_shader < scratch.shader_batch_items.items.len) {
+                const first = scratch.shader_batch_items.items[idx_shader];
                 const key = first.key;
-                shader_instances.clearRetainingCapacity();
-                try shader_instances.append(allocator, first.instance);
+                scratch.shader_instances.clearRetainingCapacity();
+                try scratch.shader_instances.append(scratch.allocator, first.instance);
                 idx_shader += 1;
-                while (idx_shader < shader_batch_items.items.len and shaderBatchKeyEqual(shader_batch_items.items[idx_shader].key, key)) : (idx_shader += 1) {
-                    try shader_instances.append(allocator, shader_batch_items.items[idx_shader].instance);
+                while (idx_shader < scratch.shader_batch_items.items.len and shaderBatchKeyEqual(scratch.shader_batch_items.items[idx_shader].key, key)) : (idx_shader += 1) {
+                    try scratch.shader_instances.append(scratch.allocator, scratch.shader_batch_items.items[idx_shader].instance);
                 }
                 const max_instances: usize = render.max_instances_per_draw;
                 var start: usize = 0;
-                while (start < shader_instances.items.len) {
-                    const end = @min(start + max_instances, shader_instances.items.len);
-                    frame.drawColoredMeshes(first.mesh, first.shader, shader_instances.items[start..end], false);
+                while (start < scratch.shader_instances.items.len) {
+                    const end = @min(start + max_instances, scratch.shader_instances.items.len);
+                    frame.drawColoredMeshes(first.mesh, first.shader, scratch.shader_instances.items[start..end], false);
                     start = end;
                 }
             }
         }
 
-        if (textured_shader_batch_items.items.len > 0) {
-            std.sort.pdq(TexturedShaderBatchItem, textured_shader_batch_items.items, {}, texturedShaderBatchItemLessThan);
-            var shader_instances: std.ArrayListUnmanaged(render.BackendMeshInstance) = .empty;
-            defer shader_instances.deinit(allocator);
-
+        if (scratch.textured_shader_batch_items.items.len > 0) {
+            std.sort.pdq(TexturedShaderBatchItem, scratch.textured_shader_batch_items.items, {}, texturedShaderBatchItemLessThan);
+            scratch.textured_shader_instances.clearRetainingCapacity();
             var idx_shader: usize = 0;
-            while (idx_shader < textured_shader_batch_items.items.len) {
-                const first = textured_shader_batch_items.items[idx_shader];
+            while (idx_shader < scratch.textured_shader_batch_items.items.len) {
+                const first = scratch.textured_shader_batch_items.items[idx_shader];
                 const key = first.key;
-                shader_instances.clearRetainingCapacity();
-                try shader_instances.append(allocator, first.instance);
+                scratch.textured_shader_instances.clearRetainingCapacity();
+                try scratch.textured_shader_instances.append(scratch.allocator, first.instance);
                 idx_shader += 1;
-                while (idx_shader < textured_shader_batch_items.items.len and texturedShaderBatchKeyEqual(textured_shader_batch_items.items[idx_shader].key, key)) : (idx_shader += 1) {
-                    try shader_instances.append(allocator, textured_shader_batch_items.items[idx_shader].instance);
+                while (idx_shader < scratch.textured_shader_batch_items.items.len and texturedShaderBatchKeyEqual(scratch.textured_shader_batch_items.items[idx_shader].key, key)) : (idx_shader += 1) {
+                    try scratch.textured_shader_instances.append(scratch.allocator, scratch.textured_shader_batch_items.items[idx_shader].instance);
                 }
                 const max_instances: usize = render.max_instances_per_draw;
                 var start: usize = 0;
-                while (start < shader_instances.items.len) {
-                    const end = @min(start + max_instances, shader_instances.items.len);
-                    frame.drawTexturedMeshesWithShader(first.mesh, first.material, first.shader, shader_instances.items[start..end], false);
+                while (start < scratch.textured_shader_instances.items.len) {
+                    const end = @min(start + max_instances, scratch.textured_shader_instances.items.len);
+                    frame.drawTexturedMeshesWithShader(first.mesh, first.material, first.shader, scratch.textured_shader_instances.items[start..end], false);
                     start = end;
                 }
             }
         }
 
-        var blended: std.ArrayListUnmanaged(BlendItem) = .empty;
-        defer blended.deinit(allocator);
+        scratch.blended.clearRetainingCapacity();
 
         for (items) |item| {
             switch (item) {
@@ -587,7 +539,7 @@ fn drawSceneLayers(
                         (material_library.get(handle) orelse continue).*
                     else
                         instance.material orelse default_material;
-                    try blended.append(allocator, .{
+                    try scratch.blended.append(scratch.allocator, .{
                         .sort_key = instance.sort_key,
                         .depth = clipDepth(clip_model),
                         .entity_id = instance.entity_id,
@@ -600,11 +552,11 @@ fn drawSceneLayers(
             }
         }
 
-        if (blended.items.len > 1) {
-            std.sort.pdq(BlendItem, blended.items, {}, blendItemLessThan);
+        if (scratch.blended.items.len > 1) {
+            std.sort.pdq(BlendItem, scratch.blended.items, {}, blendItemLessThan);
         }
 
-        for (blended.items) |draw| {
+        for (scratch.blended.items) |draw| {
             frame.draw(.{ .textured_quad = .{
                 .mesh = draw.mesh,
                 .material = draw.material,
@@ -808,15 +760,6 @@ fn positionToNdcTopLeft(pos: common.Vec2, size: render.Size) common.Vec2 {
     const y = 1.0 - (pos.y / h) * 2.0;
     return .{ .x = x, .y = y };
 }
-
-const BlendItem = struct {
-    sort_key: i32,
-    depth: f32,
-    entity_id: u64,
-    mesh: render.Mesh,
-    material: render.BackendMaterial,
-    instance: render.BackendMeshInstance,
-};
 
 fn resolveModel(transform: common.Mat4, view_proj: ?common.Mat4) common.Mat4 {
     if (view_proj) |vp| {

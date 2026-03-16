@@ -110,6 +110,7 @@ fn initRenderer(commands: *Commands) !void {
         .default_sampler = sampler,
         .default_texture = texture,
         .default_material = material,
+        .submit_scratch = render_types.SubmitScratch.init(commands.allocator),
     });
 
     try commands.insertResource(render.DefaultFont{ .font = font });

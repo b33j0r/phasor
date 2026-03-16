@@ -8,8 +8,10 @@ pub const RenderState = struct {
     default_sampler: render.Sampler,
     default_texture: render.Texture,
     default_material: render.BackendMaterial,
+    submit_scratch: SubmitScratch,
 
     pub fn deinit(self: *RenderState) void {
+        self.submit_scratch.deinit();
         self.renderer.destroyMaterial(&self.default_material);
         self.renderer.destroyTexture(&self.default_texture);
         self.renderer.destroySampler(&self.default_sampler);
@@ -122,6 +124,102 @@ pub const LayerCamera = struct {
     transform: common.Transform,
 };
 
+pub const BatchKey = struct {
+    mesh: render.MeshHandle,
+    material: usize,
+};
+
+pub const BatchItem = struct {
+    key: BatchKey,
+    mesh: render.Mesh,
+    material: render.BackendMaterial,
+    instance: render.BackendMeshInstance,
+};
+
+pub const ShaderBatchKey = struct {
+    mesh: render.MeshHandle,
+    shader: render.ShaderHandle,
+};
+
+pub const TexturedShaderBatchKey = struct {
+    mesh: render.MeshHandle,
+    shader: render.ShaderHandle,
+    material: usize,
+};
+
+pub const ShaderBatchItem = struct {
+    key: ShaderBatchKey,
+    mesh: render.Mesh,
+    shader: render.Shader,
+    instance: render.BackendMeshInstance,
+};
+
+pub const TexturedShaderBatchItem = struct {
+    key: TexturedShaderBatchKey,
+    mesh: render.Mesh,
+    shader: render.Shader,
+    material: render.BackendMaterial,
+    instance: render.BackendMeshInstance,
+};
+
+pub const BlendItem = struct {
+    sort_key: i32,
+    depth: f32,
+    entity_id: u64,
+    mesh: render.Mesh,
+    material: render.BackendMaterial,
+    instance: render.BackendMeshInstance,
+};
+
+pub const PostProcessPassItem = struct {
+    order: i32,
+    pass: render.PostProcessPass,
+};
+
+pub const SubmitScratch = struct {
+    allocator: std.mem.Allocator,
+    layers: std.ArrayListUnmanaged(i32) = .empty,
+    post_process_passes: std.ArrayListUnmanaged(PostProcessPassItem) = .empty,
+    batch_items: std.ArrayListUnmanaged(BatchItem) = .empty,
+    shader_batch_items: std.ArrayListUnmanaged(ShaderBatchItem) = .empty,
+    textured_shader_batch_items: std.ArrayListUnmanaged(TexturedShaderBatchItem) = .empty,
+    batch_instances: std.ArrayListUnmanaged(render.BackendMeshInstance) = .empty,
+    shader_instances: std.ArrayListUnmanaged(render.BackendMeshInstance) = .empty,
+    textured_shader_instances: std.ArrayListUnmanaged(render.BackendMeshInstance) = .empty,
+    blended: std.ArrayListUnmanaged(BlendItem) = .empty,
+
+    pub fn init(allocator: std.mem.Allocator) SubmitScratch {
+        return .{
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *SubmitScratch) void {
+        self.layers.deinit(self.allocator);
+        self.post_process_passes.deinit(self.allocator);
+        self.batch_items.deinit(self.allocator);
+        self.shader_batch_items.deinit(self.allocator);
+        self.textured_shader_batch_items.deinit(self.allocator);
+        self.batch_instances.deinit(self.allocator);
+        self.shader_instances.deinit(self.allocator);
+        self.textured_shader_instances.deinit(self.allocator);
+        self.blended.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    pub fn clearFrame(self: *SubmitScratch) void {
+        self.layers.clearRetainingCapacity();
+        self.post_process_passes.clearRetainingCapacity();
+        self.batch_items.clearRetainingCapacity();
+        self.shader_batch_items.clearRetainingCapacity();
+        self.textured_shader_batch_items.clearRetainingCapacity();
+        self.batch_instances.clearRetainingCapacity();
+        self.shader_instances.clearRetainingCapacity();
+        self.textured_shader_instances.clearRetainingCapacity();
+        self.blended.clearRetainingCapacity();
+    }
+};
+
 pub fn cameraLayerKeyForRow(row: db.QueryResult.Row) i32 {
     const table = &row.database.tables.items[row.table_index];
     const trait_id = db.meta.typeId(render.CameraLayerN);
@@ -138,3 +236,4 @@ const std = @import("std");
 const common = @import("common");
 const render = @import("render");
 const db = @import("db");
+const ecs = @import("ecs");
