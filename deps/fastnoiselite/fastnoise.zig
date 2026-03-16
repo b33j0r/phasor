@@ -52,6 +52,11 @@
 const std = @import("std");
 const expect = std.testing.expect;
 
+fn exhaustiveTestsEnabled() bool {
+    const root = @import("root");
+    return @hasDecl(root, "enable_fastnoise_exhaustive_tests") and root.enable_fastnoise_exhaustive_tests;
+}
+
 /// A constant prime-number used in x-axis calculations.
 const prime_x: i32 = 501125321;
 /// A constant prime-number used in y-axis calculations.
@@ -1911,6 +1916,8 @@ test "reference all" {
 }
 
 test "range of all 2D noise/fractal combinations" {
+    if (!exhaustiveTestsEnabled()) return error.SkipZigTest;
+
     const size = 768;
     var noise = Noise(f32){};
 
@@ -1929,6 +1936,8 @@ test "range of all 2D noise/fractal combinations" {
 }
 
 test "range of all 3D noise/fractal combinations" {
+    if (!exhaustiveTestsEnabled()) return error.SkipZigTest;
+
     const size = 64;
     var noise = Noise(f32){};
 
@@ -1947,6 +1956,8 @@ test "range of all 3D noise/fractal combinations" {
 }
 
 test "range of all 2D cellular return/distance combinations (f64)" {
+    if (!exhaustiveTestsEnabled()) return error.SkipZigTest;
+
     const size = 768;
     var noise = Noise(f64){
         .noise_type = .cellular,
@@ -1965,6 +1976,8 @@ test "range of all 2D cellular return/distance combinations (f64)" {
 }
 
 test "range of all 3D cellular return/distance combinations" {
+    if (!exhaustiveTestsEnabled()) return error.SkipZigTest;
+
     const size = 96;
     var noise = Noise(f32){
         .noise_type = .cellular,

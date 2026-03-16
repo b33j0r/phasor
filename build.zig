@@ -136,6 +136,7 @@ pub fn build(b: *std.Build) void {
     addWebExamples(&ctx, common.module, stb_image.module);
 
     const test_step = b.step("test", "Run tests");
+    const test_slow_step = b.step("test-slow", "Run tests including slow dependency suites");
     if (is_wasm) {
         addModuleTests(b, test_step, &.{
             common.tests,
@@ -147,7 +148,6 @@ pub fn build(b: *std.Build) void {
             stb.tests,
             stb_image.tests,
             cgltf.tests,
-            fastnoise.tests,
             metrics.tests,
             audio.tests,
             modules.tests,
@@ -169,7 +169,6 @@ pub fn build(b: *std.Build) void {
             stb.tests,
             stb_image.tests,
             cgltf.tests,
-            fastnoise.tests,
             metrics.tests,
             audio.tests,
             modules.tests,
@@ -181,6 +180,8 @@ pub fn build(b: *std.Build) void {
             window.?.tests,
         });
     }
+    test_slow_step.dependOn(test_step);
+    addModuleTests(b, test_slow_step, &.{fastnoise.tests});
 
     const exe_tests = b.addTest(.{
         .root_module = exe.root_module,
@@ -536,10 +537,19 @@ const FastNoiseModule = struct {
             .target = ctx.target,
             .optimize = ctx.optimize,
         });
+        const fastnoise_tests_mod = ctx.b.createModule(.{
+            .root_source_file = ctx.b.path("deps/fastnoiselite/exhaustive_tests.zig"),
+            .target = ctx.target,
+            .optimize = ctx.optimize,
+            .imports = &.{.{
+                .name = "fastnoise",
+                .module = fastnoise_mod,
+            }},
+        });
 
         return .{
             .module = fastnoise_mod,
-            .tests = ctx.b.addTest(.{ .root_module = fastnoise_mod }),
+            .tests = ctx.b.addTest(.{ .root_module = fastnoise_tests_mod }),
         };
     }
 };
