@@ -13,7 +13,7 @@ const sponza_metric_lines = [_]s.modules.MetricLine{
 
 const App = struct {
     pub const options = s.platform.Options{
-        .vsync = true,
+        .vsync = false,
         .window = .{
             .title = "Sponza",
             .width = 1440,

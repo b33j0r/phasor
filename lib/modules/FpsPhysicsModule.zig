@@ -3,9 +3,9 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
         pub const FpsController = struct {
             yaw: f32 = 0.0,
             pitch: f32 = 0.0,
-            move_speed: f32 = 8.0,
+            move_speed: f32 = 5.0,
             look_sensitivity: f32 = 0.003,
-            jump_speed: f32 = 6.5,
+            jump_speed: f32 = 5.0,
             radius: f32 = 0.35,
             height: f32 = 1.8,
             eye_offset_y: f32 = 0.5,
