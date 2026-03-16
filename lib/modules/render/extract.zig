@@ -82,13 +82,13 @@ fn buildSceneLight(transform: common.Transform, light: lighting.Light) render.Sc
         .point => |point| .{
             .position_range = .{ transform.translation.x, transform.translation.y, transform.translation.z, point.range },
             .direction_kind = .{ 0.0, 0.0, 0.0, @floatFromInt(@intFromEnum(render.SceneLightKind.point)) },
-            .color_intensity = .{ point.color.r, point.color.g, point.color.b, point.intensity_candela * 0.0025 },
+            .color_intensity = .{ point.color.r, point.color.g, point.color.b, point.intensity_candela * 0.0035 },
             .spot_params = .{ 1.0, 0.0, point.radius, 0.0 },
         },
         .spot => |spot| .{
             .position_range = .{ transform.translation.x, transform.translation.y, transform.translation.z, spot.range },
             .direction_kind = .{ forward.x, forward.y, forward.z, @floatFromInt(@intFromEnum(render.SceneLightKind.spot)) },
-            .color_intensity = .{ spot.color.r, spot.color.g, spot.color.b, spot.intensity_candela * 0.0025 },
+            .color_intensity = .{ spot.color.r, spot.color.g, spot.color.b, spot.intensity_candela * 0.0035 },
             .spot_params = .{ @cos(spot.inner_angle_rad), @cos(spot.outer_angle_rad), spot.radius, 0.0 },
         },
     };

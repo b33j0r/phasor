@@ -125,7 +125,8 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
             light_dir = normalize(-light.direction_kind.xyz);
         } else {
             let to_light = light.position_range.xyz - input.world_position;
-            let distance_sq = max(dot(to_light, to_light), 0.0001);
+            let min_radius = max(light.spot_params.z, 0.25);
+            let distance_sq = max(dot(to_light, to_light), min_radius * min_radius);
             let distance = sqrt(distance_sq);
             if (distance > light.position_range.w) {
                 i += 1u;
@@ -133,8 +134,9 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
             }
 
             light_dir = to_light / distance;
-            let falloff = saturate(1.0 - distance / max(light.position_range.w, 0.001));
-            attenuation = falloff * falloff;
+            let range_ratio = distance / max(light.position_range.w, 0.001);
+            let range_falloff = saturate(1.0 - pow(range_ratio, 4.0));
+            attenuation = (range_falloff * range_falloff) / distance_sq;
 
             if (kind == 2u) {
                 let cone = dot(normalize(-light.direction_kind.xyz), light_dir);

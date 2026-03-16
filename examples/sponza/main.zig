@@ -464,19 +464,19 @@ fn setupLighting(
 
     try commands.insertResource(lighting.AmbientLight{
         .color = .{ .r = 0.65, .g = 0.68, .b = 0.74, .a = 1.0 },
-        .intensity = 0.002,
+        .intensity = 0.001,
     });
     try commands.insertResource(lighting.ExposureSettings{
         .enabled = true,
-        .exposure = 1.1,
+        .exposure = 0.9,
     });
     try commands.insertResource(try lighting.buildEnvironmentLightFromHdrBytes(
         commands.allocator,
         sponza_panorama_bytes,
         .{
-            .intensity = 0.18,
-            .diffuse_strength = 1.0,
-            .specular_strength = 0.55,
+            .intensity = 0.05,
+            .diffuse_strength = 0.8,
+            .specular_strength = 0.18,
         },
     ));
 
