@@ -456,9 +456,6 @@ fn updateStatusOverlay(
     scene_assets: Res(Assets),
     scene_ready: ResOpt(SceneReady),
     spawn_plan: ResOpt(SceneSpawnPlan),
-    scene_metrics: ResOpt(SceneMetrics),
-    imported: ResOpt(assets.ImportedScene),
-    lighting_stats: ResOpt(lighting.AuthoringStats),
     overlay: ResMut(StatusOverlay),
     texts: Query(.{ render.Text, Transform, StatusTextTag }),
 ) void {
