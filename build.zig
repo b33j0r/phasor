@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
     });
     const lighting = LightingModuleLib.build(&ctx, .{
         .common = common.module,
+        .stb_image = stb_image.module,
     });
     const metrics = MetricsModule.build(&ctx, .{
         .common = common.module,
@@ -132,7 +133,7 @@ pub fn build(b: *std.Build) void {
     sponza_example.run_native_step.dependOn(fetch_sponza.prepare_step);
     addEcsQueryCacheBenchmark(&ctx, phasor.module);
 
-    addWebExamples(&ctx, common.module);
+    addWebExamples(&ctx, common.module, stb_image.module);
 
     const test_step = b.step("test", "Run tests");
     if (is_wasm) {
@@ -789,11 +790,13 @@ const LightingModuleLib = struct {
 
     const Deps = struct {
         common: *std.Build.Module,
+        stb_image: *std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) LightingModuleLib {
         const bundle = ctx.moduleBundle("lib/lighting/root.zig", &.{
             .{ .name = "common", .module = deps.common },
+            .{ .name = "stb_image", .module = deps.stb_image },
         });
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
@@ -1123,7 +1126,7 @@ fn addWasmExample(
     run_https_step.dependOn(&run_server_https.step);
 }
 
-fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module) void {
+fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module, stb_image: *std.Build.Module) void {
     const wasm_target = ctx.b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
@@ -1168,6 +1171,7 @@ fn addWebExamples(ctx: *const BuildContext, common: *std.Build.Module) void {
         .optimize = ctx.optimize,
         .imports = &.{
             .{ .name = "common", .module = wasm_common },
+            .{ .name = "stb_image", .module = stb_image },
         },
     });
     const wasm_physics = ctx.b.createModule(.{

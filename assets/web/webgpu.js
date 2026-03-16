@@ -14,6 +14,7 @@ const wasmUrl = new URL("app.wasm", import.meta.url);
 const triangleShaderUrl = new URL("shaders/triangle.wgsl", import.meta.url);
 const quadShaderUrl = new URL("shaders/quad.wgsl", import.meta.url);
 const meshTexturedShaderUrl = new URL("shaders/mesh_textured.wgsl", import.meta.url);
+const sceneUniformsSize = 2352;
 
 const ctxs = new Map();
 let nextCtxId = 1;
@@ -116,6 +117,33 @@ function mapKeyboardEvent(event) {
 
 function getMemoryView() {
   return new DataView(memory.buffer);
+}
+
+function float32ToFloat16(value) {
+  if (!Number.isFinite(value)) {
+    return value > 0 ? 0x7c00 : 0xfc00;
+  }
+  if (value === 0) {
+    return (1 / value) === -Infinity ? 0x8000 : 0;
+  }
+
+  const floatView = new Float32Array(1);
+  const intView = new Uint32Array(floatView.buffer);
+  floatView[0] = value;
+  const bits = intView[0];
+  const sign = (bits >>> 16) & 0x8000;
+  let exponent = ((bits >>> 23) & 0xff) - 127 + 15;
+  let mantissa = bits & 0x7fffff;
+
+  if (exponent <= 0) {
+    if (exponent < -10) return sign;
+    mantissa = (mantissa | 0x800000) >>> (1 - exponent);
+    return sign | ((mantissa + 0x1000) >>> 13);
+  }
+  if (exponent >= 0x1f) {
+    return sign | 0x7c00;
+  }
+  return sign | (exponent << 10) | ((mantissa + 0x1000) >>> 13);
 }
 
 function ensureAudioContext() {
@@ -483,7 +511,7 @@ function createPipelines(ctx) {
       {
         binding: 2,
         visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform", minBindingSize: 2160 },
+        buffer: { type: "uniform", minBindingSize: sceneUniformsSize },
       },
     ],
   });
@@ -491,7 +519,7 @@ function createPipelines(ctx) {
     bindGroupLayouts: [ctx.sceneBindGroupLayout],
   });
   ctx.sceneUniformBuffer = ctx.device.createBuffer({
-    size: 2160,
+    size: sceneUniformsSize,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
   webgpuCreates.samplers += 1;
@@ -1778,6 +1806,44 @@ const imports = {
       ctx.textures.push({ texture, view });
       return handle;
     },
+    webgpu_create_texture_rgba16f(ctxId, _samplerHandle, dataPtr, dataLen, width, height) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const texture = ctx.device.createTexture({
+        size: { width, height },
+        format: "rgba16float",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      webgpuCreates.textures += 1;
+      const view = texture.createView();
+      webgpuCreates.textureViews += 1;
+      const bytesPerRow = width * 8;
+      const alignedBpr = Math.ceil(bytesPerRow / 256) * 256;
+      const src = new Float32Array(memory.buffer, dataPtr, dataLen);
+      const padded = new Uint16Array((alignedBpr / 2) * height);
+      const pixelStride = 4;
+      for (let row = 0; row < height; row += 1) {
+        const srcRow = row * width * pixelStride;
+        const dstRow = row * (alignedBpr / 2);
+        for (let x = 0; x < width; x += 1) {
+          const srcBase = srcRow + x * pixelStride;
+          const dstBase = dstRow + x * pixelStride;
+          padded[dstBase + 0] = float32ToFloat16(src[srcBase + 0]);
+          padded[dstBase + 1] = float32ToFloat16(src[srcBase + 1]);
+          padded[dstBase + 2] = float32ToFloat16(src[srcBase + 2]);
+          padded[dstBase + 3] = float32ToFloat16(src[srcBase + 3]);
+        }
+      }
+      ctx.queue.writeTexture(
+        { texture },
+        padded,
+        { bytesPerRow: alignedBpr },
+        { width, height }
+      );
+      const handle = ctx.textures.length;
+      ctx.textures.push({ texture, view });
+      return handle;
+    },
     webgpu_destroy_texture(ctxId, handle) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
@@ -1811,7 +1877,7 @@ const imports = {
             resource: {
               buffer: ctx.sceneUniformBuffer,
               offset: 0,
-              size: 2160,
+              size: sceneUniformsSize,
             },
           },
         ],

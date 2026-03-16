@@ -13,5 +13,7 @@ pub const PointLight = components.PointLight;
 pub const SpotLight = components.SpotLight;
 
 pub const AmbientLight = resources.AmbientLight;
+pub const EnvironmentLight = resources.EnvironmentLight;
 pub const ExposureSettings = resources.ExposureSettings;
 pub const AuthoringStats = resources.AuthoringStats;
+pub const buildEnvironmentLightFromHdrBytes = @import("environment.zig").buildEnvironmentLightFromHdrBytes;

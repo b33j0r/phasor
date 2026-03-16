@@ -650,7 +650,26 @@ fn buildSceneUniforms(
         extracted_lighting.ambient_color.b,
         1.0,
     };
+    uniforms.exposure_settings = .{
+        extracted_lighting.exposure,
+        if (extracted_lighting.exposure_enabled) 1.0 else 0.0,
+        extracted_lighting.environment_intensity * extracted_lighting.environment_diffuse_strength,
+        extracted_lighting.environment_intensity * extracted_lighting.environment_specular_strength,
+    };
+    uniforms.environment_dominant_direction = .{
+        extracted_lighting.environment_dominant_direction.x,
+        extracted_lighting.environment_dominant_direction.y,
+        extracted_lighting.environment_dominant_direction.z,
+        0.0,
+    };
+    uniforms.environment_dominant_color = .{
+        extracted_lighting.environment_dominant_color.r,
+        extracted_lighting.environment_dominant_color.g,
+        extracted_lighting.environment_dominant_color.b,
+        1.0,
+    };
     uniforms.light_counts[0] = extracted_lighting.light_count;
+    uniforms.environment_irradiance_sh = extracted_lighting.environment_irradiance_sh;
     var i: usize = 0;
     while (i < extracted_lighting.light_count and i < render.max_scene_lights) : (i += 1) {
         uniforms.lights[i] = extracted_lighting.lights[i];

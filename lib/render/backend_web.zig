@@ -213,6 +213,7 @@ extern "env" fn webgpu_create_sampler(ctx: u32) u32;
 extern "env" fn webgpu_create_sampler_desc(ctx: u32, mag_filter: u32, min_filter: u32, mipmap_filter: u32, address_mode_u: u32, address_mode_v: u32, address_mode_w: u32) u32;
 extern "env" fn webgpu_destroy_sampler(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_texture_rgba8(ctx: u32, sampler_handle: u32, data_ptr: [*]const u8, data_len: usize, width: u32, height: u32) u32;
+extern "env" fn webgpu_create_texture_rgba16f(ctx: u32, sampler_handle: u32, data_ptr: [*]const f32, data_len: usize, width: u32, height: u32) u32;
 extern "env" fn webgpu_destroy_texture(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_mesh(ctx: u32, vertex_layout: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) u32;
 extern "env" fn webgpu_update_mesh(ctx: u32, handle: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) void;
@@ -281,6 +282,15 @@ pub const Renderer = struct {
 
     pub fn createTextureRgba8(self: *Renderer, width: u32, height: u32, data: []const u8) !Texture {
         const handle = webgpu_create_texture_rgba8(self.ctx, 0, data.ptr, data.len, width, height);
+        return Texture{
+            .handle = handle,
+            .width = width,
+            .height = height,
+        };
+    }
+
+    pub fn createTextureRgba16Float(self: *Renderer, width: u32, height: u32, data: []const f32) !Texture {
+        const handle = webgpu_create_texture_rgba16f(self.ctx, 0, data.ptr, data.len, width, height);
         return Texture{
             .handle = handle,
             .width = width,

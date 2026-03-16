@@ -2,6 +2,8 @@ pub fn extractSystem(
     queue: ResMut(render.RenderQueue),
     extracted_lighting: ResMut(types.ExtractedSceneLighting),
     ambient_light: ResOpt(lighting.AmbientLight),
+    environment_light: ResOpt(lighting.EnvironmentLight),
+    exposure_settings: ResOpt(lighting.ExposureSettings),
     mesh_override_query: Query(.{ render.MeshInstance, common.Transform, render.LayerOverride }),
     mesh_zero_query: Query(.{ render.MeshInstance, common.Transform, render.Layer(0), Without(render.LayerOverride) }),
     mesh_unlayered_query: Query(.{ render.MeshInstance, common.Transform, Without(render.LayerN), Without(render.LayerOverride) }),
@@ -22,6 +24,18 @@ pub fn extractSystem(
             .b = ambient.color.b * ambient.intensity,
             .a = 1.0,
         };
+    }
+    if (environment_light.ptr) |environment| {
+        extracted_lighting.ptr.environment_intensity = environment.intensity;
+        extracted_lighting.ptr.environment_diffuse_strength = environment.diffuse_strength;
+        extracted_lighting.ptr.environment_specular_strength = environment.specular_strength;
+        extracted_lighting.ptr.environment_dominant_direction = environment.dominant_direction;
+        extracted_lighting.ptr.environment_dominant_color = environment.dominant_color;
+        extracted_lighting.ptr.environment_irradiance_sh = environment.irradiance_sh;
+    }
+    if (exposure_settings.ptr) |settings| {
+        extracted_lighting.ptr.exposure_enabled = settings.enabled;
+        extracted_lighting.ptr.exposure = settings.exposure;
     }
     extractLights(extracted_lighting.ptr, visible_lights, true);
     extractLights(extracted_lighting.ptr, untagged_lights, false);

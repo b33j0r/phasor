@@ -2,6 +2,9 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(lighting.AmbientLight)) {
         try commands.insertResource(lighting.AmbientLight{});
     }
+    if (!commands.hasResource(lighting.EnvironmentLight)) {
+        try commands.insertResource(lighting.EnvironmentLight{});
+    }
     if (!commands.hasResource(lighting.ExposureSettings)) {
         try commands.insertResource(lighting.ExposureSettings{});
     }
@@ -16,6 +19,7 @@ pub fn uninstall(app: *AppCommands, commands: *Commands) void {
     app.removeSystem(syncAuthoringStats);
     _ = commands.removeResource(lighting.AuthoringStats);
     _ = commands.removeResource(lighting.ExposureSettings);
+    _ = commands.removeResource(lighting.EnvironmentLight);
     _ = commands.removeResource(lighting.AmbientLight);
 }
 

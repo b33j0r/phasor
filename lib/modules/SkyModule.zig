@@ -1,5 +1,6 @@
 pub const PanoramaSky = struct {
     material: render.Material,
+    shader_handle: render.ShaderHandle = render.ShaderHandle.invalid(),
     size: f32 = 220.0,
     follow_camera: bool = true,
     face_segments: u16 = 24,
@@ -49,12 +50,12 @@ fn buildPanoramaSkies(
         const center = transform.translation;
         const layer = layerKeyForRow(row);
 
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .front, sky.follow_camera, segments, layer);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .right, sky.follow_camera, segments, layer);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .back, sky.follow_camera, segments, layer);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .left, sky.follow_camera, segments, layer);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .top, sky.follow_camera, segments, layer);
-        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.material, center, size, .bottom, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.*, center, size, .front, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.*, center, size, .right, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.*, center, size, .back, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.*, center, size, .left, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.*, center, size, .top, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, sky.*, center, size, .bottom, sky.follow_camera, segments, layer);
         try commands.addComponent(row.entity_id, PanoramaBuilt{});
     }
 }
@@ -117,7 +118,7 @@ fn spawnPanoramaFace(
     commands: *Commands,
     mesh_library: *render.MeshLibrary,
     renderer_state: *render.Renderer,
-    material: render.Material,
+    sky: PanoramaSky,
     center: common.Vec3,
     size: f32,
     face: Face,
@@ -126,7 +127,15 @@ fn spawnPanoramaFace(
     layer: i32,
 ) !void {
     const spec = faceSpec(face, size);
-    const mesh = try createPanoramaFaceMesh(commands.allocator, mesh_library, renderer_state, size, spec, segments);
+    const mesh = try createPanoramaFaceMesh(
+        commands.allocator,
+        mesh_library,
+        renderer_state,
+        size,
+        spec,
+        segments,
+        sky.shader_handle.isValid(),
+    );
     _ = try commands.createEntity(.{
         common.Transform{
             .translation = center.add(spec.offset),
@@ -135,7 +144,8 @@ fn spawnPanoramaFace(
         },
         render.MeshInstance{
             .mesh_handle = mesh,
-            .material = material,
+            .shader_handle = sky.shader_handle,
+            .material = sky.material,
             .color = common.Color.WHITE,
         },
         render.LayerOverride{ .value = layer },
@@ -230,18 +240,40 @@ fn createPanoramaFaceMesh(
     size: f32,
     spec: FaceSpec,
     segments: u16,
+    use_pos3_mesh: bool,
 ) !render.MeshHandle {
     const half = size * 0.5;
     const seg_count: usize = @intCast(segments);
+    var indices: std.ArrayListUnmanaged(u16) = .empty;
+    defer indices.deinit(allocator);
+    try indices.ensureTotalCapacity(allocator, seg_count * seg_count * 6);
+    if (use_pos3_mesh) {
+        var vertices: std.ArrayListUnmanaged(render.VertexPos3Uv) = .empty;
+        defer vertices.deinit(allocator);
+        try vertices.ensureTotalCapacity(allocator, seg_count * seg_count * 4);
+        try appendPanoramaFaceVertices(render.VertexPos3Uv, allocator, &vertices, &indices, size, spec, segments, half);
+        return mesh_library.addMeshPos3Uv(renderer_state, vertices.items, indices.items);
+    }
 
     var vertices: std.ArrayListUnmanaged(render.VertexUv) = .empty;
     defer vertices.deinit(allocator);
-    var indices: std.ArrayListUnmanaged(u16) = .empty;
-    defer indices.deinit(allocator);
-
     try vertices.ensureTotalCapacity(allocator, seg_count * seg_count * 4);
-    try indices.ensureTotalCapacity(allocator, seg_count * seg_count * 6);
+    try appendPanoramaFaceVertices(render.VertexUv, allocator, &vertices, &indices, size, spec, segments, half);
+    return mesh_library.addMesh(renderer_state, vertices.items, indices.items);
+}
 
+fn appendPanoramaFaceVertices(
+    comptime VertexT: type,
+    allocator: std.mem.Allocator,
+    vertices: *std.ArrayListUnmanaged(VertexT),
+    indices: *std.ArrayListUnmanaged(u16),
+    size: f32,
+    spec: FaceSpec,
+    segments: u16,
+    half: f32,
+) !void {
+    _ = size;
+    const seg_count: usize = @intCast(segments);
     const inv_segments: f32 = 1.0 / @as(f32, @floatFromInt(segments));
 
     var y: usize = 0;
@@ -274,10 +306,10 @@ fn createPanoramaFaceMesh(
             const idx2: u16 = @intCast(base + 2);
             const idx3: u16 = @intCast(base + 3);
 
-            try vertices.append(allocator, .{ .position = .{ x0, y0 }, .uv = .{ uvs[0].x, uvs[0].y } });
-            try vertices.append(allocator, .{ .position = .{ x1, y0 }, .uv = .{ uvs[1].x, uvs[1].y } });
-            try vertices.append(allocator, .{ .position = .{ x1, y1 }, .uv = .{ uvs[2].x, uvs[2].y } });
-            try vertices.append(allocator, .{ .position = .{ x0, y1 }, .uv = .{ uvs[3].x, uvs[3].y } });
+            try vertices.append(allocator, makePanoramaVertex(VertexT, x0, y0, uvs[0]));
+            try vertices.append(allocator, makePanoramaVertex(VertexT, x1, y0, uvs[1]));
+            try vertices.append(allocator, makePanoramaVertex(VertexT, x1, y1, uvs[2]));
+            try vertices.append(allocator, makePanoramaVertex(VertexT, x0, y1, uvs[3]));
 
             try indices.append(allocator, idx0);
             try indices.append(allocator, idx1);
@@ -287,8 +319,19 @@ fn createPanoramaFaceMesh(
             try indices.append(allocator, idx0);
         }
     }
+}
 
-    return mesh_library.addMesh(renderer_state, vertices.items, indices.items);
+fn makePanoramaVertex(comptime VertexT: type, x: f32, y: f32, uv: common.Vec2) VertexT {
+    if (VertexT == render.VertexPos3Uv) {
+        return .{
+            .position = .{ x, y, 0.0 },
+            .uv = .{ uv.x, uv.y },
+        };
+    }
+    return .{
+        .position = .{ x, y },
+        .uv = .{ uv.x, uv.y },
+    };
 }
 
 fn quatFromEuler(pitch: f32, yaw: f32, roll: f32) common.Quat {

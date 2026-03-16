@@ -9,7 +9,11 @@ struct SceneUniforms {
     view_proj: mat4x4<f32>,
     camera_position: vec4<f32>,
     ambient_color: vec4<f32>,
+    exposure_settings: vec4<f32>,
+    environment_dominant_direction: vec4<f32>,
+    environment_dominant_color: vec4<f32>,
     light_counts: vec4<u32>,
+    environment_irradiance_sh: array<vec4<f32>, 9>,
     lights: array<SceneLight, 32>,
 };
 
@@ -44,6 +48,38 @@ fn saturate(value: f32) -> f32 {
     return clamp(value, 0.0, 1.0);
 }
 
+fn evaluateIrradiance(normal: vec3<f32>) -> vec3<f32> {
+    let x = normal.x;
+    let y = normal.y;
+    let z = normal.z;
+    let basis = array<f32, 9>(
+        0.282095,
+        0.488603 * y,
+        0.488603 * z,
+        0.488603 * x,
+        1.092548 * x * y,
+        1.092548 * y * z,
+        0.315392 * (3.0 * z * z - 1.0),
+        1.092548 * x * z,
+        0.546274 * (x * x - y * y),
+    );
+
+    var irradiance = vec3<f32>(0.0, 0.0, 0.0);
+    for (var i: u32 = 0u; i < 9u; i += 1u) {
+        irradiance += scene.environment_irradiance_sh[i].rgb * basis[i];
+    }
+    return max(irradiance, vec3<f32>(0.0, 0.0, 0.0));
+}
+
+fn toneMapAces(color: vec3<f32>) -> vec3<f32> {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 @vertex
 fn vs_main(input: VertexIn) -> VertexOut {
     let clip_model = mat4x4<f32>(input.clip0, input.clip1, input.clip2, input.clip3);
@@ -72,6 +108,7 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     let view_dir = normalize(scene.camera_position.xyz - input.world_position);
 
     var lighting = scene.ambient_color.rgb;
+    lighting += evaluateIrradiance(normal) * scene.exposure_settings.z;
     let light_count = min(scene.light_counts.x, 32u);
     var i: u32 = 0u;
     loop {
@@ -115,6 +152,12 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
         i += 1u;
     }
 
-    let lit_rgb = albedo.rgb * lighting;
+    let reflection = reflect(-view_dir, normal);
+    let env_alignment = saturate(dot(reflection, normalize(scene.environment_dominant_direction.xyz)));
+    let env_specular = scene.environment_dominant_color.rgb * pow(env_alignment, 32.0) * scene.exposure_settings.w;
+    var lit_rgb = albedo.rgb * lighting + env_specular * 0.08;
+    if (scene.exposure_settings.y > 0.5) {
+        lit_rgb = toneMapAces(lit_rgb * scene.exposure_settings.x);
+    }
     return vec4<f32>(lit_rgb, albedo.a);
 }

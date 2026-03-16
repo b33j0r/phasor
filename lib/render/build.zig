@@ -95,6 +95,15 @@ pub const BuildContext = struct {
         return self.texture_library.addTexture(texture);
     }
 
+    pub fn createTextureRgba16Float(self: *const BuildContext, width: u32, height: u32, data: []const f32) !mesh.TextureHandle {
+        const texture = try self.renderer.createTextureRgba16Float(width, height, data);
+        errdefer {
+            var cleanup = texture;
+            self.renderer.destroyTexture(&cleanup);
+        }
+        return self.texture_library.addTexture(texture);
+    }
+
     pub fn destroyTexture(self: *const BuildContext, handle: mesh.TextureHandle) bool {
         return self.texture_library.destroyTexture(self.renderer, handle);
     }

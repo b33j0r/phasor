@@ -599,6 +599,68 @@ pub const Renderer = struct {
         };
     }
 
+    pub fn createTextureRgba16Float(self: *Renderer, width: u32, height: u32, data: []const f32) !Texture {
+        const texture = self.device.createTexture(&wgpu.TextureDescriptor{
+            .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
+            .format = .rgba16_float,
+            .usage = wgpu.TextureUsages.texture_binding | wgpu.TextureUsages.copy_dst,
+            .mip_level_count = 1,
+            .sample_count = 1,
+            .dimension = .@"2d",
+        }) orelse return error.TextureCreationFailed;
+        errdefer texture.release();
+
+        const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.TextureViewFailed;
+        errdefer view.release();
+
+        const pixel_count: usize = @intCast(width * height);
+        if (data.len != pixel_count * 4) return error.InvalidTextureData;
+
+        const bytes_per_row = width * 8;
+        const aligned_bpr = std.mem.alignForward(u32, bytes_per_row, 256);
+        const upload_len: usize = aligned_bpr * height;
+        const upload = try self.allocator.alloc(u8, upload_len);
+        defer self.allocator.free(upload);
+        @memset(upload, 0);
+
+        var row: u32 = 0;
+        while (row < height) : (row += 1) {
+            const src_row_start: usize = @intCast(row * width * 4);
+            const dst_row_start: usize = @intCast(row * aligned_bpr);
+            var x: u32 = 0;
+            while (x < width) : (x += 1) {
+                const src_base = src_row_start + @as(usize, @intCast(x)) * 4;
+                const dst_base = dst_row_start + @as(usize, @intCast(x)) * 8;
+                writeHalf4(upload[dst_base .. dst_base + 8], data[src_base .. src_base + 4]);
+            }
+        }
+
+        const layout = wgpu.TexelCopyBufferLayout{
+            .bytes_per_row = aligned_bpr,
+            .rows_per_image = height,
+        };
+        const dst = wgpu.TexelCopyTextureInfo{
+            .texture = texture,
+            .origin = .{},
+            .mip_level = 0,
+            .aspect = .all,
+        };
+        const copy_size = wgpu.Extent3D{
+            .width = width,
+            .height = height,
+            .depth_or_array_layers = 1,
+        };
+        self.queue.writeTexture(&dst, upload.ptr, upload.len, &layout, &copy_size);
+
+        return Texture{
+            .texture = texture,
+            .view = view,
+            .width = width,
+            .height = height,
+            .format = .rgba16_float,
+        };
+    }
+
     pub fn destroyTexture(_: *Renderer, texture: *Texture) void {
         destroyTextureStorage(texture);
     }
@@ -1447,6 +1509,16 @@ fn createPostProcessBindGroup(
 fn destroyTextureStorage(texture: *Texture) void {
     texture.view.release();
     texture.texture.release();
+}
+
+fn writeHalf4(dst: []u8, src: []const f32) void {
+    std.debug.assert(dst.len == 8);
+    std.debug.assert(src.len == 4);
+    var i: usize = 0;
+    while (i < 4) : (i += 1) {
+        const half_bits: u16 = @bitCast(@as(f16, @floatCast(src[i])));
+        std.mem.writeInt(u16, dst[i * 2 ..][0..2], half_bits, .little);
+    }
 }
 
 fn createTrianglePipeline(

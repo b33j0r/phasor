@@ -19,6 +19,7 @@ const FpsPhysics = modules.FpsPhysicsModule(Player);
 const FpsController = FpsPhysics.FpsController;
 
 const sponza_scene_path = "local/cache/sponza/source/Models/Sponza/glTF/Sponza.gltf";
+const sponza_panorama_bytes = @embedFile("assets/hdr/furstenstein_2k.hdr");
 const StatusOverlay = struct {
     buffer: [512]u8 = [_]u8{0} ** 512,
 };
@@ -96,6 +97,7 @@ const App = struct {
     pub fn configure(app: *ecs.App) !void {
         try platform.installDefaultModules(app);
         try app.installModule(modules.ParentModule);
+        try app.installModule(modules.SkyModule);
         try app.installModule(modules.LightingModule);
         try app.installModule(physics.PhysicsModule{
             .config = .{
@@ -166,6 +168,8 @@ fn setupScene(
     const scene_asset = &scene_assets.ptr.sponza;
     const scene_data = scene_asset.scene_data orelse return;
     if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
+    if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
+    if (!scene_assets.ptr.sky_shader.handle.isValid()) return error.SkyShaderMissing;
 
     const baked = try bakeSceneCollision(commands.allocator, &scene_data);
     defer commands.allocator.free(baked.collision_blob);
@@ -188,6 +192,24 @@ fn setupScene(
         },
         SceneRoot{},
         render.Layer(0){},
+    });
+
+    _ = try commands.createEntity(.{
+        Transform{
+            .translation = .{
+                .x = 0.0,
+                .y = scene_size.y * 0.35,
+                .z = 0.0,
+            },
+        },
+        modules.SkyModule.PanoramaSky{
+            .material = scene_assets.ptr.sky_panorama.material,
+            .shader_handle = scene_assets.ptr.sky_shader.handle,
+            .size = @max(@max(scene_size.x, scene_size.y), scene_size.z) * 4.0,
+            .follow_camera = true,
+            .face_segments = 56,
+        },
+        render.Layer(-1){},
     });
 
     var parsed_collision = try physics.CollisionBake.mesh_formats.parseAlloc(commands.allocator, baked.collision_blob);
@@ -286,6 +308,7 @@ fn spawnPlayerFromCollision(
             .near = 0.05,
             .far = 250.0,
         } },
+        CameraLayer(-1){},
         CameraLayer(0){},
     });
 
@@ -441,8 +464,21 @@ fn setupLighting(
 
     try commands.insertResource(lighting.AmbientLight{
         .color = .{ .r = 0.65, .g = 0.68, .b = 0.74, .a = 1.0 },
-        .intensity = 0.025,
+        .intensity = 0.002,
     });
+    try commands.insertResource(lighting.ExposureSettings{
+        .enabled = true,
+        .exposure = 1.1,
+    });
+    try commands.insertResource(try lighting.buildEnvironmentLightFromHdrBytes(
+        commands.allocator,
+        sponza_panorama_bytes,
+        .{
+            .intensity = 0.18,
+            .diffuse_strength = 1.0,
+            .specular_strength = 0.55,
+        },
+    ));
 
     _ = try commands.createEntity(.{
         Transform{
@@ -1038,9 +1074,15 @@ fn spinnerFrame(seconds: f64) u8 {
 
 const Assets = struct {
     sponza: assets.Scene = .file(sponza_scene_path),
+    sky_panorama: assets.Texture = assets.Texture.embedded(sponza_panorama_bytes).asHdr().asOpaque().equirectangularLinear(),
     scene_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/scene_passthrough.wgsl"),
         .vertex_layout = .pos3_norm_uv2,
+        .binding_mode = .material_scene,
+    },
+    sky_shader: assets.Shader = .{
+        .wgsl_source = @embedFile("shaders/sky_panorama_hdr.wgsl"),
+        .vertex_layout = .pos3_uv2,
         .binding_mode = .material_scene,
     },
 };
