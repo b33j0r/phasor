@@ -461,7 +461,7 @@ fn updateStatusOverlay(
         ) catch "Sponza: spawning..."
     else blk: {
         const imported_scene = imported.ptr orelse break :blk "Sponza: ready";
-        const scene_size = if (scene_metrics.ptr) |metrics| metrics.scene_size else imported_scene.bounds.size();
+        const scene_size = if (scene_metrics.ptr) |scene_metrics_res| scene_metrics_res.scene_size else imported_scene.bounds.size();
         const light_stats = if (lighting_stats.ptr) |stats| stats.* else lighting.AuthoringStats{};
         break :blk std.fmt.bufPrint(
             &overlay.ptr.buffer,
@@ -513,8 +513,8 @@ fn setupLighting(
     if (commands.hasResource(LightingReady)) return;
     if (scene_ready.ptr == null) return;
 
-    const scene_size = if (scene_metrics.ptr) |metrics|
-        metrics.scene_size
+    const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
+        scene_metrics_res.scene_size
     else
         Vec3{ .x = 40.0, .y = 20.0, .z = 40.0 };
 
