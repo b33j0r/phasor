@@ -1,15 +1,11 @@
-const std = @import("std");
-const s = @import("shared.zig");
-const phases = @import("phases.zig");
+pub fn ensureSceneLoader(commands: *ecs.Commands) !void {
+    if (commands.hasResource(SceneLoaderState)) return;
 
-pub fn ensureSceneLoader(commands: *s.ecs.Commands) !void {
-    if (commands.hasResource(s.SceneLoaderState)) return;
-
-    var loader = try s.SceneLoaderState.init(commands.allocator, commands.io);
+    var loader = try SceneLoaderState.init(commands.allocator, commands.io);
     errdefer loader.deinit();
-    try loader.agent.start(commands.io.*, runSceneLoader, s.SceneLoaderTaskContext{
+    try loader.agent.start(commands.io.*, runSceneLoader, SceneLoaderTaskContext{
         .allocator = commands.allocator,
-        .path = s.sponza_scene_path,
+        .path = sponza_scene_path,
     });
     loader.started = true;
     loader.progress = .{ .label = "1/7 locating cached assets", .fraction = 0.02 };
@@ -17,53 +13,53 @@ pub fn ensureSceneLoader(commands: *s.ecs.Commands) !void {
 }
 
 pub fn ensureLoadingScreenVisuals(
-    commands: *s.ecs.Commands,
-    build_ctx: s.ResOpt(s.render.BuildContext),
-    scene_assets: s.ResMut(s.Assets),
-    screen_state: s.ResOpt(s.LoadingScreenState),
-    current_phase: s.ResOpt(phases.SponzaPhases.CurrentPhase),
+    commands: *ecs.Commands,
+    build_ctx: ResOpt(render.BuildContext),
+    scene_assets: ResMut(Assets),
+    screen_state: ResOpt(LoadingScreenState),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) !void {
     if (screen_state.ptr == null) return;
     const phase = current_phase.ptr orelse return;
     if (phase.phase != .Loading) return;
-    if (commands.hasResource(s.LoadingScreenVisualState)) return;
+    if (commands.hasResource(LoadingScreenVisualState)) return;
 
     const build_ctx_res = build_ctx.ptr orelse return;
     if (!scene_assets.ptr.color_shader.handle.isValid()) return error.ColorShaderMissing;
 
     const mesh_handle = try createUiRectMesh(commands.allocator, build_ctx_res, 1.0, 1.0);
-    const shader_material = s.render.Material.withShader(scene_assets.ptr.color_shader.handle);
+    const shader_material = render.Material.withShader(scene_assets.ptr.color_shader.handle);
 
     const track_entity = try commands.createEntity(.{
-        s.Transform{},
-        s.MeshInstance{
+        Transform{},
+        MeshInstance{
             .mesh_handle = mesh_handle,
             .material = shader_material,
-            .color = s.Color.rgba(32, 32, 32, 230),
+            .color = Color.rgba(32, 32, 32, 230),
         },
-        s.render.Layer(1001){},
-        s.LoadingScreen{},
-        s.LoadingScreenBarTrack{},
+        render.Layer(1001){},
+        LoadingScreen{},
+        LoadingScreenBarTrack{},
     });
     const fill_entity = try commands.createEntity(.{
-        s.Transform{},
-        s.MeshInstance{
+        Transform{},
+        MeshInstance{
             .mesh_handle = mesh_handle,
             .material = shader_material,
-            .color = s.Color.rgb(235, 235, 235),
+            .color = Color.rgb(235, 235, 235),
         },
-        s.render.Layer(1001){},
-        s.LoadingScreen{},
-        s.LoadingScreenBarFill{},
+        render.Layer(1001){},
+        LoadingScreen{},
+        LoadingScreenBarFill{},
     });
 
-    try commands.insertResource(s.LoadingScreenVisualState{
+    try commands.insertResource(LoadingScreenVisualState{
         .track_entity = track_entity,
         .fill_entity = fill_entity,
     });
 }
 
-pub fn drainSceneLoader(commands: *s.ecs.Commands, loader: s.ResMut(s.SceneLoaderState)) !void {
+pub fn drainSceneLoader(commands: *ecs.Commands, loader: ResMut(SceneLoaderState)) !void {
     while (loader.ptr.agent.tryRecv()) |message| {
         switch (message) {
             .progress => |progress| loader.ptr.progress = progress,
@@ -78,13 +74,13 @@ pub fn drainSceneLoader(commands: *s.ecs.Commands, loader: s.ResMut(s.SceneLoade
 }
 
 pub fn advanceSceneFinalize(
-    commands: *s.ecs.Commands,
-    build_ctx: s.ResOpt(s.render.BuildContext),
-    collision_store: s.ResMut(s.physics.CollisionMeshStore),
-    scene_assets: s.ResMut(s.Assets),
-    loader: s.ResMut(s.SceneLoaderState),
+    commands: *ecs.Commands,
+    build_ctx: ResOpt(render.BuildContext),
+    collision_store: ResMut(physics.CollisionMeshStore),
+    scene_assets: ResMut(Assets),
+    loader: ResMut(SceneLoaderState),
 ) !void {
-    if (commands.hasResource(s.SceneReady)) return;
+    if (commands.hasResource(SceneReady)) return;
     if (loader.ptr.failed != null) return;
 
     const build_ctx_res = build_ctx.ptr orelse return;
@@ -92,16 +88,16 @@ pub fn advanceSceneFinalize(
     if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
     if (!scene_assets.ptr.sky_shader.handle.isValid()) return error.SkyShaderMissing;
 
-    if (!commands.hasResource(s.SceneFinalizeState)) {
+    if (!commands.hasResource(SceneFinalizeState)) {
         if (loader.ptr.payload) |payload| {
             const bounds = payload.bake.bounds;
             const center = bounds.center();
-            const root_translation = s.Vec3{
+            const root_translation = Vec3{
                 .x = -center.x,
                 .y = -bounds.min.y,
                 .z = -center.z,
             };
-            try commands.insertResource(s.SceneFinalizeState{
+            try commands.insertResource(SceneFinalizeState{
                 .allocator = commands.allocator,
                 .payload = payload,
                 .root_translation = root_translation,
@@ -112,7 +108,7 @@ pub fn advanceSceneFinalize(
         return;
     }
 
-    const finalize = commands.getResourceMut(s.SceneFinalizeState) orelse return;
+    const finalize = commands.getResourceMut(SceneFinalizeState) orelse return;
     switch (finalize.stage) {
         .inspect_bake => {
             loader.ptr.progress = .{ .label = "5/7 validating collision bake", .fraction = 0.58 };
@@ -122,36 +118,36 @@ pub fn advanceSceneFinalize(
         .create_scene_root => {
             loader.ptr.progress = .{ .label = "6/7 creating scene root", .fraction = 0.64 };
             const root = try commands.createEntity(.{
-                s.Transform{
+                Transform{
                     .translation = finalize.root_translation,
                 },
-                s.SceneRoot{},
-                s.render.Layer(0){},
+                SceneRoot{},
+                render.Layer(0){},
             });
             finalize.scene_root = root;
 
             _ = try commands.createEntity(.{
-                s.Transform{
+                Transform{
                     .translation = .{
                         .x = 0.0,
                         .y = finalize.scene_size.y * 0.35,
                         .z = 0.0,
                     },
                 },
-                s.modules.SkyModule.PanoramaSky{
+                modules.SkyModule.PanoramaSky{
                     .material = scene_assets.ptr.sky_panorama.material,
                     .shader_handle = scene_assets.ptr.sky_shader.handle,
                     .size = @max(@max(finalize.scene_size.x, finalize.scene_size.y), finalize.scene_size.z) * 4.0,
                     .follow_camera = true,
                     .face_segments = 56,
                 },
-                s.render.Layer(-1){},
+                render.Layer(-1){},
             });
             finalize.stage = .parse_collision;
         },
         .parse_collision => {
             loader.ptr.progress = .{ .label = "6/7 decoding collision mesh", .fraction = 0.70 };
-            finalize.parsed_collision = try s.physics.CollisionBake.mesh_formats.parseAlloc(
+            finalize.parsed_collision = try physics.CollisionBake.mesh_formats.parseAlloc(
                 commands.allocator,
                 finalize.payload.bake.collision_blob,
             );
@@ -179,11 +175,11 @@ pub fn advanceSceneFinalize(
                 if (mesh.index_count < 3 or mesh.vertex_count == 0) continue;
                 const handle = try addCollisionSubmesh(commands.allocator, collision_store.ptr, parsed, mesh);
                 _ = try commands.createEntity(.{
-                    s.Transform{
+                    Transform{
                         .translation = finalize.root_translation,
                     },
-                    s.physics.Body{ .kind = .Static },
-                    s.physics.Collider{
+                    physics.Body{ .kind = .Static },
+                    physics.Collider{
                         .shape = .{ .TriangleMesh = handle },
                         .material = .{ .friction = 0.85, .restitution = 0.0 },
                         .collision = .{
@@ -223,33 +219,33 @@ pub fn advanceSceneFinalize(
             const imported = try finalize.payload.prepared_scene.completeApply(apply);
             finalize.scene_apply = null;
             try commands.insertResource(imported);
-            try commands.insertResource(s.SceneSpawnPlan{
+            try commands.insertResource(SceneSpawnPlan{
                 .scene_size = finalize.scene_size,
             });
-            try commands.insertResource(s.SceneMetrics{
+            try commands.insertResource(SceneMetrics{
                 .scene_size = finalize.scene_size,
             });
-            try commands.insertResource(s.SceneReady{});
-            try commands.insertResource(s.MouseCapture{ .enabled = true });
-            try commands.insertResource(s.ClearColor{ .color = s.Color.rgb(8, 10, 14) });
+            try commands.insertResource(SceneReady{});
+            try commands.insertResource(MouseCapture{ .enabled = true });
+            try commands.insertResource(ClearColor{ .color = Color.rgb(8, 10, 14) });
             loader.ptr.progress = .{ .label = "Ready", .fraction = 1.0 };
             try commands.insertResource(phases.SponzaPhases.NextPhase{ .phase = .{ .InGame = .{ .Playing = .{} } } });
-            _ = commands.removeResource(s.SceneFinalizeState);
+            _ = commands.removeResource(SceneFinalizeState);
         },
     }
 }
 
 pub fn updateLoadingScreen(
-    commands: *s.ecs.Commands,
-    elapsed: s.Res(s.ElapsedTime),
-    loader: s.ResOpt(s.SceneLoaderState),
-    current_phase: s.ResOpt(phases.SponzaPhases.CurrentPhase),
-    window_bounds_opt: s.ResOpt(s.common.WindowBounds),
-    texts: s.Query(.{ s.render.Text, s.Transform, s.LoadingScreenText }),
-    bar_tracks: s.Query(.{ s.Transform, s.MeshInstance, s.LoadingScreenBarTrack }),
-    bar_fills: s.Query(.{ s.Transform, s.MeshInstance, s.LoadingScreenBarFill }),
+    commands: *ecs.Commands,
+    elapsed: Res(ElapsedTime),
+    loader: ResOpt(SceneLoaderState),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    window_bounds_opt: ResOpt(common.WindowBounds),
+    texts: Query(.{ render.Text, Transform, LoadingScreenText }),
+    bar_tracks: Query(.{ Transform, MeshInstance, LoadingScreenBarTrack }),
+    bar_fills: Query(.{ Transform, MeshInstance, LoadingScreenBarFill }),
 ) void {
-    const screen_state = commands.getResourceMut(s.LoadingScreenState) orelse return;
+    const screen_state = commands.getResourceMut(LoadingScreenState) orelse return;
     const loader_state = loader.ptr;
     const spinner = spinnerFrame(elapsed.ptr.seconds);
     var header_buffer: [64]u8 = undefined;
@@ -263,7 +259,7 @@ pub fn updateLoadingScreen(
     const header = std.fmt.bufPrint(&header_buffer, "Sponza {c} {s}", .{ spinner, phase_name }) catch "Sponza";
 
     var bar_buffer: [20]u8 = undefined;
-    const progress = if (loader_state) |state| state.progress else s.SceneLoaderProgress{ .label = "Booting", .fraction = 0.0 };
+    const progress = if (loader_state) |state| state.progress else SceneLoaderProgress{ .label = "Booting", .fraction = 0.0 };
     const clamped_progress = std.math.clamp(progress.fraction, 0.0, 1.0);
     const filled = @min(@as(usize, @intFromFloat(clamped_progress * 20.0)), bar_buffer.len);
     for (&bar_buffer, 0..) |*slot, index| {
@@ -306,30 +302,30 @@ pub fn updateLoadingScreen(
 
     var it = texts.iterator();
     while (it.next()) |row| {
-        const text = row.get(s.render.Text) orelse continue;
-        const transform = row.get(s.Transform) orelse continue;
+        const text = row.get(render.Text) orelse continue;
+        const transform = row.get(Transform) orelse continue;
         transform.translation.x = width * 0.5;
         transform.translation.y = height * 0.5;
         text.content = message;
         text.font_size = 28.0;
-        text.color = s.Color.rgb(230, 232, 236);
+        text.color = Color.rgb(230, 232, 236);
         text.horizontal_alignment = .Center;
         text.vertical_alignment = .Center;
     }
 
     var track_it = bar_tracks.iterator();
     while (track_it.next()) |row| {
-        const transform = row.get(s.Transform) orelse continue;
-        const mesh = row.get(s.MeshInstance) orelse continue;
+        const transform = row.get(Transform) orelse continue;
+        const mesh = row.get(MeshInstance) orelse continue;
         transform.translation = .{ .x = bar_center_x, .y = bar_center_y, .z = 0.0 };
         transform.scale = .{ .x = bar_width, .y = bar_height, .z = 1.0 };
-        mesh.color = s.Color.rgba(32, 32, 32, 230);
+        mesh.color = Color.rgba(32, 32, 32, 230);
     }
 
     var fill_it = bar_fills.iterator();
     while (fill_it.next()) |row| {
-        const transform = row.get(s.Transform) orelse continue;
-        const mesh = row.get(s.MeshInstance) orelse continue;
+        const transform = row.get(Transform) orelse continue;
+        const mesh = row.get(MeshInstance) orelse continue;
         const fill_width = @max(4.0, bar_width * clamped_progress);
         transform.translation = .{
             .x = bar_center_x - (bar_width - fill_width) * 0.5,
@@ -338,34 +334,34 @@ pub fn updateLoadingScreen(
         };
         transform.scale = .{ .x = fill_width, .y = bar_height - 4.0, .z = 1.0 };
         mesh.color = if (loader_state != null and loader_state.?.failed == null)
-            s.Color.rgb(242, 242, 242)
+            Color.rgb(242, 242, 242)
         else
-            s.Color.rgb(196, 48, 48);
+            Color.rgb(196, 48, 48);
     }
 }
 
-pub fn unloadImportedScene(commands: *s.ecs.Commands) void {
-    _ = commands.removeResource(s.assets.ImportedScene);
-    _ = commands.removeResource(s.SceneReady);
-    _ = commands.removeResource(s.SceneSpawnPlan);
-    _ = commands.removeResource(s.SceneMetrics);
-    _ = commands.removeResource(s.SceneFinalizeState);
-    _ = commands.removeResource(s.SceneLoaderState);
-    _ = commands.removeResource(s.LightingReady);
-    _ = commands.removeResource(s.LoadingScreenState);
-    _ = commands.removeResource(s.LoadingScreenVisualState);
-    _ = commands.removeResource(s.HudCameraState);
+pub fn unloadImportedScene(commands: *ecs.Commands) void {
+    _ = commands.removeResource(assets.ImportedScene);
+    _ = commands.removeResource(SceneReady);
+    _ = commands.removeResource(SceneSpawnPlan);
+    _ = commands.removeResource(SceneMetrics);
+    _ = commands.removeResource(SceneFinalizeState);
+    _ = commands.removeResource(SceneLoaderState);
+    _ = commands.removeResource(LightingReady);
+    _ = commands.removeResource(LoadingScreenState);
+    _ = commands.removeResource(LoadingScreenVisualState);
+    _ = commands.removeResource(HudCameraState);
 }
 
 fn createUiRectMesh(
     allocator: std.mem.Allocator,
-    build_ctx: *const s.render.BuildContext,
+    build_ctx: *const render.BuildContext,
     width: f32,
     height: f32,
-) !s.render.MeshHandle {
+) !render.MeshHandle {
     const half_width = width * 0.5;
     const half_height = height * 0.5;
-    const vertices = [_]s.render.VertexPos3Color{
+    const vertices = [_]render.VertexPos3Color{
         .{ .position = .{ -half_width, -half_height, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
         .{ .position = .{ half_width, -half_height, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
         .{ .position = .{ half_width, half_height, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
@@ -382,14 +378,14 @@ fn spinnerFrame(seconds: f64) u8 {
     return frames[frame_index % frames.len];
 }
 
-fn bakeSceneCollision(allocator: std.mem.Allocator, scene_data: *const s.assets.SceneData) !s.SceneBake {
-    var builder = s.physics.CollisionBake.Builder.init(allocator);
+fn bakeSceneCollision(allocator: std.mem.Allocator, scene_data: *const assets.SceneData) !SceneBake {
+    var builder = physics.CollisionBake.Builder.init(allocator);
     defer builder.deinit();
 
-    var bounds: s.SceneBounds = .{};
+    var bounds: SceneBounds = .{};
     const roots = sceneRootNodes(scene_data);
     for (roots) |root_node_index| {
-        try appendNodeCollision(allocator, scene_data, root_node_index, s.Transform.identity(), &builder, &bounds);
+        try appendNodeCollision(allocator, scene_data, root_node_index, Transform.identity(), &builder, &bounds);
     }
 
     return .{
@@ -398,8 +394,8 @@ fn bakeSceneCollision(allocator: std.mem.Allocator, scene_data: *const s.assets.
     };
 }
 
-fn logCollisionBakeStats(allocator: std.mem.Allocator, baked: s.SceneBake) !void {
-    var parsed = try s.physics.CollisionBake.mesh_formats.parseAlloc(allocator, baked.collision_blob);
+fn logCollisionBakeStats(allocator: std.mem.Allocator, baked: SceneBake) !void {
+    var parsed = try physics.CollisionBake.mesh_formats.parseAlloc(allocator, baked.collision_blob);
     defer parsed.deinit(allocator);
 
     var max_index: u32 = 0;
@@ -425,7 +421,7 @@ fn logCollisionBakeStats(allocator: std.mem.Allocator, baked: s.SceneBake) !void
     try validateCollisionMeshes(parsed);
 }
 
-fn validateCollisionMeshes(parsed: s.physics.CollisionBake.File) !void {
+fn validateCollisionMeshes(parsed: physics.CollisionBake.File) !void {
     for (parsed.meshes, 0..) |mesh, mesh_index| {
         if (mesh.index_count == 0) continue;
 
@@ -450,11 +446,11 @@ fn validateCollisionMeshes(parsed: s.physics.CollisionBake.File) !void {
 
 fn addCollisionSubmesh(
     allocator: std.mem.Allocator,
-    collision_store: *s.physics.CollisionMeshStore,
-    parsed: s.physics.CollisionBake.File,
-    mesh: s.physics.CollisionBake.Mesh,
-) !s.physics.CollisionMeshHandle {
-    var builder = s.physics.CollisionBake.Builder.init(allocator);
+    collision_store: *physics.CollisionMeshStore,
+    parsed: physics.CollisionBake.File,
+    mesh: physics.CollisionBake.Mesh,
+) !physics.CollisionMeshHandle {
+    var builder = physics.CollisionBake.Builder.init(allocator);
     defer builder.deinit();
 
     const vertex_start: usize = mesh.first_vertex;
@@ -462,7 +458,7 @@ fn addCollisionSubmesh(
     const index_start: usize = mesh.first_index;
     const index_end: usize = mesh.first_index + mesh.index_count;
 
-    var positions = try allocator.alloc(s.Vec3, mesh.vertex_count);
+    var positions = try allocator.alloc(Vec3, mesh.vertex_count);
     defer allocator.free(positions);
     for (parsed.vertices[vertex_start..vertex_end], 0..) |vertex, i| {
         positions[i] = vertex.position;
@@ -498,7 +494,7 @@ fn addCollisionSubmesh(
     );
 }
 
-fn sceneRootNodes(scene_data: *const s.assets.SceneData) []const u32 {
+fn sceneRootNodes(scene_data: *const assets.SceneData) []const u32 {
     if (scene_data.default_scene) |default_scene| {
         if (default_scene < scene_data.scenes.len) {
             return scene_data.scenes[default_scene].root_nodes;
@@ -512,11 +508,11 @@ fn sceneRootNodes(scene_data: *const s.assets.SceneData) []const u32 {
 
 fn appendNodeCollision(
     allocator: std.mem.Allocator,
-    scene_data: *const s.assets.SceneData,
+    scene_data: *const assets.SceneData,
     node_index: u32,
-    parent_transform: s.Transform,
-    builder: *s.physics.CollisionBake.Builder,
-    bounds: *s.SceneBounds,
+    parent_transform: Transform,
+    builder: *physics.CollisionBake.Builder,
+    bounds: *SceneBounds,
 ) !void {
     if (node_index >= scene_data.nodes.len) return;
     const node = scene_data.nodes[node_index];
@@ -538,11 +534,11 @@ fn appendNodeCollision(
 
 fn appendPrimitiveCollision(
     allocator: std.mem.Allocator,
-    scene_data: *const s.assets.SceneData,
-    primitive: s.assets.scene.PrimitiveData,
-    transform: s.Transform,
-    builder: *s.physics.CollisionBake.Builder,
-    bounds: *s.SceneBounds,
+    scene_data: *const assets.SceneData,
+    primitive: assets.scene.PrimitiveData,
+    transform: Transform,
+    builder: *physics.CollisionBake.Builder,
+    bounds: *SceneBounds,
 ) !void {
     const position_accessor = primitive.position_accessor orelse return;
     if (position_accessor.element_type != .Vec3 or position_accessor.component_type != 5126) {
@@ -557,7 +553,7 @@ fn appendPrimitiveCollision(
     const indices = try buildTriangleIndicesU32(allocator, scene_data, primitive.indices_accessor, vertex_count);
     defer allocator.free(indices);
 
-    var positions = try allocator.alloc(s.Vec3, vertex_count);
+    var positions = try allocator.alloc(Vec3, vertex_count);
     defer allocator.free(positions);
     for (0..vertex_count) |i| {
         const local_pos = readVec3(position_bytes, positionMetaStride(position_meta), i);
@@ -574,8 +570,8 @@ fn appendPrimitiveCollision(
 
 fn buildTriangleIndicesU32(
     allocator: std.mem.Allocator,
-    scene_data: *const s.assets.SceneData,
-    indices_accessor: ?s.assets.scene.AccessorRef,
+    scene_data: *const assets.SceneData,
+    indices_accessor: ?assets.scene.AccessorRef,
     vertex_count: usize,
 ) ![]u32 {
     if (indices_accessor) |accessor| {
@@ -598,7 +594,7 @@ fn buildTriangleIndicesU32(
     return out;
 }
 
-fn localToWorld(local: s.common.LocalTransform) s.Transform {
+fn localToWorld(local: common.LocalTransform) Transform {
     return .{
         .translation = local.translation,
         .rotation = local.rotation,
@@ -606,7 +602,7 @@ fn localToWorld(local: s.common.LocalTransform) s.Transform {
     };
 }
 
-fn combineTransform(parent: s.Transform, local: s.Transform) s.Transform {
+fn combineTransform(parent: Transform, local: Transform) Transform {
     return .{
         .translation = parent.translation.add(parent.rotation.rotateVec3(mulVec3Components(parent.scale, local.translation))),
         .rotation = parent.rotation.mul(local.rotation),
@@ -614,11 +610,11 @@ fn combineTransform(parent: s.Transform, local: s.Transform) s.Transform {
     };
 }
 
-fn transformPoint(transform: s.Transform, point: s.Vec3) s.Vec3 {
+fn transformPoint(transform: Transform, point: Vec3) Vec3 {
     return transform.translation.add(transform.rotation.rotateVec3(mulVec3Components(transform.scale, point)));
 }
 
-fn mulVec3Components(a: s.Vec3, b: s.Vec3) s.Vec3 {
+fn mulVec3Components(a: Vec3, b: Vec3) Vec3 {
     return .{
         .x = a.x * b.x,
         .y = a.y * b.y,
@@ -626,7 +622,7 @@ fn mulVec3Components(a: s.Vec3, b: s.Vec3) s.Vec3 {
     };
 }
 
-fn positionMetaStride(meta: s.assets.scene.AccessorData) usize {
+fn positionMetaStride(meta: assets.scene.AccessorData) usize {
     if (meta.byte_stride != 0) return meta.byte_stride;
     return switch (meta.component_type) {
         5126 => 12,
@@ -634,7 +630,7 @@ fn positionMetaStride(meta: s.assets.scene.AccessorData) usize {
     };
 }
 
-fn readVec3(bytes: []const u8, stride: usize, index: usize) s.Vec3 {
+fn readVec3(bytes: []const u8, stride: usize, index: usize) Vec3 {
     const base = index * stride;
     return .{
         .x = readF32(bytes, base),
@@ -668,9 +664,9 @@ fn readU32(bytes: []const u8, stride: usize, index: usize) u32 {
 
 fn runSceneLoader(
     task_io: std.Io,
-    _: s.common.Channel(s.SceneLoaderCommand).Receiver,
-    outbox: s.common.Channel(s.SceneLoaderMessage).Sender,
-    ctx: s.SceneLoaderTaskContext,
+    _: common.Channel(SceneLoaderCommand).Receiver,
+    outbox: common.Channel(SceneLoaderMessage).Sender,
+    ctx: SceneLoaderTaskContext,
 ) anyerror!void {
     try outbox.send(.{ .progress = .{ .label = "1/7 locating cached assets", .fraction = 0.08 } });
 
@@ -678,7 +674,7 @@ fn runSceneLoader(
     defer ctx.allocator.free(resolved_z);
 
     try outbox.send(.{ .progress = .{ .label = "2/7 parsing glTF scene", .fraction = 0.20 } });
-    var scene_data = try s.assets.gltf.parseFromFile(ctx.allocator, resolved_z);
+    var scene_data = try assets.gltf.parseFromFile(ctx.allocator, resolved_z);
     errdefer scene_data.deinit();
 
     try outbox.send(.{ .progress = .{ .label = "3/7 baking collision meshes", .fraction = 0.34 } });
@@ -686,7 +682,7 @@ fn runSceneLoader(
     errdefer ctx.allocator.free(bake.collision_blob);
 
     try outbox.send(.{ .progress = .{ .label = "4/7 preparing render assets", .fraction = 0.50 } });
-    var prepared_scene = try s.assets.PreparedImportedScene.prepare(
+    var prepared_scene = try assets.PreparedImportedScene.prepare(
         ctx.allocator,
         &task_io,
         resolved_z,
@@ -701,3 +697,51 @@ fn runSceneLoader(
         .bake = bake,
     } });
 }
+
+// Imports
+const std = @import("std");
+const phasor = @import("phasor");
+const phases = @import("phases.zig");
+const shared = @import("shared.zig");
+
+const assets = phasor.assets;
+const common = phasor.common;
+const ecs = phasor.ecs;
+const modules = phasor.modules;
+const physics = phasor.physics;
+const render = phasor.renderer;
+
+const Query = ecs.system_params.Query;
+const Res = ecs.system_params.Res;
+const ResMut = ecs.system_params.ResMut;
+const ResOpt = ecs.system_params.ResOpt;
+
+const Assets = shared.Assets;
+const ClearColor = common.ClearColor;
+const Color = common.Color;
+const ElapsedTime = modules.TimeModule.ElapsedTime;
+const HudCameraState = shared.HudCameraState;
+const LightingReady = shared.LightingReady;
+const LoadingScreen = shared.LoadingScreen;
+const LoadingScreenBarFill = shared.LoadingScreenBarFill;
+const LoadingScreenBarTrack = shared.LoadingScreenBarTrack;
+const LoadingScreenState = shared.LoadingScreenState;
+const LoadingScreenText = shared.LoadingScreenText;
+const LoadingScreenVisualState = shared.LoadingScreenVisualState;
+const MeshInstance = render.MeshInstance;
+const MouseCapture = modules.InputModule.MouseCapture;
+const SceneBake = shared.SceneBake;
+const SceneBounds = shared.SceneBounds;
+const SceneFinalizeState = shared.SceneFinalizeState;
+const SceneLoaderCommand = shared.SceneLoaderCommand;
+const SceneLoaderMessage = shared.SceneLoaderMessage;
+const SceneLoaderProgress = shared.SceneLoaderProgress;
+const SceneLoaderState = shared.SceneLoaderState;
+const SceneLoaderTaskContext = shared.SceneLoaderTaskContext;
+const SceneMetrics = shared.SceneMetrics;
+const SceneReady = shared.SceneReady;
+const SceneRoot = shared.SceneRoot;
+const SceneSpawnPlan = shared.SceneSpawnPlan;
+const Transform = common.Transform;
+const Vec3 = common.Vec3;
+const sponza_scene_path = shared.sponza_scene_path;

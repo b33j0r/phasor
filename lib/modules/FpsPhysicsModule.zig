@@ -1,3 +1,23 @@
+pub const FpsControlInput = struct {
+    move_forward: f32 = 0.0,
+    move_right: f32 = 0.0,
+    look_delta_x: f32 = 0.0,
+    look_delta_y: f32 = 0.0,
+    look_key_yaw: f32 = 0.0,
+    look_key_pitch: f32 = 0.0,
+    jump_pressed: bool = false,
+    crouch_held: bool = false,
+    sprint_held: bool = false,
+
+    pub fn clearTransient(self: *FpsControlInput) void {
+        self.look_delta_x = 0.0;
+        self.look_delta_y = 0.0;
+        self.look_key_yaw = 0.0;
+        self.look_key_pitch = 0.0;
+        self.jump_pressed = false;
+    }
+};
+
 pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
     return struct {
         pub const FpsController = struct {
@@ -10,10 +30,8 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             height: f32 = 1.8,
             eye_offset_y: f32 = 0.5,
             sprint_enabled: bool = true,
-            sprint_key: InputModule.Key = .left_shift,
             sprint_multiplier: f32 = 1.7,
             crouch_enabled: bool = true,
-            crouch_key: InputModule.Key = .left_control,
             crouch_speed_multiplier: f32 = 0.45,
             crouch_height: f32 = 1.2,
             crouch_eye_offset_y: f32 = 0.4,
@@ -48,7 +66,6 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
 
         pub fn install(self: *const @This(), app: *AppCommands, cmds: *Commands) !void {
             if (!cmds.hasResource(TimeModule.DeltaTime)) return error.MissingTimeModule;
-            if (!cmds.hasResource(InputModule.Keyboard)) return error.MissingInputModule;
             if (!cmds.hasResource(physics.Config)) return error.MissingPhysicsModule;
             if (!cmds.hasResource(physics.BackendWorld)) return error.MissingPhysicsModule;
 
@@ -56,6 +73,9 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             try cmds.insertResource(FpsPhysicsSettings{
                 .max_intent_dt = self.max_intent_dt,
             });
+            if (!cmds.hasResource(FpsControlInput)) {
+                try cmds.insertResource(FpsControlInput{});
+            }
 
             try app.addSystem(self.intent_schedule, updateFpsControllerIntent);
         }
@@ -63,6 +83,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
         pub fn uninstall(_: *const @This(), app: *AppCommands, cmds: *Commands) void {
             app.removeSystem(updateFpsControllerIntent);
             _ = cmds.removeResource(FpsPhysicsSettings);
+            _ = cmds.removeResource(FpsControlInput);
         }
 
         pub fn capsuleHalfHeight(controller: FpsController) f32 {
@@ -108,8 +129,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             dt: Res(TimeModule.DeltaTime),
             physics_config: Res(physics.Config),
             world: ResMut(physics.BackendWorld),
-            keyboard_opt: ResOpt(InputModule.Keyboard),
-            mouse_opt: ResOpt(InputModule.Mouse),
+            control_input: ResMut(FpsControlInput),
             settings: Res(FpsPhysicsSettings),
             query: Query(.{
                 common.Transform,
@@ -120,8 +140,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                 ControlledTag,
             }),
         ) void {
-            const keyboard = keyboard_opt.ptr;
-            const mouse = mouse_opt.ptr;
+            const input = control_input.ptr;
             const raw_step: f32 = @floatCast(dt.deref().seconds);
             const step: f32 = @min(raw_step, settings.ptr.max_intent_dt);
             if (!(step > 0.0)) return;
@@ -137,17 +156,8 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                 var yaw_delta: f32 = 0.0;
                 var pitch_delta: f32 = 0.0;
 
-                if (mouse) |m| {
-                    yaw_delta -= m.delta_x * controller.look_sensitivity;
-                    pitch_delta -= m.delta_y * controller.look_sensitivity;
-                }
-
-                if (keyboard) |keys| {
-                    if (keys.isKeyDown(.left)) yaw_delta += 1.6 * step;
-                    if (keys.isKeyDown(.right)) yaw_delta -= 1.6 * step;
-                    if (keys.isKeyDown(.up)) pitch_delta += 1.2 * step;
-                    if (keys.isKeyDown(.down)) pitch_delta -= 1.2 * step;
-                }
+                yaw_delta += input.look_key_yaw - (input.look_delta_x * controller.look_sensitivity);
+                pitch_delta += input.look_key_pitch - (input.look_delta_y * controller.look_sensitivity);
 
                 controller.yaw += yaw_delta;
                 controller.pitch = std.math.clamp(controller.pitch + pitch_delta, -1.45, 1.45);
@@ -161,19 +171,14 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                 var wants_crouch = was_crouching;
                 var wants_sprint = false;
 
-                var desired = Vec3{};
-                if (keyboard) |keys| {
-                    if (keys.isKeyDown(.w)) desired = desired.add(forward_world);
-                    if (keys.isKeyDown(.s)) desired = desired.sub(forward_world);
-                    if (keys.isKeyDown(.d)) desired = desired.add(right_world);
-                    if (keys.isKeyDown(.a)) desired = desired.sub(right_world);
-                    if (keys.isKeyDown(.space)) controller.jump_buffer_timer = controller.jump_buffer_time;
-                    if (controller.crouch_enabled) {
-                        wants_crouch = keys.isKeyDown(controller.crouch_key);
-                    }
-                    if (controller.sprint_enabled and !wants_crouch) {
-                        wants_sprint = keys.isKeyDown(controller.sprint_key);
-                    }
+                if (input.jump_pressed) {
+                    controller.jump_buffer_timer = controller.jump_buffer_time;
+                }
+                if (controller.crouch_enabled) {
+                    wants_crouch = input.crouch_held;
+                }
+                if (controller.sprint_enabled and !wants_crouch) {
+                    wants_sprint = input.sprint_held;
                 }
 
                 if (was_crouching and !wants_crouch) {
@@ -184,6 +189,9 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                     applyCrouchState(commands, row.entity_id, transform, controller, collider, wants_crouch);
                 }
 
+                const input_forward = std.math.clamp(input.move_forward, -1.0, 1.0);
+                const input_right = std.math.clamp(input.move_right, -1.0, 1.0);
+                var desired = forward_world.scale(input_forward).add(right_world.scale(input_right));
                 desired.y = 0.0;
                 var desired_horizontal = Vec3{};
                 var speed = controller.move_speed;
@@ -226,6 +234,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
 
                 updateViewState(controller, step, desired_horizontal);
             }
+            input.clearTransient();
         }
 
         fn targetEyeOffsetY(controller: FpsController) f32 {
@@ -343,8 +352,6 @@ const Commands = ecs.Commands;
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
-const ResOpt = ecs.system_params.ResOpt;
 const Vec3 = common.Vec3;
 const Quat = common.Quat;
 const TimeModule = modules.TimeModule;
-const InputModule = modules.InputModule;

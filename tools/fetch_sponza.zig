@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const sponza_api_url = "https://api.github.com/repos/KhronosGroup/glTF-Sample-Assets/contents/Models/Sponza/glTF?ref=main";
-const sponza_cache_dir = "local/cache/sponza/source/Models/Sponza/glTF";
+const sponza_cache_dir = "examples/sponza/assets/sponza/glTF";
 const user_agent = "phasor-lite-fetch-sponza";
 
 const ApiEntry = struct {
@@ -81,7 +81,7 @@ fn invalidArguments(message: []const u8) error{InvalidArguments}!bool {
 fn printUsage() void {
     std.debug.print(
         \\Usage: zig build fetch-sponza [--refresh]
-        \\  --refresh  Re-download files even if they already exist in the local cache.
+        \\  --refresh  Re-download files even if they already exist in the example cache.
         ,
         .{},
     );

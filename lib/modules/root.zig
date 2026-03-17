@@ -19,6 +19,7 @@ test "import tests" {
     _ = NoiseModule;
     _ = SkyModule;
     _ = FpsPhysicsModule;
+    _ = FpsKeyBindingModule;
 }
 
 // Imports
@@ -64,3 +65,6 @@ pub const NoiseResource = @import("NoiseModule.zig").NoiseResource;
 pub const FastNoise = @import("NoiseModule.zig").FastNoise;
 pub const SkyModule = @import("SkyModule.zig");
 pub const FpsPhysicsModule = @import("FpsPhysicsModule.zig").FpsPhysicsModule;
+pub const FpsKeyBindingModule = @import("FpsKeyBindingModule.zig").FpsKeyBindingModule;
+pub const FpsKeyBindings = @import("FpsKeyBindingModule.zig").FpsKeyBindings;
+pub const FpsControlInput = @import("FpsPhysicsModule.zig").FpsControlInput;

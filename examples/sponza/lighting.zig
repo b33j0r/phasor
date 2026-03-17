@@ -1,30 +1,34 @@
-const std = @import("std");
-const s = @import("shared.zig");
+pub fn setupColorGrading(commands: *ecs.Commands) !void {
+    if (commands.hasResource(render.ColorGradingSettings)) return;
+    try commands.insertResource(render.ColorGradingSettings{
+        .grade = .filmic,
+    });
+}
 
 pub fn setupLighting(
-    commands: *s.ecs.Commands,
-    scene_ready: s.ResOpt(s.SceneReady),
-    scene_metrics: s.ResOpt(s.SceneMetrics),
+    commands: *ecs.Commands,
+    scene_ready: ResOpt(SceneReady),
+    scene_metrics: ResOpt(SceneMetrics),
 ) !void {
-    if (commands.hasResource(s.LightingReady)) return;
+    if (commands.hasResource(LightingReady)) return;
     if (scene_ready.ptr == null) return;
 
     const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
         scene_metrics_res.scene_size
     else
-        s.Vec3{ .x = 40.0, .y = 20.0, .z = 40.0 };
+        Vec3{ .x = 40.0, .y = 20.0, .z = 40.0 };
 
-    try commands.insertResource(s.lighting.AmbientLight{
+    try commands.insertResource(lighting.AmbientLight{
         .color = .{ .r = 0.65, .g = 0.68, .b = 0.74, .a = 1.0 },
         .intensity = 0.001,
     });
-    try commands.insertResource(s.lighting.ExposureSettings{
+    try commands.insertResource(lighting.ExposureSettings{
         .enabled = true,
         .exposure = 0.9,
     });
-    try commands.insertResource(try s.lighting.buildEnvironmentLightFromHdrBytes(
+    try commands.insertResource(try lighting.buildEnvironmentLightFromHdrBytes(
         commands.allocator,
-        s.sponza_panorama_bytes,
+        sponza_panorama_bytes,
         .{
             .intensity = 0.05,
             .diffuse_strength = 0.8,
@@ -33,19 +37,19 @@ pub fn setupLighting(
     ));
 
     _ = try commands.createEntity(.{
-        s.Transform{
+        Transform{
             .translation = .{
                 .x = 0.0,
                 .y = scene_size.y * 0.65,
                 .z = 0.0,
             },
-            .rotation = s.quatFromEuler(-0.95, 0.65, 0.0),
+            .rotation = quatFromEuler(-0.95, 0.65, 0.0),
         },
-        s.lighting.Light{ .directional = .{
+        lighting.Light{ .directional = .{
             .color = .{ .r = 1.0, .g = 0.95, .b = 0.86, .a = 1.0 },
             .illuminance_lux = 16000.0,
         } },
-        s.lighting.LightVisibility{
+        lighting.LightVisibility{
             .enabled = true,
             .casts_shadows = false,
             .is_static = true,
@@ -53,8 +57,8 @@ pub fn setupLighting(
     });
 
     const point_positions = [_]struct {
-        pos: s.Vec3,
-        color: s.Color.F32,
+        pos: Vec3,
+        color: Color.F32,
         intensity: f32,
         range: f32,
         dynamic: bool,
@@ -69,15 +73,15 @@ pub fn setupLighting(
 
     for (point_positions, 0..) |spec, i| {
         const entity = try commands.createEntity(.{
-            s.Transform{
+            Transform{
                 .translation = spec.pos,
             },
-            s.lighting.Light{ .point = .{
+            lighting.Light{ .point = .{
                 .color = spec.color,
                 .intensity_candela = spec.intensity,
                 .range = spec.range,
             } },
-            s.lighting.LightVisibility{
+            lighting.LightVisibility{
                 .enabled = true,
                 .casts_shadows = false,
                 .is_static = !spec.dynamic,
@@ -85,7 +89,7 @@ pub fn setupLighting(
         });
 
         if (spec.dynamic) {
-            try commands.addComponent(entity, s.AnimatedLight{
+            try commands.addComponent(entity, AnimatedLight{
                 .center = spec.pos,
                 .orbit_radius = if (i % 2 == 0) 1.1 else 0.9,
                 .angular_speed = if (i % 2 == 0) 0.65 else -0.75,
@@ -99,27 +103,27 @@ pub fn setupLighting(
     }
 
     _ = try commands.createEntity(.{
-        s.Transform{
+        Transform{
             .translation = .{
                 .x = 0.0,
                 .y = scene_size.y * 0.48,
                 .z = scene_size.z * 0.08,
             },
-            .rotation = s.quatFromEuler(-0.65, std.math.pi, 0.0),
+            .rotation = quatFromEuler(-0.65, std.math.pi, 0.0),
         },
-        s.lighting.Light{ .spot = .{
+        lighting.Light{ .spot = .{
             .color = .{ .r = 1.0, .g = 0.94, .b = 0.8, .a = 1.0 },
             .intensity_candela = 5500.0,
             .range = 24.0,
             .inner_angle_rad = 0.22,
             .outer_angle_rad = 0.45,
         } },
-        s.lighting.LightVisibility{
+        lighting.LightVisibility{
             .enabled = true,
             .casts_shadows = false,
             .is_static = false,
         },
-        s.AnimatedLight{
+        AnimatedLight{
             .center = .{
                 .x = 0.0,
                 .y = scene_size.y * 0.48,
@@ -135,20 +139,20 @@ pub fn setupLighting(
         },
     });
 
-    try commands.insertResource(s.LightingReady{});
+    try commands.insertResource(LightingReady{});
 }
 
 pub fn animateLights(
-    elapsed: s.Res(s.ElapsedTime),
-    animated_lights: s.Query(.{ s.Transform, s.lighting.Light, s.AnimatedLight }),
+    elapsed: Res(ElapsedTime),
+    animated_lights: Query(.{ Transform, lighting.Light, AnimatedLight }),
 ) void {
     const t: f32 = @floatCast(elapsed.ptr.seconds);
 
     var it = animated_lights.iterator();
     while (it.next()) |row| {
-        const transform = row.get(s.Transform) orelse continue;
-        const light = row.get(s.lighting.Light) orelse continue;
-        const motion = row.get(s.AnimatedLight) orelse continue;
+        const transform = row.get(Transform) orelse continue;
+        const light = row.get(lighting.Light) orelse continue;
+        const motion = row.get(AnimatedLight) orelse continue;
 
         const orbit_phase = t * motion.angular_speed + motion.phase;
         transform.translation = .{
@@ -162,9 +166,35 @@ pub fn animateLights(
             .point => |*point| point.intensity_candela = pulse,
             .spot => |*spot| {
                 spot.intensity_candela = pulse;
-                transform.rotation = s.quatFromEuler(-0.45, -orbit_phase - std.math.pi * 0.5, 0.0);
+                transform.rotation = quatFromEuler(-0.45, -orbit_phase - std.math.pi * 0.5, 0.0);
             },
             .directional => {},
         }
     }
 }
+
+// Imports
+const std = @import("std");
+const phasor = @import("phasor");
+const shared = @import("shared.zig");
+
+const common = phasor.common;
+const ecs = phasor.ecs;
+const lighting = phasor.lighting;
+const modules = phasor.modules;
+const render = phasor.renderer;
+
+const Query = ecs.system_params.Query;
+const Res = ecs.system_params.Res;
+const ResOpt = ecs.system_params.ResOpt;
+
+const AnimatedLight = shared.AnimatedLight;
+const Color = common.Color;
+const ElapsedTime = modules.TimeModule.ElapsedTime;
+const LightingReady = shared.LightingReady;
+const SceneMetrics = shared.SceneMetrics;
+const SceneReady = shared.SceneReady;
+const Transform = common.Transform;
+const Vec3 = common.Vec3;
+const quatFromEuler = shared.quatFromEuler;
+const sponza_panorama_bytes = shared.sponza_panorama_bytes;

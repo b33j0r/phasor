@@ -41,6 +41,7 @@ const App = struct {
             },
         });
         try app.installModule(FpsPhysics{});
+        try app.installModule(modules.FpsKeyBindingModule{});
         try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
             .font_size = 24.0,

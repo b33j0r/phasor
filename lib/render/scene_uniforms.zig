@@ -20,6 +20,7 @@ pub const SceneUniforms = extern struct {
     camera_position: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 },
     ambient_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 },
     exposure_settings: [4]f32 = .{ 1.0, 0.0, 1.0, 1.0 },
+    color_grading: [4]f32 = .{ 0.0, 1.0, 0.0, 0.0 },
     environment_dominant_direction: [4]f32 = .{ 0.0, 1.0, 0.0, 0.0 },
     environment_dominant_color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
     light_counts: [4]u32 = .{ 0, 0, 0, 0 },

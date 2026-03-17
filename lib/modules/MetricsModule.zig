@@ -335,6 +335,7 @@ pub const BuiltinMetricLine = enum {
     mouse_look,
     scene_stats,
     light_stats,
+    color_grade,
 };
 
 pub const DefaultBuiltinLines: []const BuiltinMetricLine = &[_]BuiltinMetricLine{
@@ -456,6 +457,7 @@ fn appendBuiltinMetricLines(ctx: *const MetricContext, buffer: []u8, start: usiz
             .mouse_look => formatMouseLookLine(ctx, buffer[offset..]),
             .scene_stats => formatSceneStatsLine(ctx, buffer[offset..]),
             .light_stats => formatLightStatsLine(ctx, buffer[offset..]),
+            .color_grade => formatColorGradeLine(ctx, buffer[offset..]),
         };
         if (slice.len == 0) continue;
         offset += slice.len;
@@ -528,6 +530,19 @@ fn formatLightStatsLine(ctx: *const MetricContext, out: []u8) []const u8 {
     const point = metricU64(ctx.store, "lights_point", 0);
     const spot = metricU64(ctx.store, "lights_spot", 0);
     return std.fmt.bufPrint(out, "Lights: {d} total  {d} dynamic  {d} point  {d} spot", .{ total, dynamic, point, spot }) catch copyLine(out, "Lights: ERR");
+}
+
+fn formatColorGradeLine(ctx: *const MetricContext, out: []u8) []const u8 {
+    const grade_value = metricU64(ctx.store, "color_grade", 0);
+    const grade_name = switch (grade_value) {
+        0 => "none",
+        1 => "filmic",
+        2 => "aces_fitted",
+        3 => "agx",
+        4 => "pbr_neutral",
+        else => "unknown",
+    };
+    return std.fmt.bufPrint(out, "Color Grade: {s} ({d})", .{ grade_name, grade_value }) catch copyLine(out, "Color Grade: ERR");
 }
 
 fn formatStoreLine(ctx: *const MetricContext, line: MetricLineStore, out: []u8) []const u8 {

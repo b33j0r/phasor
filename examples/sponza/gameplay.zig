@@ -1,14 +1,10 @@
-const std = @import("std");
-const s = @import("shared.zig");
-const phases = @import("phases.zig");
-
 pub fn spawnPlayerFromCollision(
-    commands: *s.ecs.Commands,
-    world: s.ResMut(s.physics.BackendWorld),
-    physics_stats: s.Res(s.physics.Stats),
-    spawn_plan: s.ResOpt(s.SceneSpawnPlan),
-    players: s.Query(.{s.Player}),
-    current_phase: s.ResOpt(phases.SponzaPhases.CurrentPhase),
+    commands: *ecs.Commands,
+    world: ResMut(physics.BackendWorld),
+    physics_stats: Res(physics.Stats),
+    spawn_plan: ResOpt(SceneSpawnPlan),
+    players: Query(.{Player}),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) !void {
     if (!phases.isPlayingPhase(current_phase.ptr)) return;
     if (spawn_plan.ptr == null) return;
@@ -17,7 +13,7 @@ pub fn spawnPlayerFromCollision(
     if (it.next() != null) return;
 
     const plan = spawn_plan.ptr.?;
-    var controller = s.FpsController{
+    var controller = FpsController{
         .eye_offset_y = 0.6,
         .move_speed = 2.0,
         .jump_speed = 4.0,
@@ -26,8 +22,8 @@ pub fn spawnPlayerFromCollision(
     const spawn_choice = findSpawnPoint(world.ptr, plan.scene_size, controller) orelse return;
     controller.yaw = spawn_choice.yaw;
     const spawn = spawn_choice.position;
-    const body_facing = s.Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, spawn_choice.yaw);
-    const camera_facing = s.quatFromEuler(controller.pitch, controller.yaw, 0.0);
+    const body_facing = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, spawn_choice.yaw);
+    const camera_facing = quatFromEuler(controller.pitch, controller.yaw, 0.0);
 
     std.log.debug(
         "sponza spawn: pos=({d:.2}, {d:.2}, {d:.2}) yaw={d:.2} rad",
@@ -35,53 +31,53 @@ pub fn spawnPlayerFromCollision(
     );
 
     _ = try commands.createEntity(.{
-        s.Player{},
+        Player{},
         controller,
-        s.Transform{
+        Transform{
             .translation = spawn,
             .rotation = body_facing,
         },
-        s.physics.Character{},
-        s.physics.Collider{
+        physics.Character{},
+        physics.Collider{
             .shape = .{ .Capsule = .{
                 .radius = controller.radius,
-                .half_height = s.FpsPhysics.capsuleHalfHeight(controller),
+                .half_height = FpsPhysics.capsuleHalfHeight(controller),
             } },
             .collision = .{
                 .layer = 1,
                 .mask = 1 << 0,
             },
         },
-        s.physics.CharacterVelocity{},
-        s.physics.CharacterState{},
+        physics.CharacterVelocity{},
+        physics.CharacterState{},
     });
 
     _ = try commands.createEntity(.{
-        s.PlayerCamera{},
-        s.Transform{
-            .translation = spawn.add(s.FpsPhysics.cameraOffset(controller)),
+        PlayerCamera{},
+        Transform{
+            .translation = spawn.add(FpsPhysics.cameraOffset(controller)),
             .rotation = camera_facing,
         },
-        s.Camera3d{ .Perspective = .{
+        Camera3d{ .Perspective = .{
             .fov = std.math.pi / 3.0,
             .near = 0.05,
             .far = 250.0,
         } },
-        s.CameraLayer(-1){},
-        s.CameraLayer(0){},
+        CameraLayer(-1){},
+        CameraLayer(0){},
     });
 
-    _ = commands.removeResource(s.SceneSpawnPlan);
+    _ = commands.removeResource(SceneSpawnPlan);
 }
 
 pub fn handlePhaseInput(
-    keyboard_opt: s.ResOpt(s.Keyboard),
-    capture_opt: s.ResOpt(s.MouseCapture),
-    commands: *s.ecs.Commands,
-    current_phase: s.ResOpt(phases.SponzaPhases.CurrentPhase),
+    keyboard_opt: ResOpt(Keyboard),
+    capture_opt: ResOpt(MouseCapture),
+    commands: *ecs.Commands,
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) !void {
     const keyboard = keyboard_opt.ptr orelse return;
-    var capture = if (capture_opt.ptr) |existing| existing.* else s.MouseCapture{};
+    var capture = if (capture_opt.ptr) |existing| existing.* else MouseCapture{};
 
     if (phases.isPlayingPhase(current_phase.ptr) and keyboard.isKeyPressed(.escape)) {
         capture.enabled = false;
@@ -96,38 +92,54 @@ pub fn handlePhaseInput(
     }
 }
 
+pub fn cycleColorGradeInput(
+    keyboard_opt: ResOpt(Keyboard),
+    commands: *ecs.Commands,
+    color_grading_opt: ResOpt(render.ColorGradingSettings),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+) !void {
+    if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
+    const keyboard = keyboard_opt.ptr orelse return;
+    if (!keyboard.isKeyPressed(.c)) return;
+
+    var settings = if (color_grading_opt.ptr) |existing| existing.* else render.ColorGradingSettings{};
+    settings.grade = nextColorGrade(settings.grade);
+    settings.amount = 1.0;
+    try commands.insertResource(settings);
+}
+
 pub fn updatePlayerCamera(
-    players: s.Query(.{ s.Transform, s.FpsController, s.Player }),
-    cameras: s.Query(.{ s.Transform, s.PlayerCamera }),
-    current_phase: s.ResOpt(phases.SponzaPhases.CurrentPhase),
+    players: Query(.{ Transform, FpsController, Player }),
+    cameras: Query(.{ Transform, PlayerCamera }),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) void {
     if (!phases.isPlayingPhase(current_phase.ptr)) return;
-    var player_transform: ?s.Transform = null;
-    var player_controller: ?s.FpsController = null;
+    var player_transform: ?Transform = null;
+    var player_controller: ?FpsController = null;
 
     var pit = players.iterator();
     while (pit.next()) |row| {
-        player_transform = row.get(s.Transform).?.*;
-        player_controller = row.get(s.FpsController).?.*;
+        player_transform = row.get(Transform).?.*;
+        player_controller = row.get(FpsController).?.*;
         break;
     }
 
     if (player_transform == null or player_controller == null) return;
     const controller = player_controller.?;
-    const camera_rotation = s.quatFromEuler(controller.pitch, controller.yaw, 0.0);
+    const camera_rotation = quatFromEuler(controller.pitch, controller.yaw, 0.0);
 
     var cit = cameras.iterator();
     while (cit.next()) |row| {
-        const transform = row.get(s.Transform) orelse continue;
-        transform.translation = player_transform.?.translation.add(s.FpsPhysics.cameraOffset(controller));
+        const transform = row.get(Transform) orelse continue;
+        transform.translation = player_transform.?.translation.add(FpsPhysics.cameraOffset(controller));
         transform.rotation = camera_rotation;
     }
 }
 
 pub fn logPlayerBookmark(
-    keyboard_opt: s.ResOpt(s.Keyboard),
-    players: s.Query(.{ s.Transform, s.FpsController, s.Player }),
-    current_phase: s.ResOpt(phases.SponzaPhases.CurrentPhase),
+    keyboard_opt: ResOpt(Keyboard),
+    players: Query(.{ Transform, FpsController, Player }),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) void {
     if (!phases.isPlayingPhase(current_phase.ptr)) return;
     const keyboard = keyboard_opt.ptr orelse return;
@@ -135,10 +147,10 @@ pub fn logPlayerBookmark(
 
     var it = players.iterator();
     const row = it.next() orelse return;
-    const transform = row.get(s.Transform) orelse return;
-    const controller = row.get(s.FpsController) orelse return;
+    const transform = row.get(Transform) orelse return;
+    const controller = row.get(FpsController) orelse return;
 
-    const camera_translation = transform.translation.add(s.FpsPhysics.cameraOffset(controller.*));
+    const camera_translation = transform.translation.add(FpsPhysics.cameraOffset(controller.*));
 
     std.log.debug(
         "sponza bookmark player_transform = Transform{{ .translation = .{{ .x = {d:.3}, .y = {d:.3}, .z = {d:.3} }}, .rotation = quatFromEuler(0.0, {d:.4}, 0.0) }}; camera_transform = Transform{{ .translation = .{{ .x = {d:.3}, .y = {d:.3}, .z = {d:.3} }}, .rotation = quatFromEuler({d:.4}, {d:.4}, 0.0) }};",
@@ -157,59 +169,62 @@ pub fn logPlayerBookmark(
 }
 
 pub fn emitSponzaHudMetrics(
-    bus: s.ResMut(s.metrics.Bus),
-    capture_opt: s.ResOpt(s.MouseCapture),
-    mouse_opt: s.ResOpt(s.Mouse),
-    scene_metrics: s.ResOpt(s.SceneMetrics),
-    imported: s.ResOpt(s.assets.ImportedScene),
-    lighting_stats: s.ResOpt(s.lighting.AuthoringStats),
-    players: s.Query(.{ s.Transform, s.Player }),
-    current_phase: s.ResOpt(phases.SponzaPhases.CurrentPhase),
+    bus: ResMut(metrics.Bus),
+    capture_opt: ResOpt(MouseCapture),
+    mouse_opt: ResOpt(Mouse),
+    scene_metrics: ResOpt(SceneMetrics),
+    imported: ResOpt(assets.ImportedScene),
+    lighting_stats: ResOpt(lighting.AuthoringStats),
+    color_grading_opt: ResOpt(render.ColorGradingSettings),
+    players: Query(.{ Transform, Player }),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) void {
     if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
     var it = players.iterator();
     const row = it.next() orelse return;
-    const transform = row.get(s.Transform) orelse return;
+    const transform = row.get(Transform) orelse return;
     const imported_scene = imported.ptr;
     const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
         scene_metrics_res.scene_size
     else if (imported_scene) |scene|
         scene.bounds.size()
     else
-        s.Vec3{};
-    const light_stats = if (lighting_stats.ptr) |stats| stats.* else s.lighting.AuthoringStats{};
+        Vec3{};
+    const light_stats = if (lighting_stats.ptr) |stats| stats.* else lighting.AuthoringStats{};
     const mouse_captured = if (mouse_opt.ptr) |mouse| mouse.captured else false;
     const mouse_capture_enabled = if (capture_opt.ptr) |capture| capture.enabled else false;
     const mouse_available = mouse_opt.ptr != null;
     const mesh_count: usize = if (imported_scene) |scene| scene.mesh_handles.len else 0;
+    const color_grade: render.ColorGrade = if (color_grading_opt.ptr) |settings| settings.grade else .none;
 
-    s.metrics.emitBus(true, bus.ptr, .{
-        .player_x = s.metrics.gauge(transform.translation.x),
-        .player_y = s.metrics.gauge(transform.translation.y),
-        .player_z = s.metrics.gauge(transform.translation.z),
-        .mouse_look_available = s.metrics.gauge(mouse_available),
-        .mouse_look_captured = s.metrics.gauge(mouse_captured),
-        .mouse_look_capture_enabled = s.metrics.gauge(mouse_capture_enabled),
-        .scene_mesh_count = s.metrics.gauge(mesh_count),
-        .scene_size_x = s.metrics.gauge(scene_size.x),
-        .scene_size_y = s.metrics.gauge(scene_size.y),
-        .scene_size_z = s.metrics.gauge(scene_size.z),
-        .lights_total = s.metrics.gauge(light_stats.total_lights),
-        .lights_dynamic = s.metrics.gauge(light_stats.dynamic_lights),
-        .lights_point = s.metrics.gauge(light_stats.point_lights),
-        .lights_spot = s.metrics.gauge(light_stats.spot_lights),
+    metrics.emitBus(true, bus.ptr, .{
+        .player_x = metrics.gauge(transform.translation.x),
+        .player_y = metrics.gauge(transform.translation.y),
+        .player_z = metrics.gauge(transform.translation.z),
+        .mouse_look_available = metrics.gauge(mouse_available),
+        .mouse_look_captured = metrics.gauge(mouse_captured),
+        .mouse_look_capture_enabled = metrics.gauge(mouse_capture_enabled),
+        .scene_mesh_count = metrics.gauge(mesh_count),
+        .scene_size_x = metrics.gauge(scene_size.x),
+        .scene_size_y = metrics.gauge(scene_size.y),
+        .scene_size_z = metrics.gauge(scene_size.z),
+        .lights_total = metrics.gauge(light_stats.total_lights),
+        .lights_dynamic = metrics.gauge(light_stats.dynamic_lights),
+        .lights_point = metrics.gauge(light_stats.point_lights),
+        .lights_spot = metrics.gauge(light_stats.spot_lights),
+        .color_grade = metrics.gauge(@intFromEnum(color_grade)),
     });
 }
 
-pub fn formatPlayerPositionLine(ctx: *const s.modules.MetricContext, out: []u8) []const u8 {
+pub fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
     const x = if (ctx.store.get("player_x")) |sample| sample.value.asF64() else 0.0;
     const y = if (ctx.store.get("player_y")) |sample| sample.value.asF64() else 0.0;
     const z = if (ctx.store.get("player_z")) |sample| sample.value.asF64() else 0.0;
     return std.fmt.bufPrint(out, "Player XYZ: {d:.2}, {d:.2}, {d:.2}", .{ x, y, z }) catch "Player XYZ: ERR";
 }
 
-fn findSpawnPoint(world: *s.physics.BackendWorld, scene_size: s.Vec3, controller: s.FpsController) ?s.SpawnChoice {
-    const probe_filter = s.physics.CollisionFilter{
+fn findSpawnPoint(world: *physics.BackendWorld, scene_size: Vec3, controller: FpsController) ?SpawnChoice {
+    const probe_filter = physics.CollisionFilter{
         .layer = 1,
         .mask = 1 << 0,
     };
@@ -219,14 +234,14 @@ fn findSpawnPoint(world: *s.physics.BackendWorld, scene_size: s.Vec3, controller
     const step = 1.5;
     const forward_bias = @min(max_z, 3.0);
 
-    var best: ?s.SpawnChoice = null;
+    var best: ?SpawnChoice = null;
     var best_score: f32 = -1.0;
     var z: f32 = forward_bias;
 
     while (z >= -max_z) : (z -= step) {
         var x: f32 = -max_x;
         while (x <= max_x) : (x += step) {
-            const ray = s.physics.RayCast{
+            const ray = physics.RayCast{
                 .origin = .{ .x = x, .y = probe_start_y, .z = z },
                 .direction = .{ .x = 0.0, .y = -1.0, .z = 0.0 },
                 .max_distance = probe_start_y + 8.0,
@@ -235,9 +250,9 @@ fn findSpawnPoint(world: *s.physics.BackendWorld, scene_size: s.Vec3, controller
             const floor_hit = world.castRay(ray) orelse continue;
             if (@abs(floor_hit.normal.y) < 0.8) continue;
 
-            const spawn = s.Vec3{
+            const spawn = Vec3{
                 .x = x,
-                .y = floor_hit.position.y + controller.radius + s.FpsPhysics.capsuleHalfHeight(controller) + 0.08,
+                .y = floor_hit.position.y + controller.radius + FpsPhysics.capsuleHalfHeight(controller) + 0.08,
                 .z = z,
             };
             if (!hasHeadroom(world, spawn, controller, probe_filter)) continue;
@@ -269,16 +284,16 @@ fn findSpawnPoint(world: *s.physics.BackendWorld, scene_size: s.Vec3, controller
 }
 
 fn hasHeadroom(
-    world: *s.physics.BackendWorld,
-    spawn: s.Vec3,
-    controller: s.FpsController,
-    filter: s.physics.CollisionFilter,
+    world: *physics.BackendWorld,
+    spawn: Vec3,
+    controller: FpsController,
+    filter: physics.CollisionFilter,
 ) bool {
     const clearance = controller.height + 0.2;
     const hit = world.castShape(.{
         .shape = .{ .Capsule = .{
             .radius = controller.radius,
-            .half_height = s.FpsPhysics.capsuleHalfHeight(controller),
+            .half_height = FpsPhysics.capsuleHalfHeight(controller),
         } },
         .start = .{
             .translation = spawn,
@@ -290,13 +305,13 @@ fn hasHeadroom(
 }
 
 fn chooseFacingYaw(
-    world: *s.physics.BackendWorld,
-    spawn: s.Vec3,
-    controller: s.FpsController,
-    filter: s.physics.CollisionFilter,
+    world: *physics.BackendWorld,
+    spawn: Vec3,
+    controller: FpsController,
+    filter: physics.CollisionFilter,
 ) struct { yaw: f32, score: f32 } {
     const eye = spawn.add(.{ .x = 0.0, .y = controller.eye_offset_y, .z = 0.0 });
-    const directions = [_]s.Vec3{
+    const directions = [_]Vec3{
         .{ .x = 0.0, .y = 0.0, .z = -1.0 },
         .{ .x = 1.0, .y = 0.0, .z = 0.0 },
         .{ .x = 0.0, .y = 0.0, .z = 1.0 },
@@ -325,3 +340,50 @@ fn chooseFacingYaw(
     }
     return .{ .yaw = best_yaw, .score = best_score };
 }
+
+fn nextColorGrade(grade: render.ColorGrade) render.ColorGrade {
+    return switch (grade) {
+        .none => .filmic,
+        .filmic => .aces_fitted,
+        .aces_fitted => .agx,
+        .agx => .pbr_neutral,
+        .pbr_neutral => .none,
+    };
+}
+
+// Imports
+const std = @import("std");
+const phasor = @import("phasor");
+const phases = @import("phases.zig");
+const shared = @import("shared.zig");
+
+const assets = phasor.assets;
+const common = phasor.common;
+const ecs = phasor.ecs;
+const lighting = phasor.lighting;
+const metrics = phasor.metrics;
+const modules = phasor.modules;
+const physics = phasor.physics;
+const render = phasor.renderer;
+
+const Query = ecs.system_params.Query;
+const Res = ecs.system_params.Res;
+const ResMut = ecs.system_params.ResMut;
+const ResOpt = ecs.system_params.ResOpt;
+
+const Camera3d = common.Camera3d;
+const CameraLayer = render.CameraLayer;
+const FpsController = shared.FpsController;
+const FpsPhysics = shared.FpsPhysics;
+const Keyboard = modules.InputModule.Keyboard;
+const Mouse = modules.InputModule.Mouse;
+const MouseCapture = modules.InputModule.MouseCapture;
+const Player = shared.Player;
+const PlayerCamera = shared.PlayerCamera;
+const SceneMetrics = shared.SceneMetrics;
+const SceneSpawnPlan = shared.SceneSpawnPlan;
+const SpawnChoice = shared.SpawnChoice;
+const Transform = common.Transform;
+const Vec3 = common.Vec3;
+const Quat = common.Quat;
+const quatFromEuler = shared.quatFromEuler;

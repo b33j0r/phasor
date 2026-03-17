@@ -1,6 +1,4 @@
-const s = @import("shared.zig");
-
-pub const SponzaPhases = s.modules.PhasesModule.Definition(SponzaPhase, SponzaPhase{ .Loading = .{} });
+pub const SponzaPhases = modules.PhasesModule.Definition(SponzaPhase, SponzaPhase{ .Loading = .{} });
 
 pub const SponzaPhase = union(enum) {
     Loading: Loading,
@@ -8,49 +6,49 @@ pub const SponzaPhase = union(enum) {
 };
 
 pub const Loading = struct {
-    pub fn enter(_: *Loading, ctx: *s.modules.PhasesModule.PhaseContext) !void {
-        try ctx.world.insertResource(s.ClearColor{ .color = s.Color.BLACK });
+    pub fn enter(_: *Loading, ctx: *modules.PhasesModule.PhaseContext) !void {
+        try ctx.world.insertResource(ClearColor{ .color = Color.BLACK });
 
         const db = ctx.world.dbMut();
         const camera_entity = db.reserveEntityId();
         _ = try db.createEntityWithId(camera_entity, .{
-            s.Transform{},
-            s.Camera3d{ .Viewport = .{ .mode = .TopLeft } },
-            s.CameraLayer(1001){},
-            s.LoadingScreen{},
+            Transform{},
+            Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+            CameraLayer(1001){},
+            LoadingScreen{},
         });
 
         const text_entity = db.reserveEntityId();
         _ = try db.createEntityWithId(text_entity, .{
-            s.Transform{},
-            s.render.Text{
+            Transform{},
+            render.Text{
                 .content = "Sponza\nBooting...",
                 .font_size = 28.0,
-                .color = s.Color.rgb(230, 232, 236),
+                .color = Color.rgb(230, 232, 236),
                 .horizontal_alignment = .Center,
                 .vertical_alignment = .Center,
             },
-            s.render.Layer(1001){},
-            s.LoadingScreen{},
-            s.LoadingScreenText{},
+            render.Layer(1001){},
+            LoadingScreen{},
+            LoadingScreenText{},
         });
 
-        try ctx.world.insertResource(s.LoadingScreenState{
+        try ctx.world.insertResource(LoadingScreenState{
             .camera_entity = camera_entity,
             .text_entity = text_entity,
         });
     }
 
-    pub fn exit(_: *Loading, ctx: *s.modules.PhasesModule.PhaseContext) !void {
-        if (ctx.world.getResource(s.LoadingScreenState)) |state| {
+    pub fn exit(_: *Loading, ctx: *modules.PhasesModule.PhaseContext) !void {
+        if (ctx.world.getResource(LoadingScreenState)) |state| {
             ctx.world.dbMut().removeEntity(state.text_entity) catch {};
             ctx.world.dbMut().removeEntity(state.camera_entity) catch {};
-            _ = ctx.world.removeResource(s.LoadingScreenState);
+            _ = ctx.world.removeResource(LoadingScreenState);
         }
-        if (ctx.world.getResource(s.LoadingScreenVisualState)) |state| {
+        if (ctx.world.getResource(LoadingScreenVisualState)) |state| {
             ctx.world.dbMut().removeEntity(state.fill_entity) catch {};
             ctx.world.dbMut().removeEntity(state.track_entity) catch {};
-            _ = ctx.world.removeResource(s.LoadingScreenVisualState);
+            _ = ctx.world.removeResource(LoadingScreenVisualState);
         }
     }
 };
@@ -59,22 +57,22 @@ pub const InGame = union(enum) {
     Playing: struct {},
     Paused: struct {},
 
-    pub fn enter(_: *InGame, ctx: *s.modules.PhasesModule.PhaseContext) !void {
+    pub fn enter(_: *InGame, ctx: *modules.PhasesModule.PhaseContext) !void {
         const db = ctx.world.dbMut();
         const camera_entity = db.reserveEntityId();
         _ = try db.createEntityWithId(camera_entity, .{
-            s.Transform{},
-            s.Camera3d{ .Viewport = .{ .mode = .TopLeft } },
-            s.CameraLayer(1000){},
-            s.HudCameraTag{},
+            Transform{},
+            Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+            CameraLayer(1000){},
+            HudCameraTag{},
         });
-        try ctx.world.insertResource(s.HudCameraState{ .camera_entity = camera_entity });
+        try ctx.world.insertResource(HudCameraState{ .camera_entity = camera_entity });
     }
 
-    pub fn exit(_: *InGame, ctx: *s.modules.PhasesModule.PhaseContext) !void {
-        if (ctx.world.getResource(s.HudCameraState)) |state| {
+    pub fn exit(_: *InGame, ctx: *modules.PhasesModule.PhaseContext) !void {
+        if (ctx.world.getResource(HudCameraState)) |state| {
             ctx.world.dbMut().removeEntity(state.camera_entity) catch {};
-            _ = ctx.world.removeResource(s.HudCameraState);
+            _ = ctx.world.removeResource(HudCameraState);
         }
     }
 };
@@ -100,3 +98,23 @@ pub fn isPausedPhase(current_phase: ?*const SponzaPhases.CurrentPhase) bool {
         },
     };
 }
+
+// Imports
+const phasor = @import("phasor");
+const shared = @import("shared.zig");
+
+const common = phasor.common;
+const modules = phasor.modules;
+const render = phasor.renderer;
+
+const Camera3d = common.Camera3d;
+const CameraLayer = render.CameraLayer;
+const ClearColor = common.ClearColor;
+const Color = common.Color;
+const HudCameraState = shared.HudCameraState;
+const HudCameraTag = shared.HudCameraTag;
+const LoadingScreen = shared.LoadingScreen;
+const LoadingScreenState = shared.LoadingScreenState;
+const LoadingScreenText = shared.LoadingScreenText;
+const LoadingScreenVisualState = shared.LoadingScreenVisualState;
+const Transform = common.Transform;

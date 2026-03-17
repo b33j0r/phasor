@@ -3,6 +3,7 @@ pub fn renderSystem(
     queue: ResMut(render.RenderQueue),
     clear_opt: ResOpt(common.ClearColor),
     camera_opt: ResOpt(common.Camera3d),
+    color_grading_opt: ResOpt(render.ColorGradingSettings),
     layer_cameras_opt: ResOpt(types.LayerCameras),
     layer_viewports_opt: ResOpt(types.LayerViewports),
     viewport_opt: ResOpt(types.ViewportSize),
@@ -72,6 +73,7 @@ pub fn renderSystem(
         material_library,
         state.default_material,
         extracted_lighting,
+        color_grading_opt.ptr,
         .{ .max_layer = processed_max_layer },
     );
 
@@ -121,6 +123,7 @@ pub fn renderSystem(
             material_library,
             state.default_material,
             extracted_lighting,
+            color_grading_opt.ptr,
             .{ .min_layer = processed_max_layer + 1 },
         );
     }
@@ -282,6 +285,7 @@ fn drawSceneLayers(
     material_library: *render.MaterialLibrary,
     default_material: render.BackendMaterial,
     extracted_lighting: *const types.ExtractedSceneLighting,
+    color_grading: ?*const render.ColorGradingSettings,
     filter: LayerFilter,
 ) !void {
     for (layers) |layer| {
@@ -325,7 +329,7 @@ fn drawSceneLayers(
             common.Mat4.mul(proj, view)
         else
             null;
-        frame.setSceneUniforms(buildSceneUniforms(camera, view_proj, extracted_lighting));
+        frame.setSceneUniforms(buildSceneUniforms(camera, view_proj, extracted_lighting, color_grading));
 
         scratch.batch_items.clearRetainingCapacity();
         scratch.shader_batch_items.clearRetainingCapacity();
@@ -585,6 +589,7 @@ fn buildSceneUniforms(
     camera: ?types.LayerCamera,
     view_proj: ?common.Mat4,
     extracted_lighting: *const types.ExtractedSceneLighting,
+    color_grading: ?*const render.ColorGradingSettings,
 ) render.SceneUniforms {
     var uniforms = render.SceneUniforms{};
     uniforms.view_proj = view_proj orelse common.Mat4.identity();
@@ -607,6 +612,12 @@ fn buildSceneUniforms(
         if (extracted_lighting.exposure_enabled) 1.0 else 0.0,
         extracted_lighting.environment_intensity * extracted_lighting.environment_diffuse_strength,
         extracted_lighting.environment_intensity * extracted_lighting.environment_specular_strength,
+    };
+    uniforms.color_grading = if (color_grading) |settings| blk: {
+        break :blk settings.uniformVec4();
+    } else blk: {
+        const defaults = render.ColorGradingSettings{};
+        break :blk defaults.uniformVec4();
     };
     uniforms.environment_dominant_direction = .{
         extracted_lighting.environment_dominant_direction.x,

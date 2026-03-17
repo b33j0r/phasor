@@ -956,7 +956,7 @@ fn addFetchSponzaStep(ctx: *const BuildContext) FetchSponzaBuild {
         fetch_run.addArgs(args);
     }
 
-    const fetch_step = ctx.b.step("fetch-sponza", "Download the Sponza glTF sample into the local cache");
+    const fetch_step = ctx.b.step("fetch-sponza", "Download the Sponza glTF sample into examples/sponza/assets");
     fetch_step.dependOn(&fetch_run.step);
 
     const fetch_prepare = ctx.b.addRunArtifact(fetch_exe);

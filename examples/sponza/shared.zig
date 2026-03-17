@@ -1,35 +1,3 @@
-const std = @import("std");
-const phasor = @import("phasor");
-
-pub const ecs = phasor.ecs;
-pub const assets = phasor.assets;
-pub const common = phasor.common;
-pub const lighting = phasor.lighting;
-pub const metrics = phasor.metrics;
-pub const modules = phasor.modules;
-pub const physics = phasor.physics;
-pub const platform = phasor.platform;
-pub const render = phasor.renderer;
-
-pub const Query = ecs.system_params.Query;
-pub const Res = ecs.system_params.Res;
-pub const ResMut = ecs.system_params.ResMut;
-pub const ResOpt = ecs.system_params.ResOpt;
-
-pub const Keyboard = modules.InputModule.Keyboard;
-pub const MouseCapture = modules.InputModule.MouseCapture;
-pub const Mouse = modules.InputModule.Mouse;
-pub const ElapsedTime = modules.TimeModule.ElapsedTime;
-
-pub const Camera3d = common.Camera3d;
-pub const CameraLayer = render.CameraLayer;
-pub const ClearColor = common.ClearColor;
-pub const Color = common.Color;
-pub const MeshInstance = render.MeshInstance;
-pub const Quat = common.Quat;
-pub const Transform = common.Transform;
-pub const Vec3 = common.Vec3;
-
 pub const Player = struct {};
 pub const PlayerCamera = struct {};
 pub const SceneReady = struct {};
@@ -52,7 +20,7 @@ pub const SceneMetrics = struct {
 pub const FpsPhysics = modules.FpsPhysicsModule(Player);
 pub const FpsController = FpsPhysics.FpsController;
 
-pub const sponza_scene_path = "local/cache/sponza/source/Models/Sponza/glTF/Sponza.gltf";
+pub const sponza_scene_path = "examples/sponza/assets/sponza/glTF/Sponza.gltf";
 pub const sponza_panorama_bytes = @embedFile("assets/hdr/furstenstein_2k.hdr");
 
 pub const StatusOverlay = struct {
@@ -243,3 +211,14 @@ pub fn quatFromEuler(pitch: f32, yaw: f32, roll: f32) Quat {
     const qz = Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, roll);
     return qy.mul(qx).mul(qz);
 }
+
+// Imports
+const std = @import("std");
+const phasor = @import("phasor");
+const assets = phasor.assets;
+const common = phasor.common;
+const modules = phasor.modules;
+const physics = phasor.physics;
+
+const Quat = common.Quat;
+const Vec3 = common.Vec3;

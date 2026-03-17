@@ -1,18 +1,11 @@
-const phasor = @import("phasor");
-const s = @import("shared.zig");
-const phases = @import("phases.zig");
-const loading = @import("loading.zig");
-const gameplay = @import("gameplay.zig");
-const lighting = @import("lighting.zig");
-
 pub const std_options = phasor.common.logging.stdOptions(.debug);
 
-const sponza_metric_lines = [_]s.modules.MetricLine{
-    s.modules.lineFormat(-90, gameplay.formatPlayerPositionLine),
+const sponza_metric_lines = [_]modules.MetricLine{
+    modules.lineFormat(-90, gameplay.formatPlayerPositionLine),
 };
 
 const App = struct {
-    pub const options = s.platform.Options{
+    pub const options = platform.Options{
         .vsync = true,
         .window = .{
             .title = "Sponza",
@@ -21,13 +14,13 @@ const App = struct {
         },
     };
 
-    pub fn configure(app: *s.ecs.App) !void {
-        try s.platform.installDefaultModules(app);
+    pub fn configure(app: *ecs.App) !void {
+        try platform.installDefaultModules(app);
         try app.installModule(phases.SponzaPhases);
-        try app.installModule(s.modules.ParentModule);
-        try app.installModule(s.modules.SkyModule);
-        try app.installModule(s.modules.LightingModule);
-        try app.installModule(s.physics.PhysicsModule{
+        try app.installModule(modules.ParentModule);
+        try app.installModule(modules.SkyModule);
+        try app.installModule(modules.LightingModule);
+        try app.installModule(physics.PhysicsModule{
             .config = .{
                 .backend = .Jolt,
                 .fixed_dt = 1.0 / 60.0,
@@ -35,16 +28,18 @@ const App = struct {
                 .gravity = .{ .x = 0.0, .y = -18.0, .z = 0.0 },
             },
         });
-        try app.installModule(s.FpsPhysics{});
-        try app.installModule(s.modules.AssetsModule(s.Assets));
-        try app.installModule(s.modules.MetricsModuleLayered(s.render.Layer(1000)){
+        try app.installModule(FpsPhysics{});
+        try app.installModule(modules.FpsKeyBindingModule{});
+        try app.installModule(modules.AssetsModule(Assets));
+        try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
             .font_size = 28.0,
-            .text_color = s.Color.WHITE,
+            .text_color = Color.WHITE,
             .buffer_capacity = 768,
             .extra_builtin_lines = &.{
                 .mouse_look,
                 .scene_stats,
                 .light_stats,
+                .color_grade,
             },
             .extra_lines = &sponza_metric_lines,
         });
@@ -54,10 +49,13 @@ const App = struct {
         try app.addSystemTo("BeforeFrame", loading.ensureLoadingScreenVisuals);
         try app.addSystemTo("BeforeFrame", loading.drainSceneLoader);
         try app.addSystemTo("BeforeFrame", loading.advanceSceneFinalize);
+        try app.addSystemTo("Startup", lighting.setupColorGrading);
+        try app.addSystemTo("BeforeFrame", lighting.setupColorGrading);
         try app.addSystemTo("Startup", lighting.setupLighting);
         try app.addSystemTo("BeforeFrame", lighting.setupLighting);
         try app.addSystemTo("Update", gameplay.spawnPlayerFromCollision);
         try app.addSystemTo("Update", gameplay.handlePhaseInput);
+        try app.addSystemTo("Update", gameplay.cycleColorGradeInput);
         try app.addSystemTo("Update", gameplay.updatePlayerCamera);
         try app.addSystemTo("Update", gameplay.emitSponzaHudMetrics);
         try app.addSystemTo("Update", gameplay.logPlayerBookmark);
@@ -67,4 +65,21 @@ const App = struct {
     }
 };
 
-pub const main = s.platform.main(App);
+pub const main = platform.main(App);
+
+// Imports
+const phasor = @import("phasor");
+const phases = @import("phases.zig");
+const loading = @import("loading.zig");
+const gameplay = @import("gameplay.zig");
+const lighting = @import("lighting.zig");
+const Assets = @import("shared.zig").Assets;
+const FpsPhysics = @import("shared.zig").FpsPhysics;
+
+const common = phasor.common;
+const ecs = phasor.ecs;
+const modules = phasor.modules;
+const physics = phasor.physics;
+const platform = phasor.platform;
+const render = phasor.renderer;
+const Color = common.Color;
