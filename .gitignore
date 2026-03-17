@@ -1,6 +1,7 @@
 .idea/
 zig-out/
 .zig-cache/
+.zig-global-cache/
 *.log
 *.tmp
 .DS_Store

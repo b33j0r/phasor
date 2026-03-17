@@ -137,6 +137,7 @@ pub const MeshInstance = extern struct {
     clip_transform: common.Mat4 = common.Mat4.identity(),
     model_transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+    pbr_params: [4]f32 = .{ 0.0, 1.0, 1.0, 0.0 },
 };
 
 pub const VertexColor = extern struct {
@@ -191,6 +192,7 @@ const InstanceData = extern struct {
     model2: [4]f32,
     model3: [4]f32,
     color: [4]f32,
+    pbr_params: [4]f32,
 };
 
 extern "env" fn webgpu_init(canvas_id_ptr: [*]const u8, canvas_id_len: usize, enable_validation: bool) u32;
@@ -561,6 +563,7 @@ fn buildInstanceData(instance: MeshInstance) InstanceData {
         .model2 = .{ model[2][0], model[2][1], model[2][2], model[2][3] },
         .model3 = .{ model[3][0], model[3][1], model[3][2], model[3][3] },
         .color = instance.color,
+        .pbr_params = instance.pbr_params,
     };
 }
 

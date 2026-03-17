@@ -151,6 +151,7 @@ pub const MeshInstance = extern struct {
     clip_transform: common.Mat4 = common.Mat4.identity(),
     model_transform: common.Mat4 = common.Mat4.identity(),
     color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+    pbr_params: [4]f32 = .{ 0.0, 1.0, 1.0, 0.0 },
 };
 
 pub const VertexColor = extern struct {
@@ -205,6 +206,7 @@ const InstanceData = extern struct {
     model2: [4]f32,
     model3: [4]f32,
     color: [4]f32,
+    pbr_params: [4]f32,
 };
 
 const PostProcessUniformData = extern struct {
@@ -1302,6 +1304,7 @@ fn buildInstanceData(instance: MeshInstance) InstanceData {
         .model2 = .{ model[2][0], model[2][1], model[2][2], model[2][3] },
         .model3 = .{ model[3][0], model[3][1], model[3][2], model[3][3] },
         .color = instance.color,
+        .pbr_params = instance.pbr_params,
     };
 }
 
@@ -1907,6 +1910,7 @@ fn createCustomMaterialPipeline(
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 6, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 8, .pos3_norm_uv2 => 9, else => 8 } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 7, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 9, .pos3_norm_uv2 => 10, else => 9 } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 10, .pos3_norm_uv2 => 11, else => 10 } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 9, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 11, .pos3_norm_uv2 => 12, else => 11 } },
     };
     const instance_attributes = if (binding_mode == .material_scene) instance_attributes_scene[0..] else instance_attributes_default[0..];
     const vertex_buffers = switch (vertex_layout_kind) {

@@ -15,6 +15,8 @@ const triangleShaderUrl = new URL("shaders/triangle.wgsl", import.meta.url);
 const quadShaderUrl = new URL("shaders/quad.wgsl", import.meta.url);
 const meshTexturedShaderUrl = new URL("shaders/mesh_textured.wgsl", import.meta.url);
 const sceneUniformsSize = 2352;
+const instanceStrideBytes = 160;
+const instanceFloatCount = instanceStrideBytes / 4;
 
 const ctxs = new Map();
 let nextCtxId = 1;
@@ -338,7 +340,7 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 144,
+          arrayStride: instanceStrideBytes,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
@@ -375,7 +377,7 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 144,
+          arrayStride: instanceStrideBytes,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
@@ -416,7 +418,7 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 144,
+          arrayStride: instanceStrideBytes,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
@@ -451,7 +453,7 @@ function createPipelines(ctx) {
           ],
         },
         {
-          arrayStride: 144,
+          arrayStride: instanceStrideBytes,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
@@ -547,7 +549,7 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
       ],
     },
     {
-      arrayStride: 144,
+      arrayStride: instanceStrideBytes,
       stepMode: "instance",
       attributes: [
         { shaderLocation: 2, offset: 0, format: "float32x4" },
@@ -628,7 +630,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
           ],
         },
         {
-          arrayStride: 144,
+          arrayStride: instanceStrideBytes,
           stepMode: "instance",
           attributes: [
             { shaderLocation: 2, offset: 0, format: "float32x4" },
@@ -650,7 +652,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
             ],
           },
           {
-            arrayStride: bindingMode === 2 ? 144 : 144,
+            arrayStride: instanceStrideBytes,
             stepMode: "instance",
             attributes: bindingMode === 2
               ? [
@@ -663,6 +665,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
                   { shaderLocation: 9, offset: 96, format: "float32x4" },
                   { shaderLocation: 10, offset: 112, format: "float32x4" },
                   { shaderLocation: 11, offset: 128, format: "float32x4" },
+                  { shaderLocation: 12, offset: 144, format: "float32x4" },
                 ]
               : [
                   { shaderLocation: 3, offset: 0, format: "float32x4" },
@@ -1531,8 +1534,8 @@ const imports = {
           ? (blend ? ctx.meshTexturedPipelineBlend : ctx.meshTexturedPipelineOpaque)
           : null;
       if (!pipeline) return;
-      const instanceData = new Float32Array(memory.buffer, instancePtr, 20);
-      const stride = 144;
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceFloatCount);
+      const stride = instanceStrideBytes;
       const alignment = 256;
       let offset = Math.ceil(ctx.instanceOffset / alignment) * alignment;
       if (offset + stride > ctx.instanceBufferSize) {
@@ -1561,14 +1564,14 @@ const imports = {
           : null;
       if (!pipeline) return;
       if (!instanceCount) return;
-      const stride = 144;
+      const stride = instanceStrideBytes;
       const alignment = 256;
       const byteLength = instanceCount * stride;
       if (byteLength > ctx.instanceBufferSize) {
         console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
         return;
       }
-      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 36);
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * instanceFloatCount);
       ensureInstanceScratch(byteLength);
       const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
       scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
@@ -1594,14 +1597,14 @@ const imports = {
       if (!mesh || !shader) return;
       if (mesh.vertexLayout !== 3) return;
       if (!instanceCount) return;
-      const stride = 144;
+      const stride = instanceStrideBytes;
       const alignment = 256;
       const byteLength = instanceCount * stride;
       if (byteLength > ctx.instanceBufferSize) {
         console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
         return;
       }
-      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 36);
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * instanceFloatCount);
       ensureInstanceScratch(byteLength);
       const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
       scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
@@ -1628,14 +1631,14 @@ const imports = {
       if (!mesh || !material || !shader) return;
       if (mesh.vertexLayout !== 2 && mesh.vertexLayout !== 4) return;
       if (!instanceCount) return;
-      const stride = 144;
+      const stride = instanceStrideBytes;
       const alignment = 256;
       const byteLength = instanceCount * stride;
       if (byteLength > ctx.instanceBufferSize) {
         console.warn("[phasor] instance buffer overflow", byteLength, ctx.instanceBufferSize);
         return;
       }
-      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * 36);
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * instanceFloatCount);
       ensureInstanceScratch(byteLength);
       const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
       scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));

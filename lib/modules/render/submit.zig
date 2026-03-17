@@ -359,6 +359,7 @@ fn drawSceneLayers(
                         .clip_transform = clip_model,
                         .model_transform = instance.transform,
                         .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
+                        .pbr_params = instance.pbr_params,
                     };
 
                     if (instance.shader_handle) |shader_handle| {
@@ -517,6 +518,7 @@ fn drawSceneLayers(
                         .clip_transform = clip_model,
                         .model_transform = instance.transform,
                         .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
+                        .pbr_params = instance.pbr_params,
                     };
                     if (instance.shader_handle) |shader_handle| {
                         const shader = shader_library.get(shader_handle) orelse continue;

@@ -31,6 +31,7 @@ struct VertexIn {
     @location(9) model2: vec4<f32>,
     @location(10) model3: vec4<f32>,
     @location(11) color: vec4<f32>,
+    @location(12) pbr_params: vec4<f32>,
 };
 
 struct VertexOut {
@@ -39,6 +40,7 @@ struct VertexOut {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) color: vec4<f32>,
+    @location(4) pbr_params: vec4<f32>,
 };
 
 @group(0) @binding(0) var mesh_sampler: sampler;
@@ -196,6 +198,35 @@ fn applyColorGrade(color: vec3<f32>) -> vec3<f32> {
     return mix(max(color, vec3<f32>(0.0)), graded, amount);
 }
 
+const PI: f32 = 3.14159265;
+
+fn fresnelSchlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
+    return f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - cos_theta, 5.0);
+}
+
+fn distributionGGX(n: vec3<f32>, h: vec3<f32>, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let ndoth = saturate(dot(n, h));
+    let ndoth2 = ndoth * ndoth;
+    let denom = ndoth2 * (a2 - 1.0) + 1.0;
+    return a2 / max(PI * denom * denom, 0.0001);
+}
+
+fn geometrySchlickGGX(ndotv: f32, roughness: f32) -> f32 {
+    let r = roughness + 1.0;
+    let k = (r * r) * 0.125;
+    return ndotv / max(ndotv * (1.0 - k) + k, 0.0001);
+}
+
+fn geometrySmith(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, roughness: f32) -> f32 {
+    let ndotv = saturate(dot(n, v));
+    let ndotl = saturate(dot(n, l));
+    let ggx2 = geometrySchlickGGX(ndotv, roughness);
+    let ggx1 = geometrySchlickGGX(ndotl, roughness);
+    return ggx1 * ggx2;
+}
+
 @vertex
 fn vs_main(input: VertexIn) -> VertexOut {
     let clip_model = mat4x4<f32>(input.clip0, input.clip1, input.clip2, input.clip3);
@@ -210,6 +241,7 @@ fn vs_main(input: VertexIn) -> VertexOut {
     out.world_normal = world_normal;
     out.uv = input.uv;
     out.color = input.color;
+    out.pbr_params = input.pbr_params;
     return out;
 }
 
@@ -222,9 +254,15 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
 
     let normal = normalize(input.world_normal);
     let view_dir = normalize(scene.camera_position.xyz - input.world_position);
+    let metallic = clamp(input.pbr_params.x, 0.0, 1.0);
+    let roughness = clamp(input.pbr_params.y, 0.045, 1.0);
+    let ao = clamp(input.pbr_params.z, 0.0, 1.0);
+    let f0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
+    let ndotv = saturate(dot(normal, view_dir));
 
-    var lighting = scene.ambient_color.rgb;
-    lighting += evaluateIrradiance(normal) * scene.exposure_settings.z;
+    let irradiance = evaluateIrradiance(normal) * scene.exposure_settings.z;
+    let ambient = (scene.ambient_color.rgb + irradiance) * albedo.rgb * (1.0 - metallic) * ao;
+    var lighting = vec3<f32>(0.0);
     let light_count = min(scene.light_counts.x, 32u);
     var i: u32 = 0u;
     loop {
@@ -264,16 +302,30 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
             }
         }
         let ndotl = saturate(dot(normal, light_dir));
+        if (ndotl <= 0.0) {
+            i += 1u;
+            continue;
+        }
         let half_dir = normalize(light_dir + view_dir);
-        let specular = pow(saturate(dot(normal, half_dir)), 32.0) * 0.08;
-        lighting += (ndotl + specular) * light.color_intensity.rgb * light.color_intensity.w * attenuation;
+        let ndf = distributionGGX(normal, half_dir, roughness);
+        let g = geometrySmith(normal, view_dir, light_dir, roughness);
+        let f = fresnelSchlick(saturate(dot(half_dir, view_dir)), f0);
+        let numerator = ndf * g * f;
+        let denominator = max(4.0 * ndotv * ndotl, 0.0001);
+        let specular = numerator / denominator;
+        let ks = f;
+        let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallic);
+        let radiance = light.color_intensity.rgb * light.color_intensity.w * attenuation;
+        lighting += (kd * albedo.rgb / PI + specular) * radiance * ndotl;
         i += 1u;
     }
 
     let reflection = reflect(-view_dir, normal);
     let env_alignment = saturate(dot(reflection, normalize(scene.environment_dominant_direction.xyz)));
-    let env_specular = scene.environment_dominant_color.rgb * pow(env_alignment, 32.0) * scene.exposure_settings.w;
-    var lit_rgb = albedo.rgb * lighting + env_specular * 0.08;
+    let env_power = mix(128.0, 8.0, roughness);
+    let env_specular = scene.environment_dominant_color.rgb * pow(env_alignment, env_power) * scene.exposure_settings.w;
+    let env_fresnel = fresnelSchlick(ndotv, f0);
+    var lit_rgb = ambient + lighting + env_specular * env_fresnel;
     if (scene.exposure_settings.y > 0.5) {
         lit_rgb *= scene.exposure_settings.x;
     }
