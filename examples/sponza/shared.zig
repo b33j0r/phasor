@@ -8,6 +8,34 @@ pub const LoadingScreenBarFill = struct {};
 pub const LoadingScreenBarTrack = struct {};
 pub const HudCameraTag = struct {};
 pub const LightingReady = struct {};
+pub const SkyCycleReady = struct {};
+
+pub const SkyMode = enum {
+    procedural,
+    hdri,
+};
+
+pub const DayNightSettings = struct {
+    start_hour: f32 = 14.5,
+    day_length_seconds: f32 = 720.0,
+    latitude_deg: f32 = 47.0,
+};
+
+pub const WeatherSettings = struct {
+    cloud_coverage: f32 = 0.35,
+    cloud_density: f32 = 0.52,
+    haze: f32 = 0.18,
+    wind_speed: f32 = 0.9,
+    weather_cycle_seconds: f32 = 240.0,
+};
+
+pub const SkyCycleState = struct {
+    mode: SkyMode = .procedural,
+    day_night: DayNightSettings = .{},
+    weather: WeatherSettings = .{},
+    hdri_environment: ?lighting.EnvironmentLight = null,
+    hdri_ambient: ?lighting.AmbientLight = null,
+};
 
 pub const SceneSpawnPlan = struct {
     scene_size: Vec3,
@@ -208,6 +236,11 @@ pub const Assets = struct {
         .vertex_layout = .pos3_uv2,
         .binding_mode = .material_scene,
     },
+    sky_procedural_shader: assets.Shader = .{
+        .wgsl_source = @embedFile("shaders/sky_procedural.wgsl"),
+        .vertex_layout = .pos3_uv2,
+        .binding_mode = .material_scene,
+    },
 };
 
 pub fn quatFromEuler(pitch: f32, yaw: f32, roll: f32) Quat {
@@ -224,6 +257,7 @@ const assets = phasor.assets;
 const common = phasor.common;
 const modules = phasor.modules;
 const physics = phasor.physics;
+const lighting = phasor.lighting;
 
 const Quat = common.Quat;
 const Vec3 = common.Vec3;
