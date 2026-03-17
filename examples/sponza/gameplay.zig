@@ -19,8 +19,8 @@ pub fn spawnPlayerFromCollision(
     const plan = spawn_plan.ptr.?;
     var controller = s.FpsController{
         .eye_offset_y = 0.6,
-        .move_speed = 1.0,
-        .jump_speed = 3.0,
+        .move_speed = 2.0,
+        .jump_speed = 4.0,
         .pitch = -0.18,
     };
     const spawn_choice = findSpawnPoint(world.ptr, plan.scene_size, controller) orelse return;
