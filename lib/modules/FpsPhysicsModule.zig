@@ -197,12 +197,12 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                     desired_horizontal = normalized.scale(speed);
                 }
 
-                const supported = character_state.isSupported();
-                controller.grounded = character_state.isGrounded();
+                const grounded = character_state.isGrounded();
+                controller.grounded = grounded;
                 controller.crouching = wants_crouch;
                 controller.sprinting = wants_sprint and desired_horizontal.length_squared() > 0.0001;
 
-                if (supported) {
+                if (grounded) {
                     controller.coyote_timer = controller.coyote_time;
                     velocity.linear.x = character_state.ground_velocity.x + desired_horizontal.x;
                     velocity.linear.z = character_state.ground_velocity.z + desired_horizontal.z;
