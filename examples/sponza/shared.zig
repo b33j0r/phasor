@@ -191,7 +191,7 @@ pub const SceneBounds = struct {
 pub const Assets = struct {
     sky_panorama: assets.Texture = assets.Texture.embedded(sponza_panorama_bytes).asHdr().asOpaque().equirectangularLinear(),
     scene_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/scene_passthrough.wgsl"),
+        .wgsl_source = @embedFile("shaders/scene_pbr_lit.wgsl"),
         .vertex_layout = .pos3_norm_uv2,
         .binding_mode = .material_scene,
     },

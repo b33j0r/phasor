@@ -10,6 +10,7 @@ pub const EnvironmentLight = struct {
     intensity: f32 = 1.0,
     diffuse_strength: f32 = 1.0,
     specular_strength: f32 = 1.0,
+    average_luminance: f32 = 1.0,
     dominant_direction: common.Vec3 = .{ .x = 0.0, .y = 1.0, .z = 0.0 },
     dominant_color: common.Color.F32 = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
     irradiance_sh: [9][4]f32 = [_][4]f32{[_]f32{ 0.0, 0.0, 0.0, 0.0 }} ** 9,
@@ -18,6 +19,10 @@ pub const EnvironmentLight = struct {
 pub const ExposureSettings = struct {
     enabled: bool = false,
     exposure: f32 = 1.0,
+    auto_enabled: bool = false,
+    auto_key_value: f32 = 0.18,
+    min_exposure: f32 = 0.08,
+    max_exposure: f32 = 2.5,
 };
 
 pub const AuthoringStats = struct {

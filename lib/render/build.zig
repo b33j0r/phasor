@@ -95,6 +95,15 @@ pub const BuildContext = struct {
         return self.texture_library.addTexture(texture);
     }
 
+    pub fn createTextureRgba8Linear(self: *const BuildContext, width: u32, height: u32, data: []const u8) !mesh.TextureHandle {
+        const texture = try self.renderer.createTextureRgba8Linear(width, height, data);
+        errdefer {
+            var cleanup = texture;
+            self.renderer.destroyTexture(&cleanup);
+        }
+        return self.texture_library.addTexture(texture);
+    }
+
     pub fn createTextureRgba16Float(self: *const BuildContext, width: u32, height: u32, data: []const f32) !mesh.TextureHandle {
         const texture = try self.renderer.createTextureRgba16Float(width, height, data);
         errdefer {
@@ -111,6 +120,28 @@ pub const BuildContext = struct {
     pub fn createMaterial(self: *const BuildContext, texture_handle: mesh.TextureHandle, sampler: ?backend.Sampler) !mesh.MaterialHandle {
         const texture = self.texture_library.get(texture_handle) orelse return error.MissingTexture;
         const material = try self.renderer.createMaterial(texture.*, sampler orelse self.default_sampler.*);
+        errdefer {
+            var cleanup = material;
+            self.renderer.destroyMaterial(&cleanup);
+        }
+        return self.material_library.addMaterial(material);
+    }
+
+    pub fn createSceneMaterial(
+        self: *const BuildContext,
+        base_color_texture_handle: mesh.TextureHandle,
+        metallic_roughness_texture_handle: mesh.TextureHandle,
+        occlusion_texture_handle: mesh.TextureHandle,
+        sampler: ?backend.Sampler,
+    ) !mesh.MaterialHandle {
+        const base_color_texture = self.texture_library.get(base_color_texture_handle) orelse return error.MissingTexture;
+        const metallic_roughness_texture = self.texture_library.get(metallic_roughness_texture_handle) orelse return error.MissingTexture;
+        const occlusion_texture = self.texture_library.get(occlusion_texture_handle) orelse return error.MissingTexture;
+        const material = try self.renderer.createSceneMaterial(.{
+            .base_color_texture = base_color_texture.*,
+            .metallic_roughness_texture = metallic_roughness_texture.*,
+            .occlusion_texture = occlusion_texture.*,
+        }, sampler orelse self.default_sampler.*);
         errdefer {
             var cleanup = material;
             self.renderer.destroyMaterial(&cleanup);

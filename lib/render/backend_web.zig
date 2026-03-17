@@ -87,6 +87,12 @@ pub const Material = struct {
     handle: u32,
 };
 
+pub const SceneMaterialBinding = struct {
+    base_color_texture: Texture,
+    metallic_roughness_texture: Texture,
+    occlusion_texture: Texture,
+};
+
 pub const ShaderSource = struct {
     wgsl: ?[]const u8 = null,
     glsl_vertex: ?[]const u8 = null,
@@ -215,6 +221,7 @@ extern "env" fn webgpu_create_sampler(ctx: u32) u32;
 extern "env" fn webgpu_create_sampler_desc(ctx: u32, mag_filter: u32, min_filter: u32, mipmap_filter: u32, address_mode_u: u32, address_mode_v: u32, address_mode_w: u32) u32;
 extern "env" fn webgpu_destroy_sampler(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_texture_rgba8(ctx: u32, sampler_handle: u32, data_ptr: [*]const u8, data_len: usize, width: u32, height: u32) u32;
+extern "env" fn webgpu_create_texture_rgba8_linear(ctx: u32, sampler_handle: u32, data_ptr: [*]const u8, data_len: usize, width: u32, height: u32) u32;
 extern "env" fn webgpu_create_texture_rgba16f(ctx: u32, sampler_handle: u32, data_ptr: [*]const f32, data_len: usize, width: u32, height: u32) u32;
 extern "env" fn webgpu_destroy_texture(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_mesh(ctx: u32, vertex_layout: u32, vertices_ptr: [*]const u8, vertices_len: usize, indices_ptr: [*]const u8, indices_len: usize) u32;
@@ -226,6 +233,7 @@ extern "env" fn webgpu_destroy_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_post_process_shader(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize) u32;
 extern "env" fn webgpu_destroy_post_process_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_material(ctx: u32, texture_handle: u32, sampler_handle: u32) u32;
+extern "env" fn webgpu_create_scene_material(ctx: u32, base_color_texture_handle: u32, metallic_roughness_texture_handle: u32, occlusion_texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_destroy_material(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_stats(ctx: u32, out_ptr: *RendererStats) void;
 
@@ -291,6 +299,15 @@ pub const Renderer = struct {
         };
     }
 
+    pub fn createTextureRgba8Linear(self: *Renderer, width: u32, height: u32, data: []const u8) !Texture {
+        const handle = webgpu_create_texture_rgba8_linear(self.ctx, 0, data.ptr, data.len, width, height);
+        return Texture{
+            .handle = handle,
+            .width = width,
+            .height = height,
+        };
+    }
+
     pub fn createTextureRgba16Float(self: *Renderer, width: u32, height: u32, data: []const f32) !Texture {
         const handle = webgpu_create_texture_rgba16f(self.ctx, 0, data.ptr, data.len, width, height);
         return Texture{
@@ -308,6 +325,17 @@ pub const Renderer = struct {
 
     pub fn createMaterial(self: *Renderer, texture: Texture, sampler: Sampler) !Material {
         const handle = webgpu_create_material(self.ctx, texture.handle, sampler.handle);
+        return Material{ .handle = handle };
+    }
+
+    pub fn createSceneMaterial(self: *Renderer, binding: SceneMaterialBinding, sampler: Sampler) !Material {
+        const handle = webgpu_create_scene_material(
+            self.ctx,
+            binding.base_color_texture.handle,
+            binding.metallic_roughness_texture.handle,
+            binding.occlusion_texture.handle,
+            sampler.handle,
+        );
         return Material{ .handle = handle };
     }
 
@@ -525,14 +553,11 @@ pub const Frame = struct {
     ) void {
         if (shader.handle == 0) return;
         var uniforms = [20]f32{
-            params[0],  params[1],  params[2],  params[3],
-            params[4],  params[5],  params[6],  params[7],
-            params[8],  params[9],  params[10], params[11],
-            params[12], params[13], params[14], params[15],
-            1.0 / @as(f32, @floatFromInt(@max(source_size.width, 1))),
-            1.0 / @as(f32, @floatFromInt(@max(source_size.height, 1))),
-            @floatFromInt(source_size.width),
-            @floatFromInt(source_size.height),
+            params[0],                                                 params[1],                                                  params[2],                        params[3],
+            params[4],                                                 params[5],                                                  params[6],                        params[7],
+            params[8],                                                 params[9],                                                  params[10],                       params[11],
+            params[12],                                                params[13],                                                 params[14],                       params[15],
+            1.0 / @as(f32, @floatFromInt(@max(source_size.width, 1))), 1.0 / @as(f32, @floatFromInt(@max(source_size.height, 1))), @floatFromInt(source_size.width), @floatFromInt(source_size.height),
         };
         const blend_flag: u32 = if (blend) 1 else 0;
         webgpu_draw_post_process(self.renderer.ctx, shader.handle, source_slot, &uniforms, blend_flag);

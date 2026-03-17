@@ -46,6 +46,8 @@ struct VertexOut {
 @group(0) @binding(0) var mesh_sampler: sampler;
 @group(0) @binding(1) var mesh_texture: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> scene: SceneUniforms;
+@group(0) @binding(3) var metallic_roughness_texture: texture_2d<f32>;
+@group(0) @binding(4) var occlusion_texture: texture_2d<f32>;
 
 fn saturate(value: f32) -> f32 {
     return clamp(value, 0.0, 1.0);
@@ -76,11 +78,9 @@ fn evaluateIrradiance(normal: vec3<f32>) -> vec3<f32> {
 
 fn toneMapFilmic(color: vec3<f32>) -> vec3<f32> {
     let shifted = max(vec3<f32>(0.0), color - vec3<f32>(0.004));
-    return pow(
+    return
         (shifted * (6.2 * shifted + vec3<f32>(0.5))) /
-            (shifted * (6.2 * shifted + vec3<f32>(1.7)) + vec3<f32>(0.06)),
-        vec3<f32>(2.2),
-    );
+        (shifted * (6.2 * shifted + vec3<f32>(1.7)) + vec3<f32>(0.06));
 }
 
 fn rrtAndOdtFit(v: vec3<f32>) -> vec3<f32> {
@@ -148,7 +148,7 @@ fn toneMapAgX(color: vec3<f32>) -> vec3<f32> {
     mapped = clamp((mapped - vec3<f32>(agx_min_ev)) / vec3<f32>(agx_max_ev - agx_min_ev), vec3<f32>(0.0), vec3<f32>(1.0));
     mapped = agxDefaultContrastApprox(mapped);
     mapped = agx_outset * mapped;
-    mapped = pow(max(vec3<f32>(0.0), mapped), vec3<f32>(2.2));
+    mapped = max(vec3<f32>(0.0), mapped);
     return clamp(linear_rec2020_to_linear_srgb * mapped, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
@@ -254,9 +254,11 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
 
     let normal = normalize(input.world_normal);
     let view_dir = normalize(scene.camera_position.xyz - input.world_position);
-    let metallic = clamp(input.pbr_params.x, 0.0, 1.0);
-    let roughness = clamp(input.pbr_params.y, 0.045, 1.0);
-    let ao = clamp(input.pbr_params.z, 0.0, 1.0);
+    let metallic_roughness_sample = textureSample(metallic_roughness_texture, mesh_sampler, input.uv);
+    let occlusion_sample = textureSample(occlusion_texture, mesh_sampler, input.uv);
+    let metallic = clamp(input.pbr_params.x * metallic_roughness_sample.b, 0.0, 1.0);
+    let roughness = clamp(input.pbr_params.y * metallic_roughness_sample.g, 0.045, 1.0);
+    let ao = clamp(input.pbr_params.z * occlusion_sample.r, 0.0, 1.0);
     let f0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
     let ndotv = saturate(dot(normal, view_dir));
 
@@ -323,7 +325,8 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     let reflection = reflect(-view_dir, normal);
     let env_alignment = saturate(dot(reflection, normalize(scene.environment_dominant_direction.xyz)));
     let env_power = mix(128.0, 8.0, roughness);
-    let env_specular = scene.environment_dominant_color.rgb * pow(env_alignment, env_power) * scene.exposure_settings.w;
+    // Dominant-direction env spec is a low-cost approximation; keep it subdued to avoid white edge blowouts.
+    let env_specular = scene.environment_dominant_color.rgb * pow(env_alignment, env_power) * scene.exposure_settings.w * 0.15;
     let env_fresnel = fresnelSchlick(ndotv, f0);
     var lit_rgb = ambient + lighting + env_specular * env_fresnel;
     if (scene.exposure_settings.y > 0.5) {

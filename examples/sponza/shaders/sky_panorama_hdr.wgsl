@@ -36,11 +36,9 @@ struct VertexOut {
 
 fn toneMapFilmic(color: vec3<f32>) -> vec3<f32> {
     let shifted = max(vec3<f32>(0.0), color - vec3<f32>(0.004));
-    return pow(
+    return
         (shifted * (6.2 * shifted + vec3<f32>(0.5))) /
-            (shifted * (6.2 * shifted + vec3<f32>(1.7)) + vec3<f32>(0.06)),
-        vec3<f32>(2.2),
-    );
+        (shifted * (6.2 * shifted + vec3<f32>(1.7)) + vec3<f32>(0.06));
 }
 
 fn rrtAndOdtFit(v: vec3<f32>) -> vec3<f32> {
@@ -108,7 +106,7 @@ fn toneMapAgX(color: vec3<f32>) -> vec3<f32> {
     mapped = clamp((mapped - vec3<f32>(agx_min_ev)) / vec3<f32>(agx_max_ev - agx_min_ev), vec3<f32>(0.0), vec3<f32>(1.0));
     mapped = agxDefaultContrastApprox(mapped);
     mapped = agx_outset * mapped;
-    mapped = pow(max(vec3<f32>(0.0), mapped), vec3<f32>(2.2));
+    mapped = max(vec3<f32>(0.0), mapped);
     return clamp(linear_rec2020_to_linear_srgb * mapped, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
@@ -172,7 +170,8 @@ fn vs_main(input: VertexIn) -> VertexOut {
 fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     var color = textureSample(mesh_texture, mesh_sampler, input.uv).rgb * input.color.rgb;
     if (scene.exposure_settings.y > 0.5) {
-        color *= scene.exposure_settings.x;
+        // Keep sky from over-brightening when scene auto-exposure lifts interiors.
+        color *= scene.exposure_settings.x * 0.55;
     }
     return vec4<f32>(applyColorGrade(color), input.color.a);
 }

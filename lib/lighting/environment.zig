@@ -165,6 +165,7 @@ fn buildEnvironmentLight(
         .intensity = options.intensity,
         .diffuse_strength = options.diffuse_strength,
         .specular_strength = options.specular_strength,
+        .average_luminance = @floatCast(@max(avg_luminance, 0.0001)),
         .dominant_direction = dominant_dir_accum.normalize(),
         .dominant_color = .{
             .r = @floatCast(dominant_color_accum[0] / dominant_weight),

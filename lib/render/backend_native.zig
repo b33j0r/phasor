@@ -99,6 +99,12 @@ pub const Material = struct {
     scene_bind_group: *wgpu.BindGroup,
 };
 
+pub const SceneMaterialBinding = struct {
+    base_color_texture: Texture,
+    metallic_roughness_texture: Texture,
+    occlusion_texture: Texture,
+};
+
 pub const ShaderSource = struct {
     wgsl: ?[]const u8 = null,
     glsl_vertex: ?[]const u8 = null,
@@ -601,6 +607,64 @@ pub const Renderer = struct {
         };
     }
 
+    pub fn createTextureRgba8Linear(self: *Renderer, width: u32, height: u32, data: []const u8) !Texture {
+        const texture = self.device.createTexture(&wgpu.TextureDescriptor{
+            .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
+            .format = .rgba8_unorm,
+            .usage = wgpu.TextureUsages.texture_binding | wgpu.TextureUsages.copy_dst,
+            .mip_level_count = 1,
+            .sample_count = 1,
+            .dimension = .@"2d",
+        }) orelse return error.TextureCreationFailed;
+        errdefer texture.release();
+
+        const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.TextureViewFailed;
+        errdefer view.release();
+
+        const bytes_per_row = width * 4;
+        const aligned_bpr = std.mem.alignForward(u32, bytes_per_row, 256);
+        var upload = data;
+        var scratch: ?[]u8 = null;
+        if (aligned_bpr != bytes_per_row) {
+            const total = aligned_bpr * height;
+            const padded = try self.allocator.alloc(u8, total);
+            @memset(padded, 0);
+            for (0..height) |row| {
+                const src_off = row * bytes_per_row;
+                const dst_off = row * aligned_bpr;
+                std.mem.copyForwards(u8, padded[dst_off..][0..bytes_per_row], data[src_off..][0..bytes_per_row]);
+            }
+            scratch = padded;
+            upload = padded;
+        }
+        defer if (scratch) |padded| self.allocator.free(padded);
+
+        const layout = wgpu.TexelCopyBufferLayout{
+            .bytes_per_row = aligned_bpr,
+            .rows_per_image = height,
+        };
+        const dst = wgpu.TexelCopyTextureInfo{
+            .texture = texture,
+            .origin = .{},
+            .mip_level = 0,
+            .aspect = .all,
+        };
+        const copy_size = wgpu.Extent3D{
+            .width = width,
+            .height = height,
+            .depth_or_array_layers = 1,
+        };
+        self.queue.writeTexture(&dst, upload.ptr, upload.len, &layout, &copy_size);
+
+        return Texture{
+            .texture = texture,
+            .view = view,
+            .width = width,
+            .height = height,
+            .format = .rgba8_unorm,
+        };
+    }
+
     pub fn createTextureRgba16Float(self: *Renderer, width: u32, height: u32, data: []const f32) !Texture {
         const texture = self.device.createTexture(&wgpu.TextureDescriptor{
             .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
@@ -686,6 +750,30 @@ pub const Renderer = struct {
             self.scene_bind_group_layout,
             sampler.sampler,
             texture.view,
+            texture.view,
+            texture.view,
+            self.scene_uniform_buffer.buffer,
+        );
+        return Material{ .bind_group = bind_group, .scene_bind_group = scene_bind_group };
+    }
+
+    pub fn createSceneMaterial(self: *Renderer, binding: SceneMaterialBinding, sampler: Sampler) !Material {
+        const entries = [_]wgpu.BindGroupEntry{
+            .{ .binding = 0, .sampler = sampler.sampler },
+            .{ .binding = 1, .texture_view = binding.base_color_texture.view },
+        };
+        const bind_group = self.device.createBindGroup(&wgpu.BindGroupDescriptor{
+            .layout = self.quad_bind_group_layout,
+            .entry_count = entries.len,
+            .entries = entries[0..].ptr,
+        }) orelse return error.BindGroupCreationFailed;
+        const scene_bind_group = try createSceneBindGroup(
+            self.device,
+            self.scene_bind_group_layout,
+            sampler.sampler,
+            binding.base_color_texture.view,
+            binding.metallic_roughness_texture.view,
+            binding.occlusion_texture.view,
             self.scene_uniform_buffer.buffer,
         );
         return Material{ .bind_group = bind_group, .scene_bind_group = scene_bind_group };
@@ -1597,7 +1685,7 @@ fn createQuadBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
 
 fn createSceneBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
     return device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
-        .entry_count = 3,
+        .entry_count = 5,
         .entries = &[_]wgpu.BindGroupLayoutEntry{
             .{
                 .binding = 0,
@@ -1619,6 +1707,24 @@ fn createSceneBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
                 .buffer = .{
                     .type = .uniform,
                     .min_binding_size = @sizeOf(scene_uniforms.SceneUniforms),
+                },
+            },
+            .{
+                .binding = 3,
+                .visibility = wgpu.ShaderStages.fragment,
+                .texture = .{
+                    .sample_type = .float,
+                    .view_dimension = .@"2d",
+                    .multisampled = @intFromBool(false),
+                },
+            },
+            .{
+                .binding = 4,
+                .visibility = wgpu.ShaderStages.fragment,
+                .texture = .{
+                    .sample_type = .float,
+                    .view_dimension = .@"2d",
+                    .multisampled = @intFromBool(false),
                 },
             },
         },
@@ -1659,18 +1765,22 @@ fn createSceneBindGroup(
     device: *wgpu.Device,
     layout: *wgpu.BindGroupLayout,
     sampler: *wgpu.Sampler,
-    texture_view: *wgpu.TextureView,
+    base_color_view: *wgpu.TextureView,
+    metallic_roughness_view: *wgpu.TextureView,
+    occlusion_view: *wgpu.TextureView,
     uniform_buffer: *wgpu.Buffer,
 ) !*wgpu.BindGroup {
     const entries = [_]wgpu.BindGroupEntry{
         .{ .binding = 0, .sampler = sampler },
-        .{ .binding = 1, .texture_view = texture_view },
+        .{ .binding = 1, .texture_view = base_color_view },
         .{
             .binding = 2,
             .buffer = uniform_buffer,
             .offset = 0,
             .size = @sizeOf(scene_uniforms.SceneUniforms),
         },
+        .{ .binding = 3, .texture_view = metallic_roughness_view },
+        .{ .binding = 4, .texture_view = occlusion_view },
     };
     return device.createBindGroup(&wgpu.BindGroupDescriptor{
         .layout = layout,
@@ -1894,23 +2004,83 @@ fn createCustomMaterialPipeline(
         .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
     };
     const instance_attributes_default = [_]wgpu.VertexAttribute{
-        .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 2, .pos3_norm_uv2 => 3, else => 2 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 3, .pos3_norm_uv2 => 4, else => 3 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 4, .pos3_norm_uv2 => 5, else => 4 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 5, .pos3_norm_uv2 => 6, else => 5 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 6, .pos3_norm_uv2 => 7, else => 6 } },
+        .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 2,
+            .pos3_norm_uv2 => 3,
+            else => 2,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 3,
+            .pos3_norm_uv2 => 4,
+            else => 3,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 4,
+            .pos3_norm_uv2 => 5,
+            else => 4,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 5,
+            .pos3_norm_uv2 => 6,
+            else => 5,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 6,
+            .pos3_norm_uv2 => 7,
+            else => 6,
+        } },
     };
     const instance_attributes_scene = [_]wgpu.VertexAttribute{
-        .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 2, .pos3_norm_uv2 => 3, else => 2 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 3, .pos3_norm_uv2 => 4, else => 3 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 4, .pos3_norm_uv2 => 5, else => 4 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 5, .pos3_norm_uv2 => 6, else => 5 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 6, .pos3_norm_uv2 => 7, else => 6 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 5, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 7, .pos3_norm_uv2 => 8, else => 7 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 6, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 8, .pos3_norm_uv2 => 9, else => 8 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 7, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 9, .pos3_norm_uv2 => 10, else => 9 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 10, .pos3_norm_uv2 => 11, else => 10 } },
-        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 9, .shader_location = switch (vertex_layout_kind) { .pos3_uv2 => 11, .pos3_norm_uv2 => 12, else => 11 } },
+        .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 2,
+            .pos3_norm_uv2 => 3,
+            else => 2,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 3,
+            .pos3_norm_uv2 => 4,
+            else => 3,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 4,
+            .pos3_norm_uv2 => 5,
+            else => 4,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 5,
+            .pos3_norm_uv2 => 6,
+            else => 5,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 6,
+            .pos3_norm_uv2 => 7,
+            else => 6,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 5, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 7,
+            .pos3_norm_uv2 => 8,
+            else => 7,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 6, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 8,
+            .pos3_norm_uv2 => 9,
+            else => 8,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 7, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 9,
+            .pos3_norm_uv2 => 10,
+            else => 9,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 10,
+            .pos3_norm_uv2 => 11,
+            else => 10,
+        } },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 9, .shader_location = switch (vertex_layout_kind) {
+            .pos3_uv2 => 11,
+            .pos3_norm_uv2 => 12,
+            else => 11,
+        } },
     };
     const instance_attributes = if (binding_mode == .material_scene) instance_attributes_scene[0..] else instance_attributes_default[0..];
     const vertex_buffers = switch (vertex_layout_kind) {

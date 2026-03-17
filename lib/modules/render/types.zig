@@ -28,6 +28,7 @@ pub const ExtractedSceneLighting = struct {
     environment_intensity: f32 = 1.0,
     environment_diffuse_strength: f32 = 1.0,
     environment_specular_strength: f32 = 1.0,
+    environment_average_luminance: f32 = 1.0,
     environment_dominant_direction: common.Vec3 = .{ .x = 0.0, .y = 1.0, .z = 0.0 },
     environment_dominant_color: common.Color.F32 = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
     environment_irradiance_sh: [9][4]f32 = [_][4]f32{[_]f32{ 0.0, 0.0, 0.0, 0.0 }} ** 9,

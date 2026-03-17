@@ -130,8 +130,10 @@ pub const PreparedImportedScene = struct {
         material_library: ?*render.MaterialLibrary = null,
         node_entities: []u64 = &.{},
         root_entities: []u64 = &.{},
-        loaded_textures: []?render.TextureHandle = &.{},
-        base_color_materials: []?render.MaterialHandle = &.{},
+        loaded_textures_srgb: []?render.TextureHandle = &.{},
+        loaded_textures_linear: []?render.TextureHandle = &.{},
+        scene_materials: []?render.MaterialHandle = &.{},
+        default_white_texture: ?render.TextureHandle = null,
         mesh_handles: std.ArrayListUnmanaged(render.MeshHandle) = .empty,
         texture_handles: std.ArrayListUnmanaged(render.TextureHandle) = .empty,
         material_handles: std.ArrayListUnmanaged(render.MaterialHandle) = .empty,
@@ -145,20 +147,25 @@ pub const PreparedImportedScene = struct {
             const root_entities = try allocator.alloc(u64, prepared.root_node_indices.len);
             errdefer allocator.free(root_entities);
 
-            const loaded_textures = try allocator.alloc(?render.TextureHandle, prepared.textures.len);
-            errdefer allocator.free(loaded_textures);
-            for (loaded_textures) |*slot| slot.* = null;
+            const loaded_textures_srgb = try allocator.alloc(?render.TextureHandle, prepared.textures.len);
+            errdefer allocator.free(loaded_textures_srgb);
+            for (loaded_textures_srgb) |*slot| slot.* = null;
 
-            const base_color_materials = try allocator.alloc(?render.MaterialHandle, prepared.textures.len);
-            errdefer allocator.free(base_color_materials);
-            for (base_color_materials) |*slot| slot.* = null;
+            const loaded_textures_linear = try allocator.alloc(?render.TextureHandle, prepared.textures.len);
+            errdefer allocator.free(loaded_textures_linear);
+            for (loaded_textures_linear) |*slot| slot.* = null;
+
+            const scene_materials = try allocator.alloc(?render.MaterialHandle, prepared.materials.len);
+            errdefer allocator.free(scene_materials);
+            for (scene_materials) |*slot| slot.* = null;
 
             return .{
                 .allocator = allocator,
                 .node_entities = node_entities,
                 .root_entities = root_entities,
-                .loaded_textures = loaded_textures,
-                .base_color_materials = base_color_materials,
+                .loaded_textures_srgb = loaded_textures_srgb,
+                .loaded_textures_linear = loaded_textures_linear,
+                .scene_materials = scene_materials,
             };
         }
 
@@ -193,8 +200,9 @@ pub const PreparedImportedScene = struct {
             self.mesh_handles.deinit(self.allocator);
             self.texture_handles.deinit(self.allocator);
             self.material_handles.deinit(self.allocator);
-            if (self.base_color_materials.len > 0) self.allocator.free(self.base_color_materials);
-            if (self.loaded_textures.len > 0) self.allocator.free(self.loaded_textures);
+            if (self.scene_materials.len > 0) self.allocator.free(self.scene_materials);
+            if (self.loaded_textures_linear.len > 0) self.allocator.free(self.loaded_textures_linear);
+            if (self.loaded_textures_srgb.len > 0) self.allocator.free(self.loaded_textures_srgb);
             if (self.root_entities.len > 0) self.allocator.free(self.root_entities);
             if (self.node_entities.len > 0) self.allocator.free(self.node_entities);
             self.* = undefined;
@@ -220,10 +228,12 @@ pub const PreparedImportedScene = struct {
             const root_entities = self.root_entities;
             self.root_entities = &.{};
 
-            if (self.base_color_materials.len > 0) self.allocator.free(self.base_color_materials);
-            self.base_color_materials = &.{};
-            if (self.loaded_textures.len > 0) self.allocator.free(self.loaded_textures);
-            self.loaded_textures = &.{};
+            if (self.scene_materials.len > 0) self.allocator.free(self.scene_materials);
+            self.scene_materials = &.{};
+            if (self.loaded_textures_linear.len > 0) self.allocator.free(self.loaded_textures_linear);
+            self.loaded_textures_linear = &.{};
+            if (self.loaded_textures_srgb.len > 0) self.allocator.free(self.loaded_textures_srgb);
+            self.loaded_textures_srgb = &.{};
             if (self.node_entities.len > 0) self.allocator.free(self.node_entities);
             self.node_entities = &.{};
 
@@ -365,16 +375,16 @@ pub const PreparedImportedScene = struct {
                     color = colorFromFactor(prepared_material.base_color_factor);
                     scene_material = try buildPreparedSceneMaterial(build_ctx, self, prepared_material, state);
                     material.alpha_mode = scene_material.alpha_mode;
-                    if (prepared_material.base_color_texture) |base_color_texture| {
-                        if (try ensurePreparedBaseColorMaterial(
-                            build_ctx,
-                            self,
-                            base_color_texture.texture_index,
-                            state,
-                        )) |material_handle| {
-                            material = render.Material.withTextured(material_handle);
-                            material.alpha_mode = scene_material.alpha_mode;
-                        }
+                    if (try ensurePreparedSceneMaterial(
+                        build_ctx,
+                        self,
+                        prepared_material,
+                        @intCast(material_index),
+                        scene_material,
+                        state,
+                    )) |material_handle| {
+                        material = render.Material.withTextured(material_handle);
+                        material.alpha_mode = scene_material.alpha_mode;
                     }
                 }
             }
@@ -509,6 +519,11 @@ const PreparedMaterial = struct {
             .emissive_texture = material.emissive_texture,
         };
     }
+};
+
+const TextureEncoding = enum {
+    srgb,
+    linear,
 };
 
 const PreparedMesh = union(ImportedScene.MeshLayout) {
@@ -694,11 +709,11 @@ fn buildPreparedSceneMaterial(
         .alpha_cutoff = prepared_material.alpha_cutoff,
         .alpha_mode = prepared_material.alpha_mode,
         .double_sided = prepared_material.double_sided,
-        .base_color_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.base_color_texture, state),
-        .metallic_roughness_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.metallic_roughness_texture, state),
-        .normal_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.normal_texture, state),
-        .occlusion_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.occlusion_texture, state),
-        .emissive_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.emissive_texture, state),
+        .base_color_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.base_color_texture, state, .srgb),
+        .metallic_roughness_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.metallic_roughness_texture, state, .linear),
+        .normal_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.normal_texture, state, .linear),
+        .occlusion_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.occlusion_texture, state, .linear),
+        .emissive_texture = try preparedSceneTexture(build_ctx, prepared_scene, prepared_material.emissive_texture, state, .srgb),
     };
 }
 
@@ -707,46 +722,92 @@ fn preparedSceneTexture(
     prepared_scene: *const PreparedImportedScene,
     texture_ref: ?scene_mod.TextureRef,
     state: *PreparedImportedScene.ApplyState,
+    encoding: TextureEncoding,
 ) !render.SceneTexture {
     const texture_data = texture_ref orelse return .{};
-    const texture_handle = try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_data.texture_index, state) orelse return .{};
+    const texture_handle = try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_data.texture_index, encoding, state) orelse return .{};
     return .{
         .texture_handle = texture_handle,
         .texcoord_set = texture_data.texcoord_set,
     };
 }
 
-fn ensurePreparedBaseColorMaterial(
+fn ensurePreparedSceneMaterial(
     build_ctx: *const render.BuildContext,
     prepared_scene: *const PreparedImportedScene,
-    texture_index: u32,
+    prepared_material: PreparedMaterial,
+    material_index: u32,
+    scene_material: render.SceneMaterial,
     state: *PreparedImportedScene.ApplyState,
 ) !?render.MaterialHandle {
-    if (texture_index >= state.base_color_materials.len) return null;
-    if (state.base_color_materials[texture_index]) |handle| return handle;
+    if (material_index >= state.scene_materials.len) return null;
+    if (state.scene_materials[material_index]) |handle| return handle;
 
-    const texture_handle = try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_index, state) orelse return null;
-    const material_handle = try build_ctx.createMaterial(texture_handle, null);
+    const default_white = try ensurePreparedDefaultWhiteTexture(build_ctx, state);
+    _ = scene_material;
+    const base_color_handle = if (prepared_material.base_color_texture) |texture_ref|
+        (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .srgb, state) orelse default_white)
+    else
+        default_white;
+    const metallic_roughness_handle = if (prepared_material.metallic_roughness_texture) |texture_ref|
+        (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .linear, state) orelse default_white)
+    else
+        default_white;
+    const occlusion_handle = if (prepared_material.occlusion_texture) |texture_ref|
+        (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .linear, state) orelse default_white)
+    else
+        default_white;
+
+    const material_handle = try build_ctx.createSceneMaterial(
+        base_color_handle,
+        metallic_roughness_handle,
+        occlusion_handle,
+        null,
+    );
     errdefer _ = build_ctx.destroyMaterial(material_handle);
     try state.material_handles.append(state.allocator, material_handle);
-    state.base_color_materials[texture_index] = material_handle;
+    state.scene_materials[material_index] = material_handle;
     return material_handle;
+}
+
+fn ensurePreparedDefaultWhiteTexture(
+    build_ctx: *const render.BuildContext,
+    state: *PreparedImportedScene.ApplyState,
+) !render.TextureHandle {
+    if (state.default_white_texture) |handle| return handle;
+    const white = [_]u8{ 255, 255, 255, 255 };
+    const handle = try build_ctx.createTextureRgba8(1, 1, &white);
+    errdefer _ = build_ctx.destroyTexture(handle);
+    try state.texture_handles.append(state.allocator, handle);
+    state.default_white_texture = handle;
+    return handle;
 }
 
 fn ensurePreparedTextureHandle(
     build_ctx: *const render.BuildContext,
     prepared_scene: *const PreparedImportedScene,
     texture_index: u32,
+    encoding: TextureEncoding,
     state: *PreparedImportedScene.ApplyState,
 ) !?render.TextureHandle {
-    if (texture_index >= state.loaded_textures.len) return null;
-    if (state.loaded_textures[texture_index]) |handle| return handle;
+    const loaded_textures = switch (encoding) {
+        .srgb => state.loaded_textures_srgb,
+        .linear => state.loaded_textures_linear,
+    };
+    if (texture_index >= loaded_textures.len) return null;
+    if (loaded_textures[texture_index]) |handle| return handle;
 
     const prepared = prepared_scene.textures[texture_index] orelse return null;
-    const texture_handle = try build_ctx.createTextureRgba8(prepared.width, prepared.height, prepared.data);
+    const texture_handle = switch (encoding) {
+        .srgb => try build_ctx.createTextureRgba8(prepared.width, prepared.height, prepared.data),
+        .linear => try build_ctx.createTextureRgba8Linear(prepared.width, prepared.height, prepared.data),
+    };
     errdefer _ = build_ctx.destroyTexture(texture_handle);
     try state.texture_handles.append(state.allocator, texture_handle);
-    state.loaded_textures[texture_index] = texture_handle;
+    switch (encoding) {
+        .srgb => state.loaded_textures_srgb[texture_index] = texture_handle,
+        .linear => state.loaded_textures_linear[texture_index] = texture_handle,
+    }
     return texture_handle;
 }
 

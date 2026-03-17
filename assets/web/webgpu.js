@@ -515,6 +515,8 @@ function createPipelines(ctx) {
         visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
         buffer: { type: "uniform", minBindingSize: sceneUniformsSize },
       },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     ],
   });
   ctx.scenePipelineLayout = ctx.device.createPipelineLayout({
@@ -1781,6 +1783,39 @@ const imports = {
       if (!ctx) return 0;
       const texture = ctx.device.createTexture({
         size: { width, height },
+        format: "rgba8unorm-srgb",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      webgpuCreates.textures += 1;
+      const view = texture.createView();
+      webgpuCreates.textureViews += 1;
+      const bytesPerRow = width * 4;
+      const alignedBpr = Math.ceil(bytesPerRow / 256) * 256;
+      let data = new Uint8Array(memory.buffer, dataPtr, dataLen);
+      if (alignedBpr !== bytesPerRow) {
+        const padded = new Uint8Array(alignedBpr * height);
+        for (let row = 0; row < height; row++) {
+          const srcOff = row * bytesPerRow;
+          const dstOff = row * alignedBpr;
+          padded.set(data.subarray(srcOff, srcOff + bytesPerRow), dstOff);
+        }
+        data = padded;
+      }
+      ctx.queue.writeTexture(
+        { texture },
+        data,
+        { bytesPerRow: alignedBpr },
+        { width, height }
+      );
+      const handle = ctx.textures.length;
+      ctx.textures.push({ texture, view });
+      return handle;
+    },
+    webgpu_create_texture_rgba8_linear(ctxId, _samplerHandle, dataPtr, dataLen, width, height) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const texture = ctx.device.createTexture({
+        size: { width, height },
         format: "rgba8unorm",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       });
@@ -1883,6 +1918,45 @@ const imports = {
               size: sceneUniformsSize,
             },
           },
+          { binding: 3, resource: texture.view },
+          { binding: 4, resource: texture.view },
+        ],
+      });
+      webgpuCreates.bindGroups += 2;
+      const handle = ctx.materials.length;
+      ctx.materials.push({ bindGroup, sceneBindGroup });
+      return handle;
+    },
+    webgpu_create_scene_material(ctxId, baseColorTextureHandle, metallicRoughnessTextureHandle, occlusionTextureHandle, samplerHandle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const baseColor = ctx.textures[baseColorTextureHandle];
+      const metallicRoughness = ctx.textures[metallicRoughnessTextureHandle];
+      const occlusion = ctx.textures[occlusionTextureHandle];
+      const sampler = ctx.samplers[samplerHandle];
+      if (!baseColor || !metallicRoughness || !occlusion || !sampler) return 0;
+      const bindGroup = ctx.device.createBindGroup({
+        layout: ctx.quadBindGroupLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: baseColor.view },
+        ],
+      });
+      const sceneBindGroup = ctx.device.createBindGroup({
+        layout: ctx.sceneBindGroupLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: baseColor.view },
+          {
+            binding: 2,
+            resource: {
+              buffer: ctx.sceneUniformBuffer,
+              offset: 0,
+              size: sceneUniformsSize,
+            },
+          },
+          { binding: 3, resource: metallicRoughness.view },
+          { binding: 4, resource: occlusion.view },
         ],
       });
       webgpuCreates.bindGroups += 2;

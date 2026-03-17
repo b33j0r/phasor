@@ -29,13 +29,24 @@ pub fn extractSystem(
         extracted_lighting.ptr.environment_intensity = environment.intensity;
         extracted_lighting.ptr.environment_diffuse_strength = environment.diffuse_strength;
         extracted_lighting.ptr.environment_specular_strength = environment.specular_strength;
+        extracted_lighting.ptr.environment_average_luminance = environment.average_luminance;
         extracted_lighting.ptr.environment_dominant_direction = environment.dominant_direction;
         extracted_lighting.ptr.environment_dominant_color = environment.dominant_color;
         extracted_lighting.ptr.environment_irradiance_sh = environment.irradiance_sh;
     }
     if (exposure_settings.ptr) |settings| {
         extracted_lighting.ptr.exposure_enabled = settings.enabled;
-        extracted_lighting.ptr.exposure = settings.exposure;
+        if (settings.auto_enabled) {
+            const avg_luma = @max(extracted_lighting.ptr.environment_average_luminance, 0.0001);
+            const auto_exposure = settings.auto_key_value / avg_luma;
+            extracted_lighting.ptr.exposure = std.math.clamp(
+                auto_exposure,
+                settings.min_exposure,
+                settings.max_exposure,
+            );
+        } else {
+            extracted_lighting.ptr.exposure = settings.exposure;
+        }
     }
     extractLights(extracted_lighting.ptr, visible_lights, true);
     extractLights(extracted_lighting.ptr, untagged_lights, false);
@@ -161,6 +172,7 @@ fn layerKeyForTable(table: *const db.table.Table) i32 {
     return 0;
 }
 
+const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
 const render = @import("render");

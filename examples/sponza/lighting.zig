@@ -20,19 +20,22 @@ pub fn setupLighting(
 
     try commands.insertResource(lighting.AmbientLight{
         .color = .{ .r = 0.65, .g = 0.68, .b = 0.74, .a = 1.0 },
-        .intensity = 0.001,
+        .intensity = 0.01,
     });
     try commands.insertResource(lighting.ExposureSettings{
         .enabled = true,
-        .exposure = 0.9,
+        .auto_enabled = true,
+        .auto_key_value = 0.12,
+        .min_exposure = 0.12,
+        .max_exposure = 0.45,
     });
     try commands.insertResource(try lighting.buildEnvironmentLightFromHdrBytes(
         commands.allocator,
         sponza_panorama_bytes,
         .{
-            .intensity = 0.05,
-            .diffuse_strength = 0.8,
-            .specular_strength = 0.18,
+            .intensity = 0.55,
+            .diffuse_strength = 1.35,
+            .specular_strength = 0.03,
         },
     ));
 
@@ -47,7 +50,7 @@ pub fn setupLighting(
         },
         lighting.Light{ .directional = .{
             .color = .{ .r = 1.0, .g = 0.95, .b = 0.86, .a = 1.0 },
-            .illuminance_lux = 16000.0,
+            .illuminance_lux = 180.0,
         } },
         lighting.LightVisibility{
             .enabled = true,
@@ -63,12 +66,16 @@ pub fn setupLighting(
         range: f32,
         dynamic: bool,
     }{
-        .{ .pos = .{ .x = -scene_size.x * 0.18, .y = 2.8, .z = scene_size.z * 0.18 }, .color = .{ .r = 1.0, .g = 0.42, .b = 0.28, .a = 1.0 }, .intensity = 1400.0, .range = 10.0, .dynamic = false },
-        .{ .pos = .{ .x = scene_size.x * 0.18, .y = 2.8, .z = scene_size.z * 0.18 }, .color = .{ .r = 0.22, .g = 0.75, .b = 1.0, .a = 1.0 }, .intensity = 1250.0, .range = 10.5, .dynamic = false },
-        .{ .pos = .{ .x = -scene_size.x * 0.2, .y = 3.2, .z = -scene_size.z * 0.16 }, .color = .{ .r = 0.82, .g = 0.34, .b = 1.0, .a = 1.0 }, .intensity = 1600.0, .range = 11.5, .dynamic = true },
-        .{ .pos = .{ .x = scene_size.x * 0.2, .y = 3.2, .z = -scene_size.z * 0.16 }, .color = .{ .r = 0.24, .g = 1.0, .b = 0.66, .a = 1.0 }, .intensity = 1500.0, .range = 11.5, .dynamic = true },
-        .{ .pos = .{ .x = 0.0, .y = 4.4, .z = 0.0 }, .color = .{ .r = 1.0, .g = 0.8, .b = 0.3, .a = 1.0 }, .intensity = 1900.0, .range = 13.0, .dynamic = false },
-        .{ .pos = .{ .x = 0.0, .y = 2.6, .z = -scene_size.z * 0.26 }, .color = .{ .r = 0.3, .g = 0.55, .b = 1.0, .a = 1.0 }, .intensity = 1350.0, .range = 9.5, .dynamic = false },
+        // Soft neutral fill at scene origin to lift extreme center-corridor contrast.
+        .{ .pos = .{ .x = 0.0, .y = 1.9, .z = 0.0 }, .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 }, .intensity = 90.0, .range = 14.0, .dynamic = false },
+        // Main corridor: static colored lights along Z (x = 0), leaving origin unlit.
+        .{ .pos = .{ .x = 0.0, .y = 2.8, .z = scene_size.z * 0.30 }, .color = .{ .r = 1.0, .g = 0.42, .b = 0.28, .a = 1.0 }, .intensity = 120.0, .range = 9.0, .dynamic = false },
+        .{ .pos = .{ .x = 0.0, .y = 2.8, .z = scene_size.z * 0.12 }, .color = .{ .r = 0.22, .g = 0.75, .b = 1.0, .a = 1.0 }, .intensity = 105.0, .range = 9.0, .dynamic = false },
+        .{ .pos = .{ .x = 0.0, .y = 2.8, .z = -scene_size.z * 0.12 }, .color = .{ .r = 1.0, .g = 0.8, .b = 0.3, .a = 1.0 }, .intensity = 125.0, .range = 9.5, .dynamic = false },
+        .{ .pos = .{ .x = 0.0, .y = 2.6, .z = -scene_size.z * 0.30 }, .color = .{ .r = 0.3, .g = 0.55, .b = 1.0, .a = 1.0 }, .intensity = 100.0, .range = 8.5, .dynamic = false },
+        // Side corridors: dynamic/patrolling lights centered at +/- x_extent/3, z ~ 0.
+        .{ .pos = .{ .x = -scene_size.x * 0.33, .y = 3.2, .z = 0.0 }, .color = .{ .r = 0.82, .g = 0.34, .b = 1.0, .a = 1.0 }, .intensity = 140.0, .range = 10.0, .dynamic = true },
+        .{ .pos = .{ .x = scene_size.x * 0.33, .y = 3.2, .z = 0.0 }, .color = .{ .r = 0.24, .g = 1.0, .b = 0.66, .a = 1.0 }, .intensity = 135.0, .range = 10.0, .dynamic = true },
     };
 
     for (point_positions, 0..) |spec, i| {
@@ -101,43 +108,6 @@ pub fn setupLighting(
             });
         }
     }
-
-    _ = try commands.createEntity(.{
-        Transform{
-            .translation = .{
-                .x = 0.0,
-                .y = scene_size.y * 0.48,
-                .z = scene_size.z * 0.08,
-            },
-            .rotation = quatFromEuler(-0.65, std.math.pi, 0.0),
-        },
-        lighting.Light{ .spot = .{
-            .color = .{ .r = 1.0, .g = 0.94, .b = 0.8, .a = 1.0 },
-            .intensity_candela = 5500.0,
-            .range = 24.0,
-            .inner_angle_rad = 0.22,
-            .outer_angle_rad = 0.45,
-        } },
-        lighting.LightVisibility{
-            .enabled = true,
-            .casts_shadows = false,
-            .is_static = false,
-        },
-        AnimatedLight{
-            .center = .{
-                .x = 0.0,
-                .y = scene_size.y * 0.48,
-                .z = scene_size.z * 0.08,
-            },
-            .orbit_radius = 2.4,
-            .angular_speed = 0.35,
-            .phase = 0.0,
-            .base_height = scene_size.y * 0.48,
-            .pulse_base = 4600.0,
-            .pulse_amplitude = 1200.0,
-            .pulse_speed = 1.5,
-        },
-    });
 
     try commands.insertResource(LightingReady{});
 }
