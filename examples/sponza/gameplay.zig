@@ -59,7 +59,7 @@ pub fn spawnPlayerFromCollision(
     _ = try commands.createEntity(.{
         s.PlayerCamera{},
         s.Transform{
-            .translation = spawn.add(.{ .x = 0.0, .y = controller.eye_offset_y, .z = 0.0 }),
+            .translation = spawn.add(s.FpsPhysics.cameraOffset(controller)),
             .rotation = camera_facing,
         },
         s.Camera3d{ .Perspective = .{
@@ -119,7 +119,7 @@ pub fn updatePlayerCamera(
     var cit = cameras.iterator();
     while (cit.next()) |row| {
         const transform = row.get(s.Transform) orelse continue;
-        transform.translation = player_transform.?.translation.add(.{ .x = 0.0, .y = controller.eye_offset_y, .z = 0.0 });
+        transform.translation = player_transform.?.translation.add(s.FpsPhysics.cameraOffset(controller));
         transform.rotation = camera_rotation;
     }
 }
@@ -138,7 +138,7 @@ pub fn logPlayerBookmark(
     const transform = row.get(s.Transform) orelse return;
     const controller = row.get(s.FpsController) orelse return;
 
-    const camera_translation = transform.translation.add(.{ .x = 0.0, .y = controller.eye_offset_y, .z = 0.0 });
+    const camera_translation = transform.translation.add(s.FpsPhysics.cameraOffset(controller.*));
 
     std.log.debug(
         "sponza bookmark player_transform = Transform{{ .translation = .{{ .x = {d:.3}, .y = {d:.3}, .z = {d:.3} }}, .rotation = quatFromEuler(0.0, {d:.4}, 0.0) }}; camera_transform = Transform{{ .translation = .{{ .x = {d:.3}, .y = {d:.3}, .z = {d:.3} }}, .rotation = quatFromEuler({d:.4}, {d:.4}, 0.0) }};",

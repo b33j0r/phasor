@@ -9,11 +9,34 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             radius: f32 = 0.35,
             height: f32 = 1.8,
             eye_offset_y: f32 = 0.5,
+            sprint_enabled: bool = true,
+            sprint_key: InputModule.Key = .left_shift,
+            sprint_multiplier: f32 = 1.7,
+            crouch_enabled: bool = true,
+            crouch_key: InputModule.Key = .left_control,
+            crouch_speed_multiplier: f32 = 0.45,
+            crouch_height: f32 = 1.2,
+            crouch_eye_offset_y: f32 = 0.4,
+            crouch_transition_rate: f32 = 10.0,
+            headbob_enabled: bool = true,
+            headbob_frequency_hz: f32 = 1.45,
+            headbob_vertical_amplitude: f32 = 0.008,
+            headbob_horizontal_amplitude: f32 = 0.0035,
+            headbob_sprint_multiplier: f32 = 1.12,
+            headbob_crouch_multiplier: f32 = 0.7,
+            headbob_min_speed: f32 = 0.85,
+            headbob_return_rate: f32 = 10.0,
             grounded: bool = false,
+            sprinting: bool = false,
+            crouching: bool = false,
             coyote_time: f32 = 0.1,
             coyote_timer: f32 = 0.0,
             jump_buffer_time: f32 = 0.12,
             jump_buffer_timer: f32 = 0.0,
+            headbob_phase: f32 = 0.0,
+            headbob_offset: Vec3 = .{},
+            current_eye_offset_y: f32 = 0.0,
+            view_initialized: bool = false,
         };
 
         pub const intent_schedule_default = "FpsControllerIntent";
@@ -46,6 +69,24 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             return @max(0.0, controller.height * 0.5 - controller.radius);
         }
 
+        pub fn activeHeight(controller: FpsController) f32 {
+            if (controller.crouching and controller.crouch_enabled) return controller.crouch_height;
+            return controller.height;
+        }
+
+        pub fn activeEyeOffsetY(controller: FpsController) f32 {
+            if (controller.view_initialized) return controller.current_eye_offset_y;
+            return targetEyeOffsetY(controller);
+        }
+
+        pub fn cameraOffset(controller: FpsController) Vec3 {
+            return .{
+                .x = controller.headbob_offset.x,
+                .y = activeEyeOffsetY(controller) + controller.headbob_offset.y,
+                .z = controller.headbob_offset.z,
+            };
+        }
+
         fn ensureScheduleBetween(
             app: *AppCommands,
             before_label: []const u8,
@@ -63,12 +104,21 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
         };
 
         fn updateFpsControllerIntent(
+            commands: *Commands,
             dt: Res(TimeModule.DeltaTime),
             physics_config: Res(physics.Config),
+            world: ResMut(physics.BackendWorld),
             keyboard_opt: ResOpt(InputModule.Keyboard),
             mouse_opt: ResOpt(InputModule.Mouse),
             settings: Res(FpsPhysicsSettings),
-            query: Query(.{ common.Transform, FpsController, physics.CharacterVelocity, physics.CharacterState, ControlledTag }),
+            query: Query(.{
+                common.Transform,
+                FpsController,
+                physics.Collider,
+                physics.CharacterVelocity,
+                physics.CharacterState,
+                ControlledTag,
+            }),
         ) void {
             const keyboard = keyboard_opt.ptr;
             const mouse = mouse_opt.ptr;
@@ -80,6 +130,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             while (it.next()) |row| {
                 const transform = row.get(common.Transform) orelse continue;
                 const controller = row.get(FpsController) orelse continue;
+                const collider = row.get(physics.Collider) orelse continue;
                 const velocity = row.get(physics.CharacterVelocity) orelse continue;
                 const character_state = row.get(physics.CharacterState) orelse continue;
 
@@ -106,6 +157,10 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                 const forward_world = yaw_rot.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 });
                 const right_world = yaw_rot.rotateVec3(.{ .x = 1.0, .y = 0.0, .z = 0.0 });
 
+                const was_crouching = controller.crouching;
+                var wants_crouch = was_crouching;
+                var wants_sprint = false;
+
                 var desired = Vec3{};
                 if (keyboard) |keys| {
                     if (keys.isKeyDown(.w)) desired = desired.add(forward_world);
@@ -113,17 +168,39 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                     if (keys.isKeyDown(.d)) desired = desired.add(right_world);
                     if (keys.isKeyDown(.a)) desired = desired.sub(right_world);
                     if (keys.isKeyDown(.space)) controller.jump_buffer_timer = controller.jump_buffer_time;
+                    if (controller.crouch_enabled) {
+                        wants_crouch = keys.isKeyDown(controller.crouch_key);
+                    }
+                    if (controller.sprint_enabled and !wants_crouch) {
+                        wants_sprint = keys.isKeyDown(controller.sprint_key);
+                    }
+                }
+
+                if (was_crouching and !wants_crouch) {
+                    wants_crouch = !canStandUp(world.ptr, transform.*, controller.*, collider.*);
+                }
+
+                if (wants_crouch != was_crouching) {
+                    applyCrouchState(commands, row.entity_id, transform, controller, collider, wants_crouch);
                 }
 
                 desired.y = 0.0;
                 var desired_horizontal = Vec3{};
+                var speed = controller.move_speed;
+                if (wants_crouch) {
+                    speed *= controller.crouch_speed_multiplier;
+                } else if (wants_sprint) {
+                    speed *= controller.sprint_multiplier;
+                }
                 if (desired.length_squared() > 0.0001) {
                     const normalized = desired.normalize();
-                    desired_horizontal = normalized.scale(controller.move_speed);
+                    desired_horizontal = normalized.scale(speed);
                 }
 
                 const supported = character_state.isSupported();
                 controller.grounded = character_state.isGrounded();
+                controller.crouching = wants_crouch;
+                controller.sprinting = wants_sprint and desired_horizontal.length_squared() > 0.0001;
 
                 if (supported) {
                     controller.coyote_timer = controller.coyote_time;
@@ -146,7 +223,111 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                     controller.coyote_timer = 0.0;
                     controller.jump_buffer_timer = 0.0;
                 }
+
+                updateViewState(controller, step, desired_horizontal);
             }
+        }
+
+        fn targetEyeOffsetY(controller: FpsController) f32 {
+            if (controller.crouching and controller.crouch_enabled) return controller.crouch_eye_offset_y;
+            return controller.eye_offset_y;
+        }
+
+        fn applyCrouchState(
+            commands: *Commands,
+            entity_id: ecs.Entity.Id,
+            transform: *common.Transform,
+            controller: *FpsController,
+            collider: *physics.Collider,
+            crouching: bool,
+        ) void {
+            const previous_half_height = colliderHalfHeight(collider.shape);
+            controller.crouching = crouching;
+            const target_half_height = capsuleHalfHeight(controller.*);
+            transform.translation.y += target_half_height - previous_half_height;
+
+            switch (collider.shape) {
+                .Capsule => |*capsule| {
+                    capsule.half_height = target_half_height;
+                    capsule.radius = controller.radius;
+                },
+                else => return,
+            }
+
+            commands.addComponent(entity_id, physics.PhysicsDirty{}) catch {};
+        }
+
+        fn updateViewState(controller: *FpsController, step: f32, desired_horizontal: Vec3) void {
+            const eye_target = targetEyeOffsetY(controller.*);
+            if (!controller.view_initialized) {
+                controller.current_eye_offset_y = eye_target;
+                controller.view_initialized = true;
+            } else {
+                controller.current_eye_offset_y = approach(
+                    controller.current_eye_offset_y,
+                    eye_target,
+                    controller.crouch_transition_rate * step,
+                );
+            }
+
+            const horizontal_speed = desired_horizontal.length();
+            const moving = controller.grounded and horizontal_speed >= controller.headbob_min_speed;
+            if (controller.headbob_enabled and moving) {
+                var bob_scale: f32 = horizontal_speed / @max(controller.move_speed, 0.001);
+                if (controller.sprinting) bob_scale *= controller.headbob_sprint_multiplier;
+                if (controller.crouching) bob_scale *= controller.headbob_crouch_multiplier;
+                bob_scale = std.math.clamp(bob_scale, 0.0, 1.15);
+
+                controller.headbob_phase += step * std.math.tau * controller.headbob_frequency_hz * bob_scale;
+                const lateral = std.math.sin(controller.headbob_phase);
+                const step_wave = 0.5 - 0.5 * std.math.cos(controller.headbob_phase * 2.0);
+                controller.headbob_offset.x = lateral * controller.headbob_horizontal_amplitude * bob_scale;
+                controller.headbob_offset.y = -step_wave * controller.headbob_vertical_amplitude * bob_scale;
+            } else {
+                controller.headbob_offset.x = approach(controller.headbob_offset.x, 0.0, controller.headbob_return_rate * step);
+                controller.headbob_offset.y = approach(controller.headbob_offset.y, 0.0, controller.headbob_return_rate * step);
+                controller.headbob_offset.z = 0.0;
+            }
+        }
+
+        fn canStandUp(
+            world: *physics.BackendWorld,
+            transform: common.Transform,
+            controller: FpsController,
+            collider: physics.Collider,
+        ) bool {
+            if (!controller.crouch_enabled or !controller.crouching) return true;
+            const current_half_height = colliderHalfHeight(collider.shape);
+            var standing = controller;
+            standing.crouching = false;
+            const standing_half_height = capsuleHalfHeight(standing);
+            const extra_height = standing_half_height - current_half_height;
+            if (!(extra_height > 0.0)) return true;
+
+            const top_center = transform.translation.add(.{ .x = 0.0, .y = current_half_height, .z = 0.0 });
+            const hit = world.castShape(.{
+                .shape = .{ .Sphere = .{ .radius = controller.radius } },
+                .start = .{
+                    .translation = top_center,
+                },
+                .translation = .{ .x = 0.0, .y = extra_height, .z = 0.0 },
+                .collision = collider.collision,
+            });
+            return hit == null;
+        }
+
+        fn colliderHalfHeight(shape: physics.Shape) f32 {
+            return switch (shape) {
+                .Capsule => |capsule| capsule.half_height,
+                else => 0.0,
+            };
+        }
+
+        fn approach(current: f32, target: f32, max_delta: f32) f32 {
+            if (!(max_delta > 0.0)) return target;
+            if (current < target) return @min(current + max_delta, target);
+            if (current > target) return @max(current - max_delta, target);
+            return target;
         }
     };
 }

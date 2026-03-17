@@ -99,17 +99,21 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), r
         },
     });
 
+    const controller = FpsController{ .eye_offset_y = 0.5 };
+
+    const player_spawn = Vec3{ .x = 0.0, .y = 0.9, .z = 10.5 };
+
     _ = try commands.createEntity(.{
         Player{},
-        FpsController{ .eye_offset_y = 0.5 },
+        controller,
         Transform{
-            .translation = .{ .x = 0.0, .y = 0.9, .z = 10.5 },
+            .translation = player_spawn,
         },
         physics.Character{},
         physics.Collider{
             .shape = .{ .Capsule = .{
-                .radius = 0.35,
-                .half_height = FpsPhysics.capsuleHalfHeight(.{}),
+                .radius = controller.radius,
+                .half_height = FpsPhysics.capsuleHalfHeight(controller),
             } },
             .collision = .{
                 .layer = 1,
@@ -123,7 +127,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), r
     _ = try commands.createEntity(.{
         PlayerCamera{},
         Transform{
-            .translation = .{ .x = 0.0, .y = 1.4, .z = 10.5 },
+            .translation = player_spawn.add(FpsPhysics.cameraOffset(controller)),
         },
         Camera3d{ .Perspective = .{
             .fov = std.math.pi / 3.0,
@@ -392,7 +396,7 @@ fn updatePlayerCamera(
     var cit = cameras.iterator();
     while (cit.next()) |row| {
         const transform = row.get(Transform) orelse continue;
-        transform.translation = player_transform.?.translation.add(.{ .x = 0.0, .y = controller.eye_offset_y, .z = 0.0 });
+        transform.translation = player_transform.?.translation.add(FpsPhysics.cameraOffset(controller));
         transform.rotation = camera_rotation;
     }
 }
