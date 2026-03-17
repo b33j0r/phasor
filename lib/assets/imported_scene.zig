@@ -120,6 +120,31 @@ pub const PreparedImportedScene = struct {
 
     pub const PrepareOptions = struct {
         mesh_layout: ImportedScene.MeshLayout = .Pos3Uv,
+        material_overrides: []const MaterialOverride = &.{},
+    };
+
+    pub const MaterialOverride = struct {
+        material_index: ?u32 = null,
+        material_name_equals: ?[]const u8 = null,
+        material_name_contains: ?[]const u8 = null,
+        alpha_mode: ?render.Material.AlphaMode = null,
+        has_metallic_roughness_texture: ?bool = null,
+        has_occlusion_texture: ?bool = null,
+        has_normal_texture: ?bool = null,
+        min_metallic_map_average: ?f32 = null,
+        max_metallic_map_average: ?f32 = null,
+        min_roughness_map_average: ?f32 = null,
+        max_roughness_map_average: ?f32 = null,
+        min_base_color_saturation_average: ?f32 = null,
+        max_base_color_saturation_average: ?f32 = null,
+        metallic_factor: ?f32 = null,
+        roughness_factor: ?f32 = null,
+        occlusion_strength: ?f32 = null,
+        normal_scale: ?f32 = null,
+        use_metallic_roughness_texture: ?bool = null,
+        use_occlusion_texture: ?bool = null,
+        use_normal_texture: ?bool = null,
+        double_sided: ?bool = null,
     };
 
     pub const ApplyState = struct {
@@ -277,15 +302,23 @@ pub const PreparedImportedScene = struct {
 
         result.root_node_indices = try collectRootNodes(allocator, scene_data);
 
-        result.materials = try allocator.alloc(PreparedMaterial, scene_data.materials.len);
-        for (scene_data.materials, 0..) |material, index| {
-            result.materials[index] = PreparedMaterial.fromScene(material);
-        }
-
         result.textures = try allocator.alloc(?PreparedTexture, scene_data.textures.len);
         for (result.textures) |*slot| slot.* = null;
         for (scene_data.textures, 0..) |_, texture_index| {
             result.textures[texture_index] = try prepareTextureData(allocator, io, source_path, scene_data, @intCast(texture_index));
+        }
+
+        result.materials = try allocator.alloc(PreparedMaterial, scene_data.materials.len);
+        for (scene_data.materials, 0..) |material, index| {
+            var prepared_material = PreparedMaterial.fromScene(material);
+            applyMaterialOverrides(
+                &prepared_material,
+                material,
+                @intCast(index),
+                result.textures,
+                options.material_overrides,
+            );
+            result.materials[index] = prepared_material;
         }
 
         var meshes: std.ArrayListUnmanaged(PreparedMesh) = .empty;
@@ -550,6 +583,131 @@ const PreparedMesh = union(ImportedScene.MeshLayout) {
         self.* = undefined;
     }
 };
+
+fn applyMaterialOverrides(
+    prepared: *PreparedMaterial,
+    source: scene_mod.MaterialData,
+    material_index: u32,
+    prepared_textures: []const ?PreparedTexture,
+    overrides: []const PreparedImportedScene.MaterialOverride,
+) void {
+    for (overrides) |override| {
+        if (!materialOverrideMatches(override, source, prepared.*, material_index, prepared_textures)) continue;
+
+        if (override.metallic_factor) |value| prepared.metallic_factor = std.math.clamp(value, 0.0, 1.0);
+        if (override.roughness_factor) |value| prepared.roughness_factor = std.math.clamp(value, 0.0, 1.0);
+        if (override.occlusion_strength) |value| prepared.occlusion_strength = std.math.clamp(value, 0.0, 1.0);
+        if (override.normal_scale) |value| prepared.normal_scale = value;
+        if (override.use_metallic_roughness_texture) |enabled| {
+            if (!enabled) prepared.metallic_roughness_texture = null;
+        }
+        if (override.use_occlusion_texture) |enabled| {
+            if (!enabled) prepared.occlusion_texture = null;
+        }
+        if (override.use_normal_texture) |enabled| {
+            if (!enabled) prepared.normal_texture = null;
+        }
+        if (override.double_sided) |value| prepared.double_sided = value;
+    }
+}
+
+fn materialOverrideMatches(
+    override: PreparedImportedScene.MaterialOverride,
+    source: scene_mod.MaterialData,
+    prepared: PreparedMaterial,
+    material_index: u32,
+    prepared_textures: []const ?PreparedTexture,
+) bool {
+    if (override.material_index) |match_index| {
+        if (match_index != material_index) return false;
+    }
+    if (override.alpha_mode) |alpha_mode| {
+        if (prepared.alpha_mode != alpha_mode) return false;
+    }
+    if (override.material_name_equals) |expected| {
+        const name = source.name orelse return false;
+        if (!std.mem.eql(u8, name, expected)) return false;
+    }
+    if (override.material_name_contains) |needle| {
+        const name = source.name orelse return false;
+        if (std.mem.indexOf(u8, name, needle) == null) return false;
+    }
+    if (override.has_metallic_roughness_texture) |expected| {
+        if ((prepared.metallic_roughness_texture != null) != expected) return false;
+    }
+    if (override.has_occlusion_texture) |expected| {
+        if ((prepared.occlusion_texture != null) != expected) return false;
+    }
+    if (override.has_normal_texture) |expected| {
+        if ((prepared.normal_texture != null) != expected) return false;
+    }
+    if (override.min_metallic_map_average != null or override.max_metallic_map_average != null or override.min_roughness_map_average != null or override.max_roughness_map_average != null) {
+        const metallic_roughness_ref = prepared.metallic_roughness_texture orelse return false;
+        const mr_stats = textureStatsForIndex(prepared_textures, metallic_roughness_ref.texture_index) orelse return false;
+        if (override.min_metallic_map_average) |min_value| {
+            if (mr_stats.blue < min_value) return false;
+        }
+        if (override.max_metallic_map_average) |max_value| {
+            if (mr_stats.blue > max_value) return false;
+        }
+        if (override.min_roughness_map_average) |min_value| {
+            if (mr_stats.green < min_value) return false;
+        }
+        if (override.max_roughness_map_average) |max_value| {
+            if (mr_stats.green > max_value) return false;
+        }
+    }
+    if (override.min_base_color_saturation_average != null or override.max_base_color_saturation_average != null) {
+        const base_ref = prepared.base_color_texture orelse return false;
+        const base_stats = textureStatsForIndex(prepared_textures, base_ref.texture_index) orelse return false;
+        if (override.min_base_color_saturation_average) |min_value| {
+            if (base_stats.saturation < min_value) return false;
+        }
+        if (override.max_base_color_saturation_average) |max_value| {
+            if (base_stats.saturation > max_value) return false;
+        }
+    }
+    return true;
+}
+
+const TextureStats = struct {
+    red: f32,
+    green: f32,
+    blue: f32,
+    saturation: f32,
+};
+
+fn textureStatsForIndex(prepared_textures: []const ?PreparedTexture, texture_index: u32) ?TextureStats {
+    if (texture_index >= prepared_textures.len) return null;
+    const texture = prepared_textures[texture_index] orelse return null;
+    if (texture.data.len < 4) return null;
+    var sum_r: f32 = 0.0;
+    var sum_g: f32 = 0.0;
+    var sum_b: f32 = 0.0;
+    var sum_sat: f32 = 0.0;
+    var count: usize = 0;
+    var offset: usize = 0;
+    while (offset + 3 < texture.data.len) : (offset += 4) {
+        const r: f32 = @floatFromInt(texture.data[offset + 0]);
+        const g: f32 = @floatFromInt(texture.data[offset + 1]);
+        const b: f32 = @floatFromInt(texture.data[offset + 2]);
+        sum_r += r;
+        sum_g += g;
+        sum_b += b;
+        const max_rgb = @max(r, @max(g, b));
+        const min_rgb = @min(r, @min(g, b));
+        sum_sat += (max_rgb - min_rgb) / 255.0;
+        count += 1;
+    }
+    if (count == 0) return null;
+    const inv_count = 1.0 / @as(f32, @floatFromInt(count));
+    return .{
+        .red = (sum_r * inv_count) / 255.0,
+        .green = (sum_g * inv_count) / 255.0,
+        .blue = (sum_b * inv_count) / 255.0,
+        .saturation = sum_sat * inv_count,
+    };
+}
 
 fn transformFromLocal(local: common.LocalTransform) common.Transform {
     return .{

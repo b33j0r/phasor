@@ -204,6 +204,19 @@ fn fresnelSchlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
     return f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - cos_theta, 5.0);
 }
 
+fn fresnelSchlickRoughness(cos_theta: f32, f0: vec3<f32>, roughness: f32) -> vec3<f32> {
+    return f0 + (max(vec3<f32>(1.0 - roughness), f0) - f0) * pow(1.0 - cos_theta, 5.0);
+}
+
+// Split-sum environment BRDF fit used by UE/EEVEE-style IBL implementations.
+fn environmentBrdfApprox(roughness: f32, ndotv: f32) -> vec2<f32> {
+    let c0 = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
+    let c1 = vec4<f32>(1.0, 0.0425, 1.04, -0.04);
+    let r = roughness * c0 + c1;
+    let a004 = min(r.x * r.x, exp2(-9.28 * ndotv)) * r.x + r.y;
+    return vec2<f32>(-1.04, 1.04) * a004 + r.zw;
+}
+
 fn distributionGGX(n: vec3<f32>, h: vec3<f32>, roughness: f32) -> f32 {
     let a = roughness * roughness;
     let a2 = a * a;
@@ -227,13 +240,37 @@ fn geometrySmith(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, roughness: f32) -> f3
     return ggx1 * ggx2;
 }
 
+fn inverseMat3(m: mat3x3<f32>) -> mat3x3<f32> {
+    let a = m[0];
+    let b = m[1];
+    let c = m[2];
+    let r0 = cross(b, c);
+    let r1 = cross(c, a);
+    let r2 = cross(a, b);
+    let det = dot(a, r0);
+    if (abs(det) < 1e-8) {
+        return mat3x3<f32>(
+            vec3<f32>(1.0, 0.0, 0.0),
+            vec3<f32>(0.0, 1.0, 0.0),
+            vec3<f32>(0.0, 0.0, 1.0),
+        );
+    }
+    let inv_det = 1.0 / det;
+    return mat3x3<f32>(r0 * inv_det, r1 * inv_det, r2 * inv_det);
+}
+
 @vertex
 fn vs_main(input: VertexIn) -> VertexOut {
     let clip_model = mat4x4<f32>(input.clip0, input.clip1, input.clip2, input.clip3);
     let model = mat4x4<f32>(input.model0, input.model1, input.model2, input.model3);
+    let normal_matrix = transpose(inverseMat3(mat3x3<f32>(
+        model[0].xyz,
+        model[1].xyz,
+        model[2].xyz,
+    )));
     let clip_position = clip_model * vec4<f32>(input.position, 1.0);
     let world_position = model * vec4<f32>(input.position, 1.0);
-    let world_normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
+    let world_normal = normalize(normal_matrix * input.normal);
 
     var out: VertexOut;
     out.position = clip_position;
@@ -258,7 +295,7 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     let occlusion_sample = textureSample(occlusion_texture, mesh_sampler, input.uv);
     let metallic = clamp(input.pbr_params.x * metallic_roughness_sample.b, 0.0, 1.0);
     let roughness = clamp(input.pbr_params.y * metallic_roughness_sample.g, 0.045, 1.0);
-    let ao = clamp(input.pbr_params.z * occlusion_sample.r, 0.0, 1.0);
+    let ao = clamp(mix(1.0, occlusion_sample.r, input.pbr_params.z), 0.0, 1.0);
     let f0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
     let ndotv = saturate(dot(normal, view_dir));
 
@@ -324,11 +361,12 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
 
     let reflection = reflect(-view_dir, normal);
     let env_alignment = saturate(dot(reflection, normalize(scene.environment_dominant_direction.xyz)));
-    let env_power = mix(128.0, 8.0, roughness);
-    // Dominant-direction env spec is a low-cost approximation; keep it subdued to avoid white edge blowouts.
-    let env_specular = scene.environment_dominant_color.rgb * pow(env_alignment, env_power) * scene.exposure_settings.w * 0.15;
-    let env_fresnel = fresnelSchlick(ndotv, f0);
-    var lit_rgb = ambient + lighting + env_specular * env_fresnel;
+    let prefiltered_env = scene.environment_dominant_color.rgb * pow(env_alignment, mix(96.0, 12.0, roughness));
+    let env_brdf = environmentBrdfApprox(roughness, ndotv);
+    let env_fresnel = fresnelSchlickRoughness(ndotv, f0, roughness);
+    // Damped because we currently use dominant-direction proxy instead of prefiltered env cubemap mip chain.
+    let env_specular = prefiltered_env * (env_fresnel * env_brdf.x + vec3<f32>(env_brdf.y)) * scene.exposure_settings.w * 0.10;
+    var lit_rgb = ambient + lighting + env_specular;
     if (scene.exposure_settings.y > 0.5) {
         lit_rgb *= scene.exposure_settings.x;
     }

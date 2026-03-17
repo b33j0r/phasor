@@ -674,6 +674,27 @@ fn runSceneLoader(
     outbox: common.Channel(SceneLoaderMessage).Sender,
     ctx: SceneLoaderTaskContext,
 ) anyerror!void {
+    // Reusable importer overrides: alpha-masked materials (cloth/foliage/cutouts) default to dielectric behavior.
+    // This avoids metallic-channel dominance on masked surfaces when source assets encode aggressive MR textures.
+    const material_overrides = [_]assets.PreparedImportedScene.MaterialOverride{
+        .{
+            .alpha_mode = .Mask,
+            .metallic_factor = 0.0,
+            .roughness_factor = 0.9,
+        },
+        // Generic sanity rule for suspicious MR-encoded dielectrics:
+        // if a material reports very high average metallic map while also staying rough and color-saturated,
+        // treat it as dielectric to avoid grayscale/specular washout under white lighting.
+        .{
+            .has_metallic_roughness_texture = true,
+            .min_metallic_map_average = 0.65,
+            .min_roughness_map_average = 0.2,
+            .min_base_color_saturation_average = 0.08,
+            .metallic_factor = 0.0,
+            .roughness_factor = 0.85,
+        },
+    };
+
     try outbox.send(.{ .progress = .{ .label = "1/7 locating cached assets", .fraction = 0.08 } });
 
     const resolved_z = try ctx.allocator.dupeZ(u8, ctx.path);
@@ -693,7 +714,10 @@ fn runSceneLoader(
         &task_io,
         resolved_z,
         &scene_data,
-        .{ .mesh_layout = .Pos3NormUv },
+        .{
+            .mesh_layout = .Pos3NormUv,
+            .material_overrides = &material_overrides,
+        },
     );
     errdefer prepared_scene.deinit();
     scene_data.deinit();
