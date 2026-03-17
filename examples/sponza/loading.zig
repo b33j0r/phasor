@@ -239,6 +239,7 @@ pub fn updateLoadingScreen(
     commands: *ecs.Commands,
     elapsed: Res(ElapsedTime),
     loader: ResOpt(SceneLoaderState),
+    scene_assets: ResOpt(Assets),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
     window_bounds_opt: ResOpt(common.WindowBounds),
     texts: Query(.{ render.Text, Transform, LoadingScreenText }),
@@ -311,6 +312,11 @@ pub fn updateLoadingScreen(
         text.color = Color.rgb(230, 232, 236);
         text.horizontal_alignment = .Center;
         text.vertical_alignment = .Center;
+        if (scene_assets.ptr) |assets_state| {
+            if (assets_state.ui_serif_font.handle.isValid()) {
+                text.font_handle = assets_state.ui_serif_font.handle;
+            }
+        }
     }
 
     var track_it = bar_tracks.iterator();

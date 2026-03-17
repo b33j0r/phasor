@@ -22,6 +22,7 @@ pub const FpsController = FpsPhysics.FpsController;
 
 pub const sponza_scene_path = "examples/sponza/assets/sponza/glTF/Sponza.gltf";
 pub const sponza_panorama_bytes = @embedFile("assets/hdr/furstenstein_2k.hdr");
+pub const sponza_ui_serif_font_bytes = @embedFile("assets/fonts/CormorantGaramond/CormorantGaramond[wght].ttf");
 
 pub const StatusOverlay = struct {
     buffer: [512]u8 = [_]u8{0} ** 512,
@@ -189,6 +190,10 @@ pub const SceneBounds = struct {
 };
 
 pub const Assets = struct {
+    ui_serif_font: assets.Font = assets.Font
+        .embedded("Cormorant Garamond", sponza_ui_serif_font_bytes)
+        .withPixelHeight(72.0)
+        .withAtlasSize(1024, 1024),
     sky_panorama: assets.Texture = assets.Texture.embedded(sponza_panorama_bytes).asHdr().asOpaque().equirectangularLinear(),
     scene_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/scene_pbr_lit.wgsl"),
