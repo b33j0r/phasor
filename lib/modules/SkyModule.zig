@@ -1,3 +1,14 @@
+// Implicit Sky protocol:
+// Any sky component with these fields can be consumed by shared builders.
+// Required fields: `material`, `shader_handle`, `size`, `follow_camera`, `face_segments`.
+pub const ProceduralSky = struct {
+    material: render.Material,
+    shader_handle: render.ShaderHandle = render.ShaderHandle.invalid(),
+    size: f32 = 220.0,
+    follow_camera: bool = true,
+    face_segments: u16 = 24,
+};
+
 pub const PanoramaSky = struct {
     material: render.Material,
     shader_handle: render.ShaderHandle = render.ShaderHandle.invalid(),
@@ -5,6 +16,11 @@ pub const PanoramaSky = struct {
     follow_camera: bool = true,
     face_segments: u16 = 24,
 };
+
+comptime {
+    assertSkyProtocol(ProceduralSky);
+    assertSkyProtocol(PanoramaSky);
+}
 
 const PanoramaAnchor = struct {
     offset: common.Vec3,
@@ -332,6 +348,15 @@ fn makePanoramaVertex(comptime VertexT: type, x: f32, y: f32, uv: common.Vec2) V
         .position = .{ x, y },
         .uv = .{ uv.x, uv.y },
     };
+}
+
+fn assertSkyProtocol(comptime SkyT: type) void {
+    if (@typeInfo(SkyT) != .@"struct") @compileError("Sky protocol type must be a struct");
+    if (!@hasField(SkyT, "material")) @compileError("Sky protocol requires field: material");
+    if (!@hasField(SkyT, "shader_handle")) @compileError("Sky protocol requires field: shader_handle");
+    if (!@hasField(SkyT, "size")) @compileError("Sky protocol requires field: size");
+    if (!@hasField(SkyT, "follow_camera")) @compileError("Sky protocol requires field: follow_camera");
+    if (!@hasField(SkyT, "face_segments")) @compileError("Sky protocol requires field: face_segments");
 }
 
 fn quatFromEuler(pitch: f32, yaw: f32, roll: f32) common.Quat {

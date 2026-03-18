@@ -12,7 +12,7 @@ pub const SkyCycleReady = struct {};
 
 pub const SkyMode = enum {
     procedural,
-    hdri,
+    panorama,
 };
 
 pub const DayNightSettings = struct {
@@ -33,8 +33,8 @@ pub const SkyCycleState = struct {
     mode: SkyMode = .procedural,
     day_night: DayNightSettings = .{},
     weather: WeatherSettings = .{},
-    hdri_environment: ?lighting.EnvironmentLight = null,
-    hdri_ambient: ?lighting.AmbientLight = null,
+    panorama_environment: ?lighting.EnvironmentLight = null,
+    panorama_ambient: ?lighting.AmbientLight = null,
 };
 
 pub const FlyModeState = struct {

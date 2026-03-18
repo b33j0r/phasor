@@ -125,8 +125,8 @@ pub fn setupSkyCycle(
 
     try commands.insertResource(SkyCycleState{
         .mode = .procedural,
-        .hdri_ambient = ambient.*,
-        .hdri_environment = environment.*,
+        .panorama_ambient = ambient.*,
+        .panorama_environment = environment.*,
     });
     try commands.insertResource(SkyCycleReady{});
 }
@@ -145,16 +145,16 @@ pub fn toggleSkyModeInput(
     const assets = scene_assets.ptr orelse return;
     const state = commands.getResourceMut(SkyCycleState) orelse return;
     state.mode = switch (state.mode) {
-        .procedural => .hdri,
-        .hdri => .procedural,
+        .procedural => .panorama,
+        .panorama => .procedural,
     };
 
     switch (state.mode) {
         .procedural => applySkyVisualMode(panorama_faces, assets, .procedural),
-        .hdri => {
-            applySkyVisualMode(panorama_faces, assets, .hdri);
-            if (state.hdri_ambient) |ambient| try commands.insertResource(ambient);
-            if (state.hdri_environment) |environment| try commands.insertResource(environment);
+        .panorama => {
+            applySkyVisualMode(panorama_faces, assets, .panorama);
+            if (state.panorama_ambient) |ambient| try commands.insertResource(ambient);
+            if (state.panorama_environment) |environment| try commands.insertResource(environment);
         },
     }
 }
@@ -170,8 +170,8 @@ pub fn updateDayNightWeather(
     if (state.mode != .procedural) return;
     const ambient = ambient_opt.ptr;
     const environment = environment_opt.ptr;
-    const base_ambient = state.hdri_ambient orelse ambient.*;
-    const base_environment = state.hdri_environment orelse environment.*;
+    const base_ambient = state.panorama_ambient orelse ambient.*;
+    const base_environment = state.panorama_environment orelse environment.*;
 
     const t: f32 = @floatCast(elapsed.ptr.seconds);
     const day_length = @max(30.0, state.day_night.day_length_seconds);
@@ -194,7 +194,7 @@ pub fn updateDayNightWeather(
     const storm_sun_color = common.Color.F32{ .r = 0.64, .g = 0.70, .b = 0.78, .a = 1.0 };
     const moon_color = common.Color.F32{ .r = 0.46, .g = 0.55, .b = 0.72, .a = 1.0 };
 
-    // Keep procedural mode energy anchored to the original HDRI tuning so
+    // Keep procedural mode energy anchored to the original panorama tuning so
     // scene lighting/exposure remain close to pre-procedural behavior.
     const ambient_day_tint = common.Color.F32{ .r = 0.98, .g = 1.00, .b = 1.02, .a = 1.0 };
     const ambient_night_tint = common.Color.F32{ .r = 0.88, .g = 0.92, .b = 1.08, .a = 1.0 };
@@ -274,7 +274,7 @@ fn applySkyVisualMode(
 ) void {
     const shader = switch (mode) {
         .procedural => scene_assets.sky_procedural_shader.handle,
-        .hdri => scene_assets.sky_shader.handle,
+        .panorama => scene_assets.sky_shader.handle,
     };
 
     var it = panorama_faces.iterator();
