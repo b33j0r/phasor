@@ -15,7 +15,11 @@ const sponza_metric_lines = [_]modules.MetricLine{
         "(F) Fly  (H) Sky  (C) Grade  (M) Bookmark",
     ),
     modules.withExtraText(
-        modules.lineFormat(-77, gameplay.formatControlsPauseLine),
+        modules.lineFormat(-77, gameplay.formatControlsCaptureLine),
+        "(P) Shot  (O) AutoShot",
+    ),
+    modules.withExtraText(
+        modules.lineFormat(-76, gameplay.formatControlsPauseLine),
         "(Esc) Pause  (Enter/Esc) Resume",
     ),
 };
@@ -81,6 +85,7 @@ const App = struct {
         try app.addSystemTo("Update", gameplay.updatePlayerCamera);
         try app.addSystemTo("Update", gameplay.emitSponzaHudMetrics);
         try app.addSystemTo("Update", gameplay.logPlayerBookmark);
+        try app.addSystemTo("Update", gameplay.captureScreenshotInput);
         try app.addSystemTo("Update", lighting.animateLights);
         try app.addSystemTo("Update", loading.updateLoadingScreen);
         try app.addSystemTo("Shutdown", loading.unloadImportedScene);

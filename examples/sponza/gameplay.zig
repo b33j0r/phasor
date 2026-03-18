@@ -19,18 +19,43 @@ pub fn spawnPlayerFromCollision(
         .jump_speed = 4.0,
         .pitch = -0.18,
     };
-    const spawn_choice = findSpawnPoint(world.ptr, plan.scene_size, controller) orelse return;
+    const real_spawn_choice = findSpawnPoint(world.ptr, plan.scene_size, controller) orelse return;
+    const spawn_choice = if (debug_spawn_outside_enabled)
+        outsideSkySpawnPoint(plan.scene_size, controller)
+    else
+        real_spawn_choice;
     controller.yaw = spawn_choice.yaw;
     const spawn = spawn_choice.position;
     const body_facing = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, spawn_choice.yaw);
     const camera_facing = quatFromEuler(controller.pitch, controller.yaw, 0.0);
 
     std.log.debug(
-        "sponza spawn: pos=({d:.2}, {d:.2}, {d:.2}) yaw={d:.2} rad",
-        .{ spawn.x, spawn.y, spawn.z, spawn_choice.yaw },
+        "sponza spawn real=({d:.2}, {d:.2}, {d:.2}) active=({d:.2}, {d:.2}, {d:.2}) yaw={d:.2} rad override_outside={}",
+        .{
+            real_spawn_choice.position.x,
+            real_spawn_choice.position.y,
+            real_spawn_choice.position.z,
+            spawn.x,
+            spawn.y,
+            spawn.z,
+            spawn_choice.yaw,
+            debug_spawn_outside_enabled,
+        },
     );
 
-    _ = try commands.createEntity(.{
+    try commands.insertResource(SpawnDebugState{
+        .real_spawn = real_spawn_choice,
+        .active_spawn = spawn_choice,
+        .override_outside = debug_spawn_outside_enabled,
+    });
+    if (debug_spawn_outside_enabled) {
+        try commands.insertResource(FlyModeState{
+            .enabled = true,
+            .speed_multiplier = 1.0,
+        });
+    }
+
+    const player_entity = try commands.createEntity(.{
         Player{},
         controller,
         Transform{
@@ -51,6 +76,9 @@ pub fn spawnPlayerFromCollision(
         physics.CharacterVelocity{},
         physics.CharacterState{},
     });
+    if (debug_spawn_outside_enabled) {
+        try commands.addComponent(player_entity, physics.PhysicsDisabled{});
+    }
 
     _ = try commands.createEntity(.{
         PlayerCamera{},
@@ -68,6 +96,41 @@ pub fn spawnPlayerFromCollision(
     });
 
     _ = commands.removeResource(SceneSpawnPlan);
+}
+
+pub fn captureScreenshotInput(
+    keyboard_opt: ResOpt(Keyboard),
+    elapsed: Res(modules.TimeModule.ElapsedTime),
+    commands: *ecs.Commands,
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+) void {
+    if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
+    if (builtin.os.tag == .wasi) return;
+
+    const keyboard = keyboard_opt.ptr orelse return;
+    var state = if (commands.getResource(ScreenshotCaptureState)) |existing| existing.* else ScreenshotCaptureState{};
+
+    if (keyboard.isKeyPressed(.o)) {
+        state.auto_enabled = !state.auto_enabled;
+        state.next_capture_at_seconds = elapsed.ptr.seconds + state.auto_interval_seconds;
+        std.log.info("screenshot auto capture: {}", .{state.auto_enabled});
+    }
+    if (keyboard.isKeyPressed(.p)) {
+        captureScreenshot(commands, &state, elapsed.ptr.seconds, "manual") catch |err| {
+            std.log.warn("screenshot capture failed ({s})", .{@errorName(err)});
+        };
+    }
+
+    if (state.auto_enabled and state.auto_count < state.auto_max_count and elapsed.ptr.seconds >= state.next_capture_at_seconds) {
+        captureScreenshot(commands, &state, elapsed.ptr.seconds, "auto") catch |err| {
+            std.log.warn("auto screenshot capture failed ({s})", .{@errorName(err)});
+        };
+        state.next_capture_at_seconds = elapsed.ptr.seconds + state.auto_interval_seconds;
+    }
+
+    commands.insertResource(state) catch |err| {
+        std.log.warn("failed to persist screenshot state ({s})", .{@errorName(err)});
+    };
 }
 
 pub fn handlePhaseInput(
@@ -309,6 +372,10 @@ pub fn formatControlsModeLine(_: *const modules.MetricContext, out: []u8) []cons
     return std.fmt.bufPrint(out, "Modes", .{}) catch "Modes";
 }
 
+pub fn formatControlsCaptureLine(_: *const modules.MetricContext, out: []u8) []const u8 {
+    return std.fmt.bufPrint(out, "Capture", .{}) catch "Capture";
+}
+
 pub fn formatControlsPauseLine(_: *const modules.MetricContext, out: []u8) []const u8 {
     return std.fmt.bufPrint(out, "Session", .{}) catch "Session";
 }
@@ -431,6 +498,54 @@ fn chooseFacingYaw(
     return .{ .yaw = best_yaw, .score = best_score };
 }
 
+fn outsideSkySpawnPoint(scene_size: Vec3, controller: FpsController) SpawnChoice {
+    const y = @max(scene_size.y * 1.3, 42.0);
+    const z = @max(scene_size.z * 0.95, 36.0);
+    const spawn = Vec3{
+        .x = 0.0,
+        .y = y + controller.radius + FpsPhysics.capsuleHalfHeight(controller),
+        .z = z,
+    };
+    const to_center = (Vec3{ .x = -spawn.x, .y = 0.0, .z = -spawn.z }).normalize();
+    return .{
+        .position = spawn,
+        .yaw = std.math.atan2(to_center.x, -to_center.z),
+    };
+}
+
+fn captureScreenshot(
+    commands: *ecs.Commands,
+    state: *ScreenshotCaptureState,
+    elapsed_seconds: f64,
+    reason: []const u8,
+) !void {
+    try std.Io.Dir.cwd().createDirPath(commands.io.*, state.output_dir);
+    const elapsed_ms: u64 = @intFromFloat(@max(elapsed_seconds, 0.0) * 1000.0);
+    const path = try std.fmt.allocPrint(
+        commands.allocator,
+        "{s}/sponza_{d:0>6}_{d:0>3}_{s}.png",
+        .{ state.output_dir, elapsed_ms, state.capture_index, reason },
+    );
+    defer commands.allocator.free(path);
+
+    const argv = [_][]const u8{ "screencapture", "-x", path };
+    var child = try std.process.spawn(commands.io.*, .{
+        .argv = &argv,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .inherit,
+    });
+    const term = try child.wait(commands.io.*);
+    switch (term) {
+        .exited => |code| if (code != 0) return error.ScreenshotCaptureFailed,
+        else => return error.ScreenshotCaptureFailed,
+    }
+
+    state.capture_index += 1;
+    if (std.mem.eql(u8, reason, "auto")) state.auto_count += 1;
+    std.log.info("saved screenshot: {s}", .{path});
+}
+
 fn nextColorGrade(grade: render.ColorGrade) render.ColorGrade {
     return switch (grade) {
         .none => .filmic,
@@ -480,3 +595,23 @@ const Vec3 = common.Vec3;
 const Quat = common.Quat;
 const DeltaTime = modules.TimeModule.DeltaTime;
 const quatFromEuler = shared.quatFromEuler;
+
+const debug_spawn_outside_enabled = true;
+
+const SpawnDebugState = struct {
+    real_spawn: SpawnChoice,
+    active_spawn: SpawnChoice,
+    override_outside: bool = false,
+};
+
+const ScreenshotCaptureState = struct {
+    output_dir: []const u8 = "local/screenshots",
+    auto_enabled: bool = true,
+    auto_interval_seconds: f64 = 2.0,
+    auto_max_count: u32 = 5,
+    next_capture_at_seconds: f64 = 2.0,
+    auto_count: u32 = 0,
+    capture_index: u32 = 0,
+};
+
+const builtin = @import("builtin");
