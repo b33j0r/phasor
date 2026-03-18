@@ -16,7 +16,8 @@ pub fn setupLionFire(
     var state = LionFireState{};
     state.rng_state = 0x89ab_cdef_1234_5678;
     state.mouth_position = lionMouthBasePosition();
-    state.mouth_direction = base_rotation.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 }).normalize();
+    // Bookmark camera looked toward the lion mouth, so emit opposite that vector (outward from mouth).
+    state.mouth_direction = base_rotation.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = 1.0 }).normalize();
 
     var i: usize = 0;
     while (i < max_particles) : (i += 1) {
