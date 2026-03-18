@@ -148,14 +148,20 @@ fn keyToIndex(key: Key) u8 {
         .down => 30,
         .escape => 31,
         .enter => 32,
+        .left_shift => 33,
+        .right_shift => 34,
+        .left_control => 35,
+        .right_control => 36,
+        .left_alt => 37,
+        .right_alt => 38,
         else => 255,
     };
 }
 
 pub const keys_to_poll = [_]Key{
-    .space, .a, .b, .c, .d, .e, .f, .g, .h, .i, .j, .k, .l, .m,
-    .n, .o, .p, .q, .r, .s, .t, .u, .v, .w, .x, .y, .z,
-    .left, .right, .up, .down, .escape, .enter,
+    .space, .a,  .b,    .c,      .d,     .e,          .f,           .g,            .h,             .i,        .j,         .k, .l, .m,
+    .n,     .o,  .p,    .q,      .r,     .s,          .t,           .u,            .v,             .w,        .x,         .y, .z, .left,
+    .right, .up, .down, .escape, .enter, .left_shift, .right_shift, .left_control, .right_control, .left_alt, .right_alt,
 };
 
 pub const Key = enum(c_int) {

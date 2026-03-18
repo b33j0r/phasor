@@ -57,8 +57,10 @@ const App = struct {
         try app.addSystemTo("BeforeFrame", lighting.setupSkyCycle);
         try app.addSystemTo("Update", gameplay.spawnPlayerFromCollision);
         try app.addSystemTo("Update", gameplay.handlePhaseInput);
+        try app.addSystemTo("Update", gameplay.toggleFlyModeInput);
         try app.addSystemTo("Update", gameplay.cycleColorGradeInput);
         try app.addSystemTo("Update", lighting.toggleSkyModeInput);
+        try app.addSystemTo("Update", gameplay.updateFlyMovement);
         try app.addSystemTo("Update", lighting.updateDayNightWeather);
         try app.addSystemTo("Update", gameplay.updatePlayerCamera);
         try app.addSystemTo("Update", gameplay.emitSponzaHudMetrics);

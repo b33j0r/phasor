@@ -37,6 +37,11 @@ pub const SkyCycleState = struct {
     hdri_ambient: ?lighting.AmbientLight = null,
 };
 
+pub const FlyModeState = struct {
+    enabled: bool = false,
+    speed_multiplier: f32 = 1.0,
+};
+
 pub const SceneSpawnPlan = struct {
     scene_size: Vec3,
 };
