@@ -24,6 +24,9 @@ pub fn spawnPlayerFromCollision(
         outsideSkySpawnPoint(plan.scene_size, controller)
     else
         real_spawn_choice;
+    if (debug_spawn_outside_enabled) {
+        controller.pitch = 0.48;
+    }
     controller.yaw = spawn_choice.yaw;
     const spawn = spawn_choice.position;
     const body_facing = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, spawn_choice.yaw);
@@ -357,7 +360,7 @@ pub fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []
     const x = if (ctx.store.get("player_x")) |sample| sample.value.asF64() else 0.0;
     const y = if (ctx.store.get("player_y")) |sample| sample.value.asF64() else 0.0;
     const z = if (ctx.store.get("player_z")) |sample| sample.value.asF64() else 0.0;
-    return std.fmt.bufPrint(out, "Player XYZ: {d:.2}, {d:.2}, {d:.2}", .{ x, y, z }) catch "Player XYZ: ERR";
+    return std.fmt.bufPrint(out, "XYZ: {d:.2}, {d:.2}, {d:.2}", .{ x, y, z }) catch "Player XYZ: ERR";
 }
 
 pub fn formatControlsMoveLine(_: *const modules.MetricContext, out: []u8) []const u8 {
@@ -528,11 +531,18 @@ fn captureScreenshot(
     );
     defer commands.allocator.free(path);
 
-    const argv = [_][]const u8{ "screencapture", "-x", path };
+    const capture_cmd = try std.fmt.allocPrint(
+        commands.allocator,
+        "window_id=$(swift -e 'import CoreGraphics; import Foundation; let opts = CGWindowListOption(arrayLiteral: .optionOnScreenOnly, .excludeDesktopElements); if let info = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] {{ for w in info {{ let owner = (w[kCGWindowOwnerName as String] as? String ?? \"\").lowercased(); if owner.contains(\"sponza\") {{ if let id = w[kCGWindowNumber as String] as? Int {{ print(id); break }} }} }} }}'); if [ -n \"$window_id\" ]; then screencapture -x -l \"$window_id\" \"{s}\"; else screencapture -x \"{s}\"; fi",
+        .{ path, path },
+    );
+    defer commands.allocator.free(capture_cmd);
+
+    const argv = [_][]const u8{ "/bin/zsh", "-c", capture_cmd };
     var child = try std.process.spawn(commands.io.*, .{
         .argv = &argv,
         .stdin = .ignore,
-        .stdout = .ignore,
+        .stdout = .inherit,
         .stderr = .inherit,
     });
     const term = try child.wait(commands.io.*);
@@ -606,7 +616,7 @@ const SpawnDebugState = struct {
 
 const ScreenshotCaptureState = struct {
     output_dir: []const u8 = "local/screenshots",
-    auto_enabled: bool = true,
+    auto_enabled: bool = false,
     auto_interval_seconds: f64 = 2.0,
     auto_max_count: u32 = 5,
     next_capture_at_seconds: f64 = 2.0,

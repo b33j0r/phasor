@@ -236,6 +236,41 @@ pub fn updateDayNightWeather(
     updateDirectionalSun(directional_lights, sun, daylight, storminess);
 }
 
+pub fn updateProceduralSkyMeshParams(
+    elapsed: Res(ElapsedTime),
+    cycle_state: ResOpt(SkyCycleState),
+    panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
+) void {
+    const state = cycle_state.ptr orelse return;
+    var it = panorama_faces.iterator();
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
+    const weather_phase = (t / @max(20.0, state.weather.weather_cycle_seconds)) * (2.0 * std.math.pi);
+    const raw_coverage = state.weather.cloud_coverage +
+        0.26 * std.math.sin(weather_phase * 0.43) +
+        0.18 * std.math.sin(weather_phase * 1.17 + 1.2);
+    const coverage = std.math.clamp(raw_coverage, 0.02, 0.98);
+    const density = std.math.clamp(state.weather.cloud_density + 0.20 * std.math.sin(weather_phase * 0.77 - 0.4), 0.05, 1.0);
+    const storminess = std.math.clamp((coverage - 0.45) * 1.5 + density * 0.25, 0.0, 1.0);
+    const haze = std.math.clamp(state.weather.haze + 0.30 * storminess, 0.0, 1.0);
+    const wind_phase = fract(t * std.math.clamp(state.weather.wind_speed, 0.0, 4.0) * 0.006);
+
+    while (it.next()) |row| {
+        const sort_key = row.get(render.LayerSortKey) orelse continue;
+        if (sort_key.value != sky_layer_sort_background) continue;
+        const instance = row.get(render.MeshInstance) orelse continue;
+        if (state.mode == .procedural) {
+            instance.color = Color.rgba(
+                @as(u8, @intFromFloat(std.math.clamp(coverage, 0.0, 1.0) * 255.0)),
+                @as(u8, @intFromFloat(std.math.clamp(density, 0.0, 1.0) * 255.0)),
+                @as(u8, @intFromFloat(std.math.clamp(haze, 0.0, 1.0) * 255.0)),
+                @as(u8, @intFromFloat(std.math.clamp(wind_phase, 0.0, 1.0) * 255.0)),
+            );
+        } else {
+            instance.color = common.Color.WHITE;
+        }
+    }
+}
+
 pub fn animateLights(
     elapsed: Res(ElapsedTime),
     animated_lights: Query(.{ Transform, lighting.Light, AnimatedLight }),

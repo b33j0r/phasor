@@ -82,6 +82,7 @@ const App = struct {
         try app.addSystemTo("Update", lighting.toggleSkyModeInput);
         try app.addSystemTo("Update", gameplay.updateFlyMovement);
         try app.addSystemTo("Update", lighting.updateDayNightWeather);
+        try app.addSystemTo("Update", lighting.updateProceduralSkyMeshParams);
         try app.addSystemTo("Update", gameplay.updatePlayerCamera);
         try app.addSystemTo("Update", gameplay.emitSponzaHudMetrics);
         try app.addSystemTo("Update", gameplay.logPlayerBookmark);
