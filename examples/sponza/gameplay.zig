@@ -606,7 +606,7 @@ const Quat = common.Quat;
 const DeltaTime = modules.TimeModule.DeltaTime;
 const quatFromEuler = shared.quatFromEuler;
 
-const debug_spawn_outside_enabled = true;
+const debug_spawn_outside_enabled = false;
 
 const SpawnDebugState = struct {
     real_spawn: SpawnChoice,
