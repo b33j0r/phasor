@@ -3,8 +3,20 @@ pub const std_options = phasor.common.logging.stdOptions(.debug);
 const sponza_metric_lines = [_]modules.MetricLine{
     modules.lineFormat(-90, gameplay.formatPlayerPositionLine),
     modules.withExtraText(
-        modules.lineFormat(-80, gameplay.formatControlsLine),
-        "(WASD/Mouse) Move+Look (Shift) Sprint (Space) Jump (F) Fly (H) Sky (C) Grade (M) Bookmark (Esc/Enter) Pause",
+        modules.lineFormat(-80, gameplay.formatControlsMoveLine),
+        "(WASD + Mouse)",
+    ),
+    modules.withExtraText(
+        modules.lineFormat(-79, gameplay.formatControlsActionLine),
+        "(Shift) Sprint  (Space) Jump",
+    ),
+    modules.withExtraText(
+        modules.lineFormat(-78, gameplay.formatControlsModeLine),
+        "(F) Fly  (H) Sky  (C) Grade  (M) Bookmark",
+    ),
+    modules.withExtraText(
+        modules.lineFormat(-77, gameplay.formatControlsPauseLine),
+        "(Esc) Pause  (Enter/Esc) Resume",
     ),
 };
 
@@ -36,7 +48,7 @@ const App = struct {
         try app.installModule(modules.FpsKeyBindingModule{});
         try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
-            .font_size = 28.0,
+            .font_size = 22.0,
             .text_color = Color.WHITE,
             .buffer_capacity = 768,
             .extra_builtin_lines = &.{

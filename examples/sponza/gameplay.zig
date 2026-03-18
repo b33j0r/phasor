@@ -297,8 +297,20 @@ pub fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []
     return std.fmt.bufPrint(out, "Player XYZ: {d:.2}, {d:.2}, {d:.2}", .{ x, y, z }) catch "Player XYZ: ERR";
 }
 
-pub fn formatControlsLine(_: *const modules.MetricContext, out: []u8) []const u8 {
-    return std.fmt.bufPrint(out, "Controls", .{}) catch "Controls";
+pub fn formatControlsMoveLine(_: *const modules.MetricContext, out: []u8) []const u8 {
+    return std.fmt.bufPrint(out, "Move/Look", .{}) catch "Move/Look";
+}
+
+pub fn formatControlsActionLine(_: *const modules.MetricContext, out: []u8) []const u8 {
+    return std.fmt.bufPrint(out, "Actions", .{}) catch "Actions";
+}
+
+pub fn formatControlsModeLine(_: *const modules.MetricContext, out: []u8) []const u8 {
+    return std.fmt.bufPrint(out, "Modes", .{}) catch "Modes";
+}
+
+pub fn formatControlsPauseLine(_: *const modules.MetricContext, out: []u8) []const u8 {
+    return std.fmt.bufPrint(out, "Session", .{}) catch "Session";
 }
 
 fn findSpawnPoint(world: *physics.BackendWorld, scene_size: Vec3, controller: FpsController) ?SpawnChoice {
