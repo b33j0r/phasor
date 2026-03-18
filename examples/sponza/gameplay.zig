@@ -297,6 +297,10 @@ pub fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []
     return std.fmt.bufPrint(out, "Player XYZ: {d:.2}, {d:.2}, {d:.2}", .{ x, y, z }) catch "Player XYZ: ERR";
 }
 
+pub fn formatControlsLine(_: *const modules.MetricContext, out: []u8) []const u8 {
+    return std.fmt.bufPrint(out, "Controls", .{}) catch "Controls";
+}
+
 fn findSpawnPoint(world: *physics.BackendWorld, scene_size: Vec3, controller: FpsController) ?SpawnChoice {
     const probe_filter = physics.CollisionFilter{
         .layer = 1,

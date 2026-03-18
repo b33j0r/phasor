@@ -2,6 +2,10 @@ pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 const sponza_metric_lines = [_]modules.MetricLine{
     modules.lineFormat(-90, gameplay.formatPlayerPositionLine),
+    modules.withExtraText(
+        modules.lineFormat(-80, gameplay.formatControlsLine),
+        "(WASD/Mouse) Move+Look (Shift) Sprint (Space) Jump (F) Fly (H) Sky (C) Grade (M) Bookmark (Esc/Enter) Pause",
+    ),
 };
 
 const App = struct {
@@ -36,10 +40,10 @@ const App = struct {
             .text_color = Color.WHITE,
             .buffer_capacity = 768,
             .extra_builtin_lines = &.{
-                .mouse_look,
-                .scene_stats,
-                .light_stats,
-                .color_grade,
+                modules.builtinLine(.mouse_look),
+                modules.builtinLine(.scene_stats),
+                modules.builtinLine(.light_stats),
+                modules.builtinLineWithExtraText(.color_grade, "(C)"),
             },
             .extra_lines = &sponza_metric_lines,
         });

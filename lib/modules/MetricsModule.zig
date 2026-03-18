@@ -20,7 +20,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
         margin: f32 = 12.0,
         buffer_capacity: usize = 512,
         use_default_lines: bool = true,
-        extra_builtin_lines: []const BuiltinMetricLine = &[_]BuiltinMetricLine{},
+        extra_builtin_lines: []const BuiltinMetricLineItem = &[_]BuiltinMetricLineItem{},
         prepend_lines: []const MetricLine = &[_]MetricLine{},
         extra_lines: []const MetricLine = &[_]MetricLine{},
         bus_capacity: usize = 256,
@@ -130,7 +130,7 @@ const MetricsConfig = struct {
     margin: f32,
     buffer_capacity: usize,
     use_default_lines: bool,
-    extra_builtin_lines: []const BuiltinMetricLine,
+    extra_builtin_lines: []const BuiltinMetricLineItem,
     prepend_lines: []const MetricLine,
     extra_lines: []const MetricLine,
     log_interval_seconds: f64,
@@ -302,6 +302,7 @@ pub const MetricLineKind = union(enum) {
 pub const MetricLine = struct {
     sort_key: i32 = 0,
     kind: MetricLineKind,
+    extra_text: ?[]const u8 = null,
 };
 
 pub fn withSort(line: MetricLine, sort_key: i32) MetricLine {
@@ -311,11 +312,17 @@ pub fn withSort(line: MetricLine, sort_key: i32) MetricLine {
 }
 
 pub fn lineFormat(sort_key: i32, formatFn: *const fn (ctx: *const MetricContext, out: []u8) []const u8) MetricLine {
-    return .{ .sort_key = sort_key, .kind = .{ .format = formatFn } };
+    return .{ .sort_key = sort_key, .kind = .{ .format = formatFn }, .extra_text = null };
 }
 
 pub fn lineStore(sort_key: i32, store: MetricLineStore) MetricLine {
-    return .{ .sort_key = sort_key, .kind = .{ .store = store } };
+    return .{ .sort_key = sort_key, .kind = .{ .store = store }, .extra_text = null };
+}
+
+pub fn withExtraText(line: MetricLine, extra_text: []const u8) MetricLine {
+    var copy = line;
+    copy.extra_text = extra_text;
+    return copy;
 }
 
 pub const MetricLineFps = lineFormat(0, formatFpsLine);
@@ -338,9 +345,25 @@ pub const BuiltinMetricLine = enum {
     color_grade,
 };
 
-pub const DefaultBuiltinLines: []const BuiltinMetricLine = &[_]BuiltinMetricLine{
-    .fps,
-    .frame_time,
+pub const BuiltinMetricLineItem = struct {
+    line: BuiltinMetricLine,
+    extra_text: ?[]const u8 = null,
+};
+
+pub fn builtinLine(line: BuiltinMetricLine) BuiltinMetricLineItem {
+    return .{ .line = line };
+}
+
+pub fn builtinLineWithExtraText(line: BuiltinMetricLine, extra_text: []const u8) BuiltinMetricLineItem {
+    return .{
+        .line = line,
+        .extra_text = extra_text,
+    };
+}
+
+pub const DefaultBuiltinLines: []const BuiltinMetricLineItem = &[_]BuiltinMetricLineItem{
+    builtinLine(.fps),
+    builtinLine(.frame_time),
 };
 
 pub const DefaultLines: []const MetricLine = &[_]MetricLine{
@@ -403,6 +426,7 @@ fn appendMetricLines(ctx: *const MetricContext, buffer: []u8, start: usize, line
             };
             if (slice.len == 0) continue;
             offset += slice.len;
+            offset = appendExtraText(buffer, offset, line.extra_text);
             if (idx + 1 < lines.len and offset + 1 <= buffer.len) {
                 buffer[offset] = '\n';
                 offset += 1;
@@ -435,6 +459,7 @@ fn appendMetricLines(ctx: *const MetricContext, buffer: []u8, start: usize, line
         };
         if (slice.len == 0) continue;
         offset += slice.len;
+        offset = appendExtraText(buffer, offset, line.extra_text);
         if (produced + 1 < lines.len and offset + 1 <= buffer.len) {
             buffer[offset] = '\n';
             offset += 1;
@@ -443,11 +468,11 @@ fn appendMetricLines(ctx: *const MetricContext, buffer: []u8, start: usize, line
     return offset;
 }
 
-fn appendBuiltinMetricLines(ctx: *const MetricContext, buffer: []u8, start: usize, lines: []const BuiltinMetricLine) usize {
+fn appendBuiltinMetricLines(ctx: *const MetricContext, buffer: []u8, start: usize, lines: []const BuiltinMetricLineItem) usize {
     var offset = start;
-    for (lines, 0..) |line, idx| {
+    for (lines, 0..) |item, idx| {
         if (offset >= buffer.len) break;
-        const slice = switch (line) {
+        const slice = switch (item.line) {
             .fps => formatFpsLine(ctx, buffer[offset..]),
             .frame_time => formatFrameMsLine(ctx, buffer[offset..]),
             .elapsed_time => formatElapsedTimeLine(ctx, buffer[offset..]),
@@ -461,11 +486,28 @@ fn appendBuiltinMetricLines(ctx: *const MetricContext, buffer: []u8, start: usiz
         };
         if (slice.len == 0) continue;
         offset += slice.len;
+        offset = appendExtraText(buffer, offset, item.extra_text);
         if (idx + 1 < lines.len and offset + 1 <= buffer.len) {
             buffer[offset] = '\n';
             offset += 1;
         }
     }
+    return offset;
+}
+
+fn appendExtraText(buffer: []u8, start: usize, extra_text: ?[]const u8) usize {
+    const text = extra_text orelse return start;
+    if (text.len == 0) return start;
+
+    var offset = start;
+    if (offset + 1 > buffer.len) return offset;
+    buffer[offset] = ' ';
+    offset += 1;
+
+    const count = @min(text.len, buffer.len - offset);
+    if (count == 0) return offset;
+    @memcpy(buffer[offset .. offset + count], text[0..count]);
+    offset += count;
     return offset;
 }
 
