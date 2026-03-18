@@ -28,7 +28,7 @@ pub fn setupLionFire(
             render.MeshInstance{
                 .mesh_handle = quad,
                 .shader_handle = assets.lion_fire_shader.handle,
-                .material = assets.sky_moon_overlay.material,
+                .material = render.Material.default,
                 .color = common.Color.rgba(0, 0, 0, 0),
             },
             render.Layer(0){},
@@ -52,13 +52,18 @@ pub fn updateLionFire(
     if (!phases.isPlayingPhase(current_phase.ptr)) return;
 
     var camera_rotation: ?Quat = null;
+    var camera_position: ?Vec3 = null;
     var camera_it = cameras.iterator();
     while (camera_it.next()) |row| {
         const transform = row.get(Transform) orelse continue;
         camera_rotation = transform.rotation;
+        camera_position = transform.translation;
         break;
     }
     const cam_rot = camera_rotation orelse return;
+    const cam_pos = camera_position orelse return;
+
+    _ = cam_pos;
 
     const step: f32 = @floatCast(std.math.clamp(dt.ptr.seconds, 0.0, 0.05));
     if (!(step > 0.0)) return;
@@ -172,16 +177,16 @@ fn spawnOneParticle(state: *LionFireState, time_s: f32) void {
 }
 
 fn lionMouthBasePosition() Vec3 {
-    const player = Vec3{ .x = -9.967, .y = 1.892, .z = 0.056 };
     const camera = Vec3{ .x = -9.967, .y = 2.492, .z = 0.056 };
     const rot = lionMouthBaseRotation();
     const forward = rot.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 }).normalize();
     const right = rot.rotateVec3(.{ .x = 1.0, .y = 0.0, .z = 0.0 }).normalize();
-    return player
-        .add(camera.scale(0.5))
-        .add(forward.scale(0.92))
-        .add(right.scale(-0.05))
-        .add(.{ .x = 0.0, .y = 0.14, .z = 0.0 });
+    const up = rot.rotateVec3(.{ .x = 0.0, .y = 1.0, .z = 0.0 }).normalize();
+    // World-space lion mouth anchor derived from provided close-up bookmark.
+    return camera
+        .add(forward.scale(0.52))
+        .add(right.scale(-0.07))
+        .add(up.scale(-0.18));
 }
 
 fn lionMouthBaseRotation() Quat {
@@ -234,7 +239,6 @@ fn floatColorToU8(r: f32, g: f32, b: f32, a: f32, noise: f32) common.Color {
 const max_particles: usize = 256;
 const lion_fire_layer_sort: i32 = 840;
 const hidden_position = Vec3{ .x = -9999.0, .y = -9999.0, .z = -9999.0 };
-
 const LionFireBillboard = struct {
     index: u16,
 };
