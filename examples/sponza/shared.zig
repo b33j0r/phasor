@@ -248,6 +248,11 @@ pub const Assets = struct {
         .vertex_layout = .pos3_uv2,
         .binding_mode = .material_scene,
     },
+    lion_fire_shader: assets.Shader = .{
+        .wgsl_source = @embedFile("shaders/lion_fire_particles.wgsl"),
+        .vertex_layout = .pos3_uv2,
+        .binding_mode = .material_scene,
+    },
 };
 
 pub fn quatFromEuler(pitch: f32, yaw: f32, roll: f32) Quat {

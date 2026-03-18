@@ -75,6 +75,8 @@ const App = struct {
         try app.addSystemTo("BeforeFrame", lighting.setupLighting);
         try app.addSystemTo("Startup", lighting.setupSkyCycle);
         try app.addSystemTo("BeforeFrame", lighting.setupSkyCycle);
+        try app.addSystemTo("Startup", particles.setupLionFire);
+        try app.addSystemTo("BeforeFrame", particles.setupLionFire);
         try app.addSystemTo("Update", gameplay.spawnPlayerFromCollision);
         try app.addSystemTo("Update", gameplay.handlePhaseInput);
         try app.addSystemTo("Update", gameplay.toggleFlyModeInput);
@@ -84,6 +86,7 @@ const App = struct {
         try app.addSystemTo("Update", lighting.updateDayNightWeather);
         try app.addSystemTo("Update", lighting.updateProceduralSkyMeshParams);
         try app.addSystemTo("Update", gameplay.updatePlayerCamera);
+        try app.addSystemTo("Update", particles.updateLionFire);
         try app.addSystemTo("Update", gameplay.emitSponzaHudMetrics);
         try app.addSystemTo("Update", gameplay.logPlayerBookmark);
         try app.addSystemTo("Update", gameplay.captureScreenshotInput);
@@ -101,6 +104,7 @@ const phases = @import("phases.zig");
 const loading = @import("loading.zig");
 const gameplay = @import("gameplay.zig");
 const lighting = @import("lighting.zig");
+const particles = @import("particles.zig");
 const Assets = @import("shared.zig").Assets;
 const FpsPhysics = @import("shared.zig").FpsPhysics;
 

@@ -1,0 +1,291 @@
+pub fn setupLionFire(
+    commands: *ecs.Commands,
+    build_ctx_opt: ResOpt(render.BuildContext),
+    scene_ready: ResOpt(SceneReady),
+    scene_assets: ResOpt(Assets),
+) !void {
+    if (scene_ready.ptr == null) return;
+    if (commands.hasResource(LionFireState)) return;
+
+    const build_ctx = build_ctx_opt.ptr orelse return;
+    const assets = scene_assets.ptr orelse return;
+    if (!assets.lion_fire_shader.handle.isValid()) return;
+
+    const quad = try createParticleQuad(build_ctx);
+    const base_rotation = lionMouthBaseRotation();
+    var state = LionFireState{};
+    state.rng_state = 0x89ab_cdef_1234_5678;
+    state.mouth_position = lionMouthBasePosition();
+    state.mouth_direction = base_rotation.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 }).normalize();
+
+    var i: usize = 0;
+    while (i < max_particles) : (i += 1) {
+        _ = try commands.createEntity(.{
+            LionFireBillboard{ .index = @as(u16, @intCast(i)) },
+            Transform{
+                .translation = hidden_position,
+            },
+            render.MeshInstance{
+                .mesh_handle = quad,
+                .shader_handle = assets.lion_fire_shader.handle,
+                .material = assets.sky_moon_overlay.material,
+                .color = common.Color.rgba(0, 0, 0, 0),
+            },
+            render.Layer(0){},
+            render.LayerSortKey{ .value = lion_fire_layer_sort },
+        });
+        state.particles[i] = .{};
+    }
+
+    try commands.insertResource(state);
+}
+
+pub fn updateLionFire(
+    dt: Res(DeltaTime),
+    elapsed: Res(ElapsedTime),
+    commands: *ecs.Commands,
+    cameras: Query(.{ Transform, PlayerCamera }),
+    billboards: Query(.{ Transform, render.MeshInstance, LionFireBillboard }),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+) void {
+    const state = commands.getResourceMut(LionFireState) orelse return;
+    if (!phases.isPlayingPhase(current_phase.ptr)) return;
+
+    var camera_rotation: ?Quat = null;
+    var camera_it = cameras.iterator();
+    while (camera_it.next()) |row| {
+        const transform = row.get(Transform) orelse continue;
+        camera_rotation = transform.rotation;
+        break;
+    }
+    const cam_rot = camera_rotation orelse return;
+
+    const step: f32 = @floatCast(std.math.clamp(dt.ptr.seconds, 0.0, 0.05));
+    if (!(step > 0.0)) return;
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
+
+    const emission_scale = 0.78 + 0.22 * std.math.sin(t * 4.7);
+    const spawn_rate = 220.0 * emission_scale;
+    state.spawn_accumulator += step * spawn_rate;
+    while (state.spawn_accumulator >= 1.0) : (state.spawn_accumulator -= 1.0) {
+        spawnOneParticle(state, t);
+    }
+
+    var i: usize = 0;
+    while (i < max_particles) : (i += 1) {
+        var p = &state.particles[i];
+        if (!p.alive) continue;
+        p.age += step;
+        if (p.age >= p.lifetime) {
+            p.alive = false;
+            continue;
+        }
+
+        const drag_mul = std.math.exp(-p.drag * step);
+        p.velocity = p.velocity.scale(drag_mul);
+        p.velocity.y += p.buoyancy * step;
+
+        const gust = std.math.sin(t * (4.4 + p.turbulence * 1.7) + p.noise_phase);
+        const sway = std.math.cos(t * (6.3 + p.turbulence * 2.1) + p.noise_phase * 1.9);
+        p.velocity.x += gust * p.turbulence * step * 0.85;
+        p.velocity.z += sway * p.turbulence * step * 0.68;
+        p.position = p.position.add(p.velocity.scale(step));
+        p.spin += p.spin_speed * step;
+    }
+
+    var bb_it = billboards.iterator();
+    while (bb_it.next()) |row| {
+        const marker = row.get(LionFireBillboard) orelse continue;
+        const transform = row.get(Transform) orelse continue;
+        const instance = row.get(render.MeshInstance) orelse continue;
+        const idx: usize = marker.index;
+        if (idx >= max_particles) continue;
+        const p = state.particles[idx];
+        if (!p.alive) {
+            transform.translation = hidden_position;
+            transform.scale = .{ .x = 0.001, .y = 0.001, .z = 0.001 };
+            instance.color = common.Color.rgba(0, 0, 0, 0);
+            continue;
+        }
+
+        const life_t = std.math.clamp(p.age / p.lifetime, 0.0, 1.0);
+        const size = p.base_size * lerp(0.62, 1.85, life_t);
+        const alpha = if (p.kind == .core)
+            std.math.clamp((1.0 - life_t) * (1.0 - life_t * 0.65), 0.0, 1.0)
+        else
+            std.math.clamp((1.0 - life_t) * 0.72, 0.0, 1.0);
+
+        const color = switch (p.kind) {
+            .core => mixColor3(
+                .{ .x = 1.0, .y = 0.90, .z = 0.74 },
+                .{ .x = 1.0, .y = 0.36, .z = 0.05 },
+                std.math.clamp(life_t * 1.25, 0.0, 1.0),
+            ),
+            .smoke => mixColor3(
+                .{ .x = 0.46, .y = 0.34, .z = 0.28 },
+                .{ .x = 0.18, .y = 0.17, .z = 0.19 },
+                std.math.clamp(life_t * 0.9 + 0.1, 0.0, 1.0),
+            ),
+        };
+        const noise = std.math.clamp(0.5 + 0.5 * std.math.sin(p.noise_phase + t * 2.8), 0.0, 1.0);
+
+        transform.translation = p.position;
+        transform.rotation = cam_rot.mul(Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, p.spin));
+        transform.scale = .{ .x = size, .y = size * 1.18, .z = 1.0 };
+        instance.color = floatColorToU8(color.x, color.y, color.z, alpha, noise);
+    }
+}
+
+fn spawnOneParticle(state: *LionFireState, time_s: f32) void {
+    const idx = state.next_spawn;
+    state.next_spawn = (state.next_spawn + 1) % max_particles;
+    var p = &state.particles[idx];
+
+    const core_roll = random01(state);
+    const is_core = core_roll > 0.34;
+    const spread: f32 = if (is_core) 0.12 else 0.22;
+    const yaw = (random01(state) * 2.0 - 1.0) * spread;
+    const pitch = (random01(state) * 2.0 - 1.0) * spread * 0.65;
+    const dir = quatFromEuler(pitch, yaw, 0.0).rotateVec3(state.mouth_direction).normalize();
+
+    const jitter = Vec3{
+        .x = (random01(state) * 2.0 - 1.0) * 0.07,
+        .y = (random01(state) * 2.0 - 1.0) * 0.05,
+        .z = (random01(state) * 2.0 - 1.0) * 0.07,
+    };
+    const speed = if (is_core) lerp(3.1, 5.2, random01(state)) else lerp(1.5, 2.8, random01(state));
+    const up_kick = if (is_core) lerp(0.8, 1.8, random01(state)) else lerp(0.6, 1.2, random01(state));
+
+    p.alive = true;
+    p.kind = if (is_core) .core else .smoke;
+    p.position = state.mouth_position.add(jitter);
+    p.velocity = dir.scale(speed).add(.{ .x = 0.0, .y = up_kick, .z = 0.0 });
+    p.age = 0.0;
+    p.lifetime = if (is_core) lerp(0.40, 0.78, random01(state)) else lerp(0.95, 1.75, random01(state));
+    p.base_size = if (is_core) lerp(0.09, 0.18, random01(state)) else lerp(0.16, 0.30, random01(state));
+    p.buoyancy = if (is_core) lerp(1.7, 3.1, random01(state)) else lerp(0.45, 1.25, random01(state));
+    p.drag = if (is_core) lerp(1.5, 2.8, random01(state)) else lerp(0.55, 1.35, random01(state));
+    p.turbulence = if (is_core) lerp(0.35, 0.75, random01(state)) else lerp(0.55, 1.05, random01(state));
+    p.spin = random01(state) * (2.0 * std.math.pi);
+    p.spin_speed = (random01(state) * 2.0 - 1.0) * 3.1;
+    p.noise_phase = random01(state) * (2.0 * std.math.pi) + time_s * 0.7;
+}
+
+fn lionMouthBasePosition() Vec3 {
+    const player = Vec3{ .x = -9.967, .y = 1.892, .z = 0.056 };
+    const camera = Vec3{ .x = -9.967, .y = 2.492, .z = 0.056 };
+    const rot = lionMouthBaseRotation();
+    const forward = rot.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 }).normalize();
+    const right = rot.rotateVec3(.{ .x = 1.0, .y = 0.0, .z = 0.0 }).normalize();
+    return player
+        .add(camera.scale(0.5))
+        .add(forward.scale(0.92))
+        .add(right.scale(-0.05))
+        .add(.{ .x = 0.0, .y = 0.14, .z = 0.0 });
+}
+
+fn lionMouthBaseRotation() Quat {
+    return quatFromEuler(-0.2090, 7.7481, 0.0);
+}
+
+fn createParticleQuad(build_ctx: *const render.BuildContext) !render.MeshHandle {
+    const vertices = [_]render.VertexPos3Uv{
+        .{ .position = .{ -0.5, -0.5, 0.0 }, .uv = .{ 0.0, 1.0 } },
+        .{ .position = .{ 0.5, -0.5, 0.0 }, .uv = .{ 1.0, 1.0 } },
+        .{ .position = .{ 0.5, 0.5, 0.0 }, .uv = .{ 1.0, 0.0 } },
+        .{ .position = .{ -0.5, 0.5, 0.0 }, .uv = .{ 0.0, 0.0 } },
+    };
+    const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
+    return build_ctx.addMeshPos3Uv(vertices[0..], indices[0..]);
+}
+
+fn random01(state: *LionFireState) f32 {
+    var x = state.rng_state;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    state.rng_state = x;
+    const bits: u32 = @truncate((x *% 0x2545F4914F6CDD1D) >> 40);
+    return @as(f32, @floatFromInt(bits)) / 16777216.0;
+}
+
+fn lerp(a: f32, b: f32, t: f32) f32 {
+    return a + (b - a) * std.math.clamp(t, 0.0, 1.0);
+}
+
+fn mixColor3(a: Vec3, b: Vec3, t: f32) Vec3 {
+    const u = std.math.clamp(t, 0.0, 1.0);
+    return .{
+        .x = lerp(a.x, b.x, u),
+        .y = lerp(a.y, b.y, u),
+        .z = lerp(a.z, b.z, u),
+    };
+}
+
+fn floatColorToU8(r: f32, g: f32, b: f32, a: f32, noise: f32) common.Color {
+    const r8: u8 = @intFromFloat(std.math.clamp(r, 0.0, 1.0) * 255.0);
+    const g8: u8 = @intFromFloat(std.math.clamp(g, 0.0, 1.0) * 255.0);
+    const b_mix = std.math.clamp(b * 0.72 + noise * 0.28, 0.0, 1.0);
+    const b8: u8 = @intFromFloat(b_mix * 255.0);
+    const a8: u8 = @intFromFloat(std.math.clamp(a, 0.0, 1.0) * 255.0);
+    return common.Color.rgba(r8, g8, b8, a8);
+}
+
+const max_particles: usize = 256;
+const lion_fire_layer_sort: i32 = 840;
+const hidden_position = Vec3{ .x = -9999.0, .y = -9999.0, .z = -9999.0 };
+
+const LionFireBillboard = struct {
+    index: u16,
+};
+
+const ParticleKind = enum { core, smoke };
+
+const Particle = struct {
+    alive: bool = false,
+    kind: ParticleKind = .core,
+    position: Vec3 = .{},
+    velocity: Vec3 = .{},
+    age: f32 = 0.0,
+    lifetime: f32 = 1.0,
+    base_size: f32 = 0.1,
+    buoyancy: f32 = 1.0,
+    drag: f32 = 1.0,
+    turbulence: f32 = 0.6,
+    spin: f32 = 0.0,
+    spin_speed: f32 = 0.0,
+    noise_phase: f32 = 0.0,
+};
+
+const LionFireState = struct {
+    particles: [max_particles]Particle = undefined,
+    next_spawn: usize = 0,
+    spawn_accumulator: f32 = 0.0,
+    rng_state: u64 = 0,
+    mouth_position: Vec3 = .{},
+    mouth_direction: Vec3 = .{ .x = 0.0, .y = 0.0, .z = -1.0 },
+};
+
+const std = @import("std");
+const phasor = @import("phasor");
+const phases = @import("phases.zig");
+const shared = @import("shared.zig");
+
+const common = phasor.common;
+const ecs = phasor.ecs;
+const modules = phasor.modules;
+const render = phasor.renderer;
+
+const Query = ecs.system_params.Query;
+const Res = ecs.system_params.Res;
+const ResOpt = ecs.system_params.ResOpt;
+
+const Assets = shared.Assets;
+const DeltaTime = modules.TimeModule.DeltaTime;
+const ElapsedTime = modules.TimeModule.ElapsedTime;
+const PlayerCamera = shared.PlayerCamera;
+const Quat = common.Quat;
+const SceneReady = shared.SceneReady;
+const Transform = common.Transform;
+const Vec3 = common.Vec3;
+const quatFromEuler = shared.quatFromEuler;
