@@ -318,18 +318,20 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
             light_dir = normalize(-light.direction_kind.xyz);
         } else {
             let to_light = light.position_range.xyz - input.world_position;
-            let min_radius = max(light.spot_params.z, 0.25);
-            let distance_sq = max(dot(to_light, to_light), min_radius * min_radius);
-            let distance = sqrt(distance_sq);
-            if (distance > light.position_range.w) {
+            let actual_distance_sq = max(dot(to_light, to_light), 1e-6);
+            let actual_distance = sqrt(actual_distance_sq);
+            if (actual_distance > light.position_range.w) {
                 i += 1u;
                 continue;
             }
 
-            light_dir = to_light / distance;
-            let range_ratio = distance / max(light.position_range.w, 0.001);
+            // Use true geometric distance for direction so N.L remains unit-consistent.
+            light_dir = to_light / actual_distance;
+            // Frostbite/Filament-style punctual attenuation: inverse square with a fixed 1 cm floor.
+            let attenuation_distance_sq = max(actual_distance_sq, 1e-4);
+            let range_ratio = actual_distance / max(light.position_range.w, 0.001);
             let range_falloff = saturate(1.0 - pow(range_ratio, 4.0));
-            attenuation = (range_falloff * range_falloff) / distance_sq;
+            attenuation = (range_falloff * range_falloff) / attenuation_distance_sq;
 
             if (kind == 2u) {
                 let cone = dot(normalize(-light.direction_kind.xyz), light_dir);
