@@ -164,6 +164,7 @@ pub fn updateDayNightWeather(
     cycle_state: ResOpt(SkyCycleState),
     ambient_opt: ResMut(lighting.AmbientLight),
     environment_opt: ResMut(lighting.EnvironmentLight),
+    exposure_opt: ResMut(lighting.ExposureSettings),
     directional_lights: Query(.{ Transform, lighting.Light, lighting.LightVisibility }),
 ) void {
     const state = cycle_state.ptr orelse return;
@@ -180,7 +181,9 @@ pub fn updateDayNightWeather(
     const weather_phase = (t / @max(20.0, state.weather.weather_cycle_seconds)) * (2.0 * std.math.pi);
 
     const sun = sunDirection(day_phase, state.day_night.latitude_deg);
-    const daylight = smoothstep(-0.10, 0.08, sun.y);
+    const daylight = smoothstep(-0.14, 0.10, sun.y);
+    const night = 1.0 - daylight;
+    const twilight = std.math.exp(-@abs(sun.y) * 16.0);
 
     const raw_coverage = state.weather.cloud_coverage +
         0.26 * std.math.sin(weather_phase * 0.43) +
@@ -191,47 +194,69 @@ pub fn updateDayNightWeather(
     const haze = std.math.clamp(state.weather.haze + 0.30 * storminess, 0.0, 1.0);
 
     const clear_sun_color = common.Color.F32{ .r = 1.0, .g = 0.92, .b = 0.78, .a = 1.0 };
+    const golden_sun_color = common.Color.F32{ .r = 1.0, .g = 0.56, .b = 0.28, .a = 1.0 };
     const storm_sun_color = common.Color.F32{ .r = 0.64, .g = 0.70, .b = 0.78, .a = 1.0 };
-    const moon_color = common.Color.F32{ .r = 0.46, .g = 0.55, .b = 0.72, .a = 1.0 };
+    const moon_color = common.Color.F32{ .r = 0.44, .g = 0.52, .b = 0.70, .a = 1.0 };
 
     // Keep procedural mode energy anchored to the original panorama tuning so
     // scene lighting/exposure remain close to pre-procedural behavior.
-    const ambient_day_tint = common.Color.F32{ .r = 0.98, .g = 1.00, .b = 1.02, .a = 1.0 };
-    const ambient_night_tint = common.Color.F32{ .r = 0.88, .g = 0.92, .b = 1.08, .a = 1.0 };
+    const ambient_day_tint = common.Color.F32{ .r = 1.00, .g = 1.00, .b = 0.98, .a = 1.0 };
+    const ambient_twilight_tint = common.Color.F32{ .r = 1.00, .g = 0.62, .b = 0.40, .a = 1.0 };
+    const ambient_night_tint = common.Color.F32{ .r = 0.28, .g = 0.35, .b = 0.56, .a = 1.0 };
     const weather_tint = common.Color.F32{ .r = 0.84, .g = 0.89, .b = 0.96, .a = 1.0 };
     const ambient_tint = mulColor(
-        mixColor(ambient_night_tint, ambient_day_tint, daylight),
+        mixColor(
+            ambient_night_tint,
+            mixColor(ambient_twilight_tint, ambient_day_tint, daylight),
+            std.math.clamp(daylight + twilight * 0.45, 0.0, 1.0),
+        ),
         mixColor(common.Color.F32{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 }, weather_tint, storminess * 0.55),
     );
     const ambient_weather = mulColor(base_ambient.color, ambient_tint);
     ambient.color = ambient_weather;
     ambient.intensity = base_ambient.intensity *
-        lerp(0.95, 1.12, daylight) *
+        lerp(0.14, 1.10, daylight) *
+        lerp(1.0, 1.28, twilight) *
         lerp(1.0, 0.88, haze);
 
     environment.enabled = true;
     environment.intensity = base_environment.intensity *
-        lerp(0.95, 1.10, daylight) *
+        lerp(0.10, 1.12, daylight) *
+        lerp(1.0, 1.24, twilight) *
         lerp(1.0, 0.90, storminess);
     environment.diffuse_strength = base_environment.diffuse_strength *
-        lerp(0.98, 1.06, daylight) *
+        lerp(0.35, 1.05, daylight) *
+        lerp(1.0, 1.15, twilight) *
         lerp(1.0, 0.90, storminess);
     environment.specular_strength = base_environment.specular_strength *
-        lerp(0.95, 1.12, daylight) *
+        lerp(0.25, 1.15, daylight) *
+        lerp(1.0, 1.14, twilight) *
         lerp(1.0, 0.88, storminess);
     environment.average_luminance = std.math.clamp(
         base_environment.average_luminance *
-            lerp(0.92, 1.10, daylight) *
+            lerp(0.06, 1.10, daylight) *
+            lerp(1.0, 1.28, twilight) *
             lerp(1.0, 0.92, coverage),
-        0.03,
+        0.01,
         8.0,
     );
     environment.dominant_direction = sun;
     environment.dominant_color = mixColor(
         moon_color,
-        mixColor(clear_sun_color, storm_sun_color, storminess),
+        mixColor(
+            mixColor(clear_sun_color, golden_sun_color, twilight),
+            storm_sun_color,
+            storminess,
+        ),
         daylight,
     );
+
+    const exposure = exposure_opt.ptr;
+    exposure.enabled = true;
+    exposure.auto_enabled = true;
+    exposure.auto_key_value = lerp(0.13, 0.17, daylight) * lerp(1.0, 0.85, storminess);
+    exposure.min_exposure = lerp(0.035, 0.13, daylight) * lerp(1.0, 1.18, night);
+    exposure.max_exposure = lerp(0.36, 0.58, daylight) * lerp(1.0, 0.88, storminess);
 
     updateDirectionalSun(directional_lights, sun, daylight, storminess);
 }
@@ -311,6 +336,10 @@ fn applySkyVisualMode(
         .procedural => scene_assets.sky_procedural_shader.handle,
         .panorama => scene_assets.sky_shader.handle,
     };
+    const material = switch (mode) {
+        .procedural => scene_assets.sky_moon_overlay.material,
+        .panorama => scene_assets.sky_panorama.material,
+    };
 
     var it = panorama_faces.iterator();
     while (it.next()) |row| {
@@ -318,7 +347,7 @@ fn applySkyVisualMode(
         if (sort_key.value != sky_layer_sort_background) continue;
         const instance = row.get(render.MeshInstance) orelse continue;
         instance.shader_handle = shader;
-        instance.material = scene_assets.sky_panorama.material;
+        instance.material = material;
     }
 }
 
@@ -341,9 +370,11 @@ fn updateDirectionalSun(
                 transform.rotation = quatFromEuler(pitch, yaw, 0.0);
 
                 const clear_color = common.Color.F32{ .r = 1.0, .g = 0.95, .b = 0.84, .a = 1.0 };
+                const dusk_color = common.Color.F32{ .r = 1.0, .g = 0.58, .b = 0.33, .a = 1.0 };
                 const storm_color = common.Color.F32{ .r = 0.66, .g = 0.72, .b = 0.78, .a = 1.0 };
-                dir.color = mixColor(clear_color, storm_color, storminess);
-                dir.illuminance_lux = lerp(3.5, 220.0, daylight) * lerp(1.0, 0.42, storminess);
+                const twilight = std.math.exp(-@abs(sun_dir.y) * 16.0);
+                dir.color = mixColor(mixColor(clear_color, dusk_color, twilight), storm_color, storminess);
+                dir.illuminance_lux = (lerp(0.045, 220.0, daylight) + twilight * 46.0) * lerp(1.0, 0.42, storminess);
                 visibility.enabled = true;
             },
             else => {},

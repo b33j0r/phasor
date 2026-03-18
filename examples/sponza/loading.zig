@@ -86,6 +86,7 @@ pub fn advanceSceneFinalize(
     const build_ctx_res = build_ctx.ptr orelse return;
     if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
     if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
+    if (!scene_assets.ptr.sky_moon_overlay.material_handle.isValid()) return error.SkyMoonOverlayMissing;
     if (!scene_assets.ptr.sky_shader.handle.isValid()) return error.SkyShaderMissing;
     if (!scene_assets.ptr.sky_procedural_shader.handle.isValid()) return error.SkyProceduralShaderMissing;
 
@@ -136,7 +137,7 @@ pub fn advanceSceneFinalize(
                     },
                 },
                 modules.SkyModule.PanoramaSky{
-                    .material = scene_assets.ptr.sky_panorama.material,
+                    .material = scene_assets.ptr.sky_moon_overlay.material,
                     .shader_handle = scene_assets.ptr.sky_procedural_shader.handle,
                     .size = @max(@max(finalize.scene_size.x, finalize.scene_size.y), finalize.scene_size.z) * 4.0,
                     .follow_camera = true,

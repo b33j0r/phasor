@@ -55,6 +55,7 @@ pub const FpsController = FpsPhysics.FpsController;
 
 pub const sponza_scene_path = "examples/sponza/assets/sponza/glTF/Sponza.gltf";
 pub const sponza_panorama_bytes = @embedFile("assets/hdr/furstenstein_2k.hdr");
+pub const sponza_moon_overlay_bytes = @embedFile("assets/textures/moon_overlay_cc0.png");
 pub const sponza_ui_serif_font_bytes = @embedFile("assets/fonts/CormorantGaramond/CormorantGaramond[wght].ttf");
 
 pub const StatusOverlay = struct {
@@ -228,6 +229,7 @@ pub const Assets = struct {
         .withPixelHeight(72.0)
         .withAtlasSize(1024, 1024),
     sky_panorama: assets.Texture = assets.Texture.embedded(sponza_panorama_bytes).asHdr().asOpaque().equirectangularLinear(),
+    sky_moon_overlay: assets.Texture = assets.Texture.embedded(sponza_moon_overlay_bytes).asBlended(),
     scene_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/scene_pbr_lit.wgsl"),
         .vertex_layout = .pos3_norm_uv2,

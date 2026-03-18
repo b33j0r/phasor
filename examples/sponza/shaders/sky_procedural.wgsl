@@ -139,6 +139,44 @@ fn renderClouds(
     return vec4<f32>(accum, 1.0 - transmittance);
 }
 
+fn renderMoon(
+    dir: vec3<f32>,
+    sun_dir: vec3<f32>,
+    day_amount: f32,
+) -> vec4<f32> {
+    let night_visibility = smoothstep(0.35, 0.0, day_amount);
+    if (night_visibility <= 0.0) {
+        return vec4<f32>(0.0);
+    }
+
+    let moon_dir = normalize(-sun_dir + vec3<f32>(0.0, 0.08, 0.0));
+    let up_ref = select(
+        vec3<f32>(1.0, 0.0, 0.0),
+        vec3<f32>(0.0, 1.0, 0.0),
+        abs(moon_dir.y) < 0.95,
+    );
+    let moon_right = normalize(cross(up_ref, moon_dir));
+    let moon_up = cross(moon_dir, moon_right);
+
+    let forward = dot(dir, moon_dir);
+    if (forward <= 0.0) {
+        return vec4<f32>(0.0);
+    }
+
+    // Slightly enlarged angular radius for readability and drama.
+    let moon_radius = 0.022;
+    let local = vec2<f32>(dot(dir, moon_right), dot(dir, moon_up)) / max(forward, 1e-4);
+    let uv = local / (moon_radius * 2.0) + vec2<f32>(0.5, 0.5);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return vec4<f32>(0.0);
+    }
+
+    var moon_sample = textureSample(mesh_texture, mesh_sampler, uv);
+    let edge_soften = smoothstep(1.0, 0.84, length(local) / moon_radius);
+    moon_sample.a *= edge_soften * night_visibility;
+    return moon_sample;
+}
+
 fn toneMapFilmic(color: vec3<f32>) -> vec3<f32> {
     let shifted = max(vec3<f32>(0.0), color - vec3<f32>(0.004));
     return
@@ -267,18 +305,23 @@ fn vs_main(input: VertexIn) -> VertexOut {
 fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     let dir = directionFromEquirectUv(input.uv);
     let sun_dir = normalize(scene.environment_dominant_direction.xyz);
-    let day_amount = smoothstep(-0.08, 0.10, sun_dir.y);
+    let day_amount = smoothstep(-0.14, 0.10, sun_dir.y);
+    let twilight = exp(-abs(sun_dir.y) * 16.0);
     let horizon = pow(1.0 - saturate(abs(dir.y)), 2.5);
 
-    let zenith_day = vec3<f32>(0.20, 0.43, 0.78);
-    let horizon_day = vec3<f32>(0.61, 0.72, 0.85);
-    let zenith_night = vec3<f32>(0.02, 0.04, 0.10);
-    let horizon_night = vec3<f32>(0.06, 0.08, 0.14);
-    var color = mix(mix(zenith_night, zenith_day, day_amount), mix(horizon_night, horizon_day, day_amount), horizon);
+    let zenith_day = vec3<f32>(0.18, 0.43, 0.82);
+    let horizon_day = vec3<f32>(0.64, 0.76, 0.89);
+    let zenith_twilight = vec3<f32>(0.24, 0.12, 0.30);
+    let horizon_twilight = vec3<f32>(0.99, 0.46, 0.20);
+    let zenith_night = vec3<f32>(0.015, 0.03, 0.09);
+    let horizon_night = vec3<f32>(0.03, 0.05, 0.12);
+    let zenith_base = mix(mix(zenith_night, zenith_twilight, twilight), zenith_day, day_amount);
+    let horizon_base = mix(mix(horizon_night, horizon_twilight, twilight), horizon_day, day_amount);
+    var color = mix(zenith_base, horizon_base, horizon);
 
     let sun_dot = saturate(dot(dir, sun_dir));
     let sun_disc = smoothstep(0.9982, 0.9997, sun_dot);
-    color += mix(vec3<f32>(0.65, 0.72, 0.90), scene.environment_dominant_color.rgb, day_amount) * sun_disc * 4.8;
+    color += mix(vec3<f32>(0.62, 0.70, 0.90), scene.environment_dominant_color.rgb, day_amount) * sun_disc * (3.7 + twilight * 2.2);
 
     let coverage = saturate(input.color.r);
     let density = saturate(input.color.g);
@@ -287,6 +330,9 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
 
     let clouds = renderClouds(dir, sun_dir, day_amount, coverage, density, wind_phase);
     color = mix(color, clouds.rgb, clouds.a);
+
+    let moon = renderMoon(dir, sun_dir, day_amount);
+    color = mix(color, moon.rgb * vec3<f32>(0.95, 0.98, 1.05), moon.a);
 
     let haze_col = mix(vec3<f32>(0.24, 0.29, 0.38), vec3<f32>(0.68, 0.74, 0.82), day_amount);
     color = mix(color, haze_col, haze * horizon * 0.10);
