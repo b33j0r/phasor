@@ -283,6 +283,7 @@ fn updateDayNightCycle(
     const t: f32 = @floatCast(elapsed.ptr.seconds);
     const day_phase = fract(cycle.start_hour / 24.0 + t / @max(cycle.day_length_seconds, 3.0));
     const sun = sunDirection(day_phase, cycle.latitude_deg);
+    const shadow_sun = shadowLightDirection(sun);
     const daylight = smoothstep(-0.14, 0.10, sun.y);
     const night = 1.0 - daylight;
     const twilight = std.math.exp(-@abs(sun.y) * 16.0);
@@ -297,7 +298,7 @@ fn updateDayNightCycle(
         const light = row.get(lighting.Light) orelse continue;
         switch (light.*) {
             .directional => |*dir| {
-                const light_forward = sun.scale(-1.0).normalize();
+                const light_forward = shadow_sun.scale(-1.0).normalize();
                 transform.rotation = quatFromTo(.{ .x = 0.0, .y = 0.0, .z = -1.0 }, light_forward);
                 dir.color = mixColor(moon_color, mixColor(clear_sun_color, dusk_sun_color, twilight), daylight);
                 dir.illuminance_lux = lerp(300.0, 95_000.0, daylight) + twilight * 12_000.0;
@@ -468,8 +469,10 @@ fn quatFromTo(from: Vec3, to: Vec3) Quat {
 fn sunDirection(day_phase: f32, latitude_deg: f32) Vec3 {
     const theta = (day_phase - 0.25) * (2.0 * std.math.pi);
     const latitude = latitude_deg * (std.math.pi / 180.0);
-    const lat_tilt = std.math.sin(latitude) * 0.35;
-    const elevation = std.math.sin(theta) * 0.92 + lat_tilt;
+    const axial_tilt = 0.41;
+    const declination = std.math.sin(theta) * axial_tilt;
+    const elevation = std.math.sin(latitude) * std.math.sin(declination) +
+        std.math.cos(latitude) * std.math.cos(declination) * std.math.cos(theta);
     const horizon_radius = std.math.sqrt(@max(0.0001, 1.0 - elevation * elevation));
     const az = theta + std.math.pi * 0.18;
     return (Vec3{
@@ -477,6 +480,25 @@ fn sunDirection(day_phase: f32, latitude_deg: f32) Vec3 {
         .y = elevation,
         .z = std.math.sin(az) * horizon_radius,
     }).normalize();
+}
+
+fn shadowLightDirection(sun: Vec3) Vec3 {
+    const blend = smoothstep(-0.22, 0.12, sun.y);
+    if (blend >= 0.999) return sun;
+
+    const min_elevation: f32 = 0.08;
+    const horiz = Vec3{ .x = sun.x, .y = 0.0, .z = sun.z };
+    const horiz_len_sq = horiz.length_squared();
+    if (horiz_len_sq <= 0.00001) return sun;
+
+    const horiz_dir = horiz.scale(1.0 / std.math.sqrt(horiz_len_sq));
+    const horiz_scale = std.math.sqrt(@max(0.0001, 1.0 - min_elevation * min_elevation));
+    const clamped = Vec3{
+        .x = horiz_dir.x * horiz_scale,
+        .y = min_elevation,
+        .z = horiz_dir.z * horiz_scale,
+    };
+    return sun.scale(blend).add(clamped.scale(1.0 - blend)).normalize();
 }
 
 fn fract(value: f32) f32 {
