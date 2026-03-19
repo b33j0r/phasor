@@ -54,6 +54,10 @@ const App = struct {
         });
 
         try app.addSystemTo("Startup", setupScene);
+        try app.addSystemTo("Update", updateMouseCaptureToggle);
+        try app.addSystemTo("Update", updatePlayerCamera);
+        try app.addSystemTo("Update", updateDayNightCycle);
+        try app.addSystemTo("Update", updateProceduralSkyMeshParams);
     }
 };
 
@@ -73,6 +77,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
     if (!scene_assets.sky_procedural_shader.handle.isValid()) return error.SkyShaderMissing;
     if (!scene_assets.sky_moon_overlay.material_handle.isValid()) return error.SkyTextureMissing;
 
+    try commands.insertResource(DayNightCycle{});
     try commands.insertResource(ClearColor{ .color = Color.rgb(145, 190, 235) });
     try commands.insertResource(lighting.AmbientLight{
         .color = .{ .r = 0.74, .g = 0.78, .b = 0.90, .a = 1.0 },
@@ -260,9 +265,7 @@ fn updateDayNightCycle(
         switch (light.*) {
             .directional => |*dir| {
                 const light_forward = sun.scale(-1.0).normalize();
-                const yaw = std.math.atan2(light_forward.x, -light_forward.z);
-                const pitch = -std.math.asin(std.math.clamp(light_forward.y, -1.0, 1.0));
-                transform.rotation = quatFromEuler(pitch, yaw, 0.0);
+                transform.rotation = quatFromTo(.{ .x = 0.0, .y = 0.0, .z = -1.0 }, light_forward);
                 dir.color = mixColor(moon_color, mixColor(clear_sun_color, dusk_sun_color, twilight), daylight);
                 dir.illuminance_lux = lerp(300.0, 95_000.0, daylight) + twilight * 12_000.0;
             },
