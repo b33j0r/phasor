@@ -8,6 +8,7 @@ pub const FpsControlInput = struct {
     jump_pressed: bool = false,
     crouch_held: bool = false,
     sprint_held: bool = false,
+    toggle_fly_pressed: bool = false,
 
     pub fn clearTransient(self: *FpsControlInput) void {
         self.look_delta_x = 0.0;
@@ -15,6 +16,7 @@ pub const FpsControlInput = struct {
         self.look_key_yaw = 0.0;
         self.look_key_pitch = 0.0;
         self.jump_pressed = false;
+        self.toggle_fly_pressed = false;
     }
 };
 
@@ -36,6 +38,9 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             crouch_height: f32 = 1.2,
             crouch_eye_offset_y: f32 = 0.4,
             crouch_transition_rate: f32 = 10.0,
+            fly_toggle_enabled: bool = false,
+            fly_enabled: bool = false,
+            fly_speed_multiplier: f32 = 1.0,
             headbob_enabled: bool = true,
             headbob_frequency_hz: f32 = 1.45,
             headbob_vertical_amplitude: f32 = 0.008,
@@ -163,9 +168,43 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
                 controller.pitch = std.math.clamp(controller.pitch + pitch_delta, -1.45, 1.45);
                 transform.rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, controller.yaw);
 
+                if (input.toggle_fly_pressed and controller.fly_toggle_enabled) {
+                    controller.fly_enabled = !controller.fly_enabled;
+                    velocity.linear = .{};
+                    if (controller.fly_enabled) {
+                        commands.addComponent(row.entity_id, physics.PhysicsDisabled{}) catch {};
+                    } else {
+                        commands.removeComponent(row.entity_id, physics.PhysicsDisabled) catch {};
+                    }
+                }
+
                 const yaw_rot = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, controller.yaw);
                 const forward_world = yaw_rot.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 });
                 const right_world = yaw_rot.rotateVec3(.{ .x = 1.0, .y = 0.0, .z = 0.0 });
+
+                if (controller.fly_enabled) {
+                    const view_rotation = quatFromEuler(controller.pitch, controller.yaw, 0.0);
+                    const forward = view_rotation.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 }).normalize();
+                    const right = view_rotation.rotateVec3(.{ .x = 1.0, .y = 0.0, .z = 0.0 }).normalize();
+                    const input_forward = std.math.clamp(input.move_forward, -1.0, 1.0);
+                    const input_right = std.math.clamp(input.move_right, -1.0, 1.0);
+                    var desired = forward.scale(input_forward).add(right.scale(input_right));
+                    var speed = controller.move_speed * controller.fly_speed_multiplier;
+                    if (input.sprint_held and controller.sprint_enabled) {
+                        speed *= controller.sprint_multiplier;
+                    }
+                    if (desired.length_squared() > 0.0001) {
+                        desired = desired.normalize();
+                        transform.translation = transform.translation.add(desired.scale(speed * step));
+                    }
+
+                    controller.grounded = false;
+                    controller.sprinting = input.sprint_held and desired.length_squared() > 0.0001;
+                    controller.jump_buffer_timer = 0.0;
+                    controller.coyote_timer = 0.0;
+                    updateViewState(controller, step, Vec3{});
+                    continue;
+                }
 
                 const was_crouching = controller.crouching;
                 var wants_crouch = was_crouching;
@@ -337,6 +376,13 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             if (current < target) return @min(current + max_delta, target);
             if (current > target) return @max(current - max_delta, target);
             return target;
+        }
+
+        fn quatFromEuler(pitch: f32, yaw: f32, roll: f32) Quat {
+            const qx = Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, pitch);
+            const qy = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, yaw);
+            const qz = Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, roll);
+            return qy.mul(qx).mul(qz).normalize();
         }
     };
 }

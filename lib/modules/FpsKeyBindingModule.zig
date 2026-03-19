@@ -10,6 +10,7 @@ pub const FpsKeyBindings = struct {
     look_right: InputModule.Key = .right,
     look_up: InputModule.Key = .up,
     look_down: InputModule.Key = .down,
+    toggle_fly: InputModule.Key = .f,
 };
 
 pub const FpsKeyBindingModule = struct {
@@ -60,6 +61,7 @@ fn updateFpsControlInputFromBindings(
     input.jump_pressed = false;
     input.crouch_held = false;
     input.sprint_held = false;
+    input.toggle_fly_pressed = false;
     input.look_delta_x = 0.0;
     input.look_delta_y = 0.0;
 
@@ -73,6 +75,7 @@ fn updateFpsControlInputFromBindings(
         input.jump_pressed = keys.isKeyPressed(settings.ptr.bindings.jump);
         input.crouch_held = keys.isKeyDown(settings.ptr.bindings.crouch);
         input.sprint_held = isKeyBindingDown(keys, settings.ptr.bindings.sprint);
+        input.toggle_fly_pressed = keys.isKeyPressed(settings.ptr.bindings.toggle_fly);
 
         const step: f32 = @floatCast(dt.ptr.seconds);
         if (keys.isKeyDown(settings.ptr.bindings.look_left)) input.look_key_yaw += settings.ptr.look_key_yaw_speed * step;

@@ -18,6 +18,7 @@ pub fn spawnPlayerFromCollision(
         .move_speed = 2.0,
         .jump_speed = 4.0,
         .pitch = -0.18,
+        .fly_toggle_enabled = true,
     };
     const real_spawn_choice = findSpawnPoint(world.ptr, plan.scene_size, controller) orelse return;
     const spawn_choice = if (debug_spawn_outside_enabled)
@@ -26,6 +27,7 @@ pub fn spawnPlayerFromCollision(
         real_spawn_choice;
     if (debug_spawn_outside_enabled) {
         controller.pitch = 0.48;
+        controller.fly_enabled = true;
     }
     controller.yaw = spawn_choice.yaw;
     const spawn = spawn_choice.position;
@@ -51,13 +53,6 @@ pub fn spawnPlayerFromCollision(
         .active_spawn = spawn_choice,
         .override_outside = debug_spawn_outside_enabled,
     });
-    if (debug_spawn_outside_enabled) {
-        try commands.insertResource(FlyModeState{
-            .enabled = true,
-            .speed_multiplier = 1.0,
-        });
-    }
-
     const player_entity = try commands.createEntity(.{
         Player{},
         controller,
@@ -174,77 +169,6 @@ pub fn cycleColorGradeInput(
     try commands.insertResource(settings);
 }
 
-pub fn toggleFlyModeInput(
-    keyboard_opt: ResOpt(Keyboard),
-    commands: *ecs.Commands,
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
-    players: Query(.{
-        Transform,
-        FpsController,
-        physics.CharacterVelocity,
-        Player,
-    }),
-) !void {
-    if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
-    const keyboard = keyboard_opt.ptr orelse return;
-    if (!keyboard.isKeyPressed(.f)) return;
-
-    var mode = if (commands.getResource(FlyModeState)) |existing| existing.* else FlyModeState{};
-    mode.enabled = !mode.enabled;
-    try commands.insertResource(mode);
-
-    var it = players.iterator();
-    while (it.next()) |row| {
-        const entity_id = row.entity_id;
-        const velocity = row.get(physics.CharacterVelocity) orelse continue;
-        velocity.linear = .{};
-        if (mode.enabled) {
-            try commands.addComponent(entity_id, physics.PhysicsDisabled{});
-        } else {
-            commands.removeComponent(entity_id, physics.PhysicsDisabled) catch {};
-        }
-    }
-}
-
-pub fn updateFlyMovement(
-    dt: Res(DeltaTime),
-    input_opt: ResOpt(FpsControlInput),
-    fly_mode_opt: ResOpt(FlyModeState),
-    players: Query(.{ Transform, FpsController, Player }),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
-) void {
-    if (!phases.isPlayingPhase(current_phase.ptr)) return;
-    const fly_mode = fly_mode_opt.ptr orelse return;
-    if (!fly_mode.enabled) return;
-    const input = input_opt.ptr orelse return;
-
-    const step: f32 = @floatCast(dt.ptr.seconds);
-    if (!(step > 0.0)) return;
-
-    var it = players.iterator();
-    while (it.next()) |row| {
-        const transform = row.get(Transform) orelse continue;
-        const controller = row.get(FpsController) orelse continue;
-
-        const rotation = quatFromEuler(controller.pitch, controller.yaw, 0.0);
-        const forward = rotation.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 }).normalize();
-        const right = rotation.rotateVec3(.{ .x = 1.0, .y = 0.0, .z = 0.0 }).normalize();
-
-        const input_forward = std.math.clamp(input.move_forward, -1.0, 1.0);
-        const input_right = std.math.clamp(input.move_right, -1.0, 1.0);
-        var desired = forward.scale(input_forward).add(right.scale(input_right));
-        if (desired.length_squared() <= 0.0001) continue;
-
-        desired = desired.normalize();
-        var speed = controller.move_speed * fly_mode.speed_multiplier;
-        if (input.sprint_held and controller.sprint_enabled) {
-            speed *= controller.sprint_multiplier;
-        }
-
-        transform.translation = transform.translation.add(desired.scale(speed * step));
-    }
-}
-
 pub fn updatePlayerCamera(
     players: Query(.{ Transform, FpsController, Player }),
     cameras: Query(.{ Transform, PlayerCamera }),
@@ -313,14 +237,14 @@ pub fn emitSponzaHudMetrics(
     imported: ResOpt(assets.ImportedScene),
     lighting_stats: ResOpt(lighting.AuthoringStats),
     color_grading_opt: ResOpt(render.ColorGradingSettings),
-    fly_mode_opt: ResOpt(FlyModeState),
-    players: Query(.{ Transform, Player }),
+    players: Query(.{ Transform, FpsController, Player }),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) void {
     if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
     var it = players.iterator();
     const row = it.next() orelse return;
     const transform = row.get(Transform) orelse return;
+    const controller = row.get(FpsController) orelse return;
     const imported_scene = imported.ptr;
     const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
         scene_metrics_res.scene_size
@@ -334,7 +258,7 @@ pub fn emitSponzaHudMetrics(
     const mouse_available = mouse_opt.ptr != null;
     const mesh_count: usize = if (imported_scene) |scene| scene.mesh_handles.len else 0;
     const color_grade: render.ColorGrade = if (color_grading_opt.ptr) |settings| settings.grade else .none;
-    const fly_mode_enabled = if (fly_mode_opt.ptr) |mode| mode.enabled else false;
+    const fly_mode_enabled = controller.fly_enabled;
 
     metrics.emitBus(true, bus.ptr, .{
         .player_x = metrics.gauge(transform.translation.x),
@@ -589,9 +513,7 @@ const ResOpt = ecs.system_params.ResOpt;
 const Camera3d = common.Camera3d;
 const CameraLayer = render.CameraLayer;
 const FpsController = shared.FpsController;
-const FpsControlInput = modules.FpsControlInput;
 const FpsPhysics = shared.FpsPhysics;
-const FlyModeState = shared.FlyModeState;
 const Keyboard = modules.InputModule.Keyboard;
 const Mouse = modules.InputModule.Mouse;
 const MouseCapture = modules.InputModule.MouseCapture;
@@ -603,7 +525,6 @@ const SpawnChoice = shared.SpawnChoice;
 const Transform = common.Transform;
 const Vec3 = common.Vec3;
 const Quat = common.Quat;
-const DeltaTime = modules.TimeModule.DeltaTime;
 const quatFromEuler = shared.quatFromEuler;
 
 const debug_spawn_outside_enabled = false;

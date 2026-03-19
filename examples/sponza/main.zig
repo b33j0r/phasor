@@ -79,10 +79,8 @@ const App = struct {
         try app.addSystemTo("BeforeFrame", particles.setupLionFire);
         try app.addSystemTo("Update", gameplay.spawnPlayerFromCollision);
         try app.addSystemTo("Update", gameplay.handlePhaseInput);
-        try app.addSystemTo("Update", gameplay.toggleFlyModeInput);
         try app.addSystemTo("Update", gameplay.cycleColorGradeInput);
         try app.addSystemTo("Update", lighting.toggleSkyModeInput);
-        try app.addSystemTo("Update", gameplay.updateFlyMovement);
         try app.addSystemTo("Update", lighting.updateDayNightWeather);
         try app.addSystemTo("Update", lighting.updateProceduralSkyMeshParams);
         try app.addSystemTo("Update", gameplay.updatePlayerCamera);

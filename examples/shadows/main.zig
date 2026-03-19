@@ -68,8 +68,17 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
     const scene_assets = assets_res.deref();
     const sun_direction = (Vec3{ .x = -0.72, .y = 0.46, .z = -0.52 }).normalize();
     const light_forward = sun_direction.scale(-1.0);
-    const camera_position = Vec3{ .x = 9.0, .y = 4.8, .z = 14.5 };
+    const player_spawn = Vec3{ .x = 9.0, .y = 0.9, .z = 14.5 };
     const camera_target = Vec3{ .x = 0.0, .y = 2.0, .z = 0.0 };
+    const look_direction = camera_target.sub(player_spawn).normalize();
+    const player_yaw = std.math.atan2(look_direction.x, -look_direction.z);
+    const player_pitch = std.math.asin(std.math.clamp(look_direction.y, -1.0, 1.0));
+    const player_controller = FpsController{
+        .yaw = player_yaw,
+        .pitch = player_pitch,
+        .fly_toggle_enabled = true,
+        .fly_speed_multiplier = 1.0,
+    };
 
     if (!scene_assets.floor_tex.material_handle.isValid()) return error.FloorTextureMissing;
     if (!scene_assets.pillar_tex.material_handle.isValid()) return error.PillarTextureMissing;
@@ -79,6 +88,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
 
     try commands.insertResource(DayNightCycle{});
     try commands.insertResource(ClearColor{ .color = Color.rgb(145, 190, 235) });
+    try commands.insertResource(MouseCapture{ .enabled = true });
     try commands.insertResource(lighting.AmbientLight{
         .color = .{ .r = 0.74, .g = 0.78, .b = 0.90, .a = 1.0 },
         .intensity = 0.12,
@@ -172,9 +182,32 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
     });
 
     _ = try commands.createEntity(.{
+        Player{},
+        player_controller,
         Transform{
-            .translation = camera_position,
-            .rotation = quatFromTo(.{ .x = 0.0, .y = 0.0, .z = -1.0 }, camera_target.sub(camera_position).normalize()),
+            .translation = player_spawn,
+            .rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, player_yaw),
+        },
+        physics.Character{},
+        physics.Collider{
+            .shape = .{ .Capsule = .{
+                .radius = player_controller.radius,
+                .half_height = FpsPhysics.capsuleHalfHeight(player_controller),
+            } },
+            .collision = .{
+                .layer = 1,
+                .mask = 1 << 0,
+            },
+        },
+        physics.CharacterVelocity{},
+        physics.CharacterState{},
+    });
+
+    _ = try commands.createEntity(.{
+        PlayerCamera{},
+        Transform{
+            .translation = player_spawn.add(FpsPhysics.cameraOffset(player_controller)),
+            .rotation = quatFromEuler(player_pitch, player_yaw, 0.0),
         },
         Camera3d{ .Perspective = .{
             .fov = std.math.pi / 3.0,
