@@ -112,7 +112,6 @@ pub fn addManagedChildProjects(b: *std.Build, projects: []const ManagedChildProj
             project.name,
             false,
         );
-
         if (project.enable_wasm) {
             addForwardedExampleStep(
                 b,
