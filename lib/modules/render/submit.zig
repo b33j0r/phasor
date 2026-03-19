@@ -12,6 +12,7 @@ pub fn renderSystem(
     ordered_post_process: Query(.{ render.PostProcessPass, render.PostProcessOrder }),
     unordered_post_process: Query(.{ render.PostProcessPass, Without(render.PostProcessOrder) }),
     present_query: Query(.{render.PostProcessPresentSlot}),
+    shadow_settings_opt: ResOpt(types.ShadowSettings),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
     state.submit_scratch.clearFrame();
@@ -52,6 +53,59 @@ pub fn renderSystem(
         surface_size;
     const post_process_passes = try collectPostProcessPasses(&state.submit_scratch, ordered_post_process, unordered_post_process);
     const processed_max_layer = resolveProcessedMaxLayer(post_process_passes);
+    const shadow_settings = if (shadow_settings_opt.ptr) |settings| settings.* else types.ShadowSettings{};
+    const shadow_camera = cameraForLayer(0, layer_cameras_opt.ptr, camera_opt.ptr);
+    var shadow_frame = if (shadow_camera) |camera|
+        shadows.evaluateShadowFrame(
+            shadow_settings,
+            extracted_lighting,
+            camera,
+            viewport_size,
+            surface_size,
+        )
+    else
+        shadows.ShadowFrameData{};
+    if (!shadow_frame.enabled) {
+        shadow_frame.map_slot = shadow_settings.map_slot;
+        shadow_frame.map_size = .{
+            .width = @max(surface_size.width, 1),
+            .height = @max(surface_size.height, 1),
+        };
+        shadow_frame.uniforms.params0 = .{
+            1.0 / @as(f32, @floatFromInt(@max(shadow_frame.map_size.width, 1))),
+            1.0 / @as(f32, @floatFromInt(@max(shadow_frame.map_size.height, 1))),
+            shadow_settings.depth_bias,
+            shadow_settings.normal_bias,
+        };
+        shadow_frame.uniforms.params1 = .{
+            shadow_settings.strength,
+            0.0,
+            @floatFromInt(@intFromEnum(shadow_settings.technique)),
+            0.0,
+        };
+    }
+    if (shadow_frame.enabled) {
+        const shadow_target = try frameTargetForShadowSlot(&state.renderer, shadow_frame.map_slot, shadow_frame.map_size);
+        try frame.beginShadowPass(shadow_target, common.Color.WHITE);
+        frame.setViewportScissor(
+            0.0,
+            0.0,
+            @floatFromInt(shadow_frame.map_size.width),
+            @floatFromInt(shadow_frame.map_size.height),
+        );
+        drawShadowCasters(
+            &frame,
+            queue.ptr.items.items,
+            mesh_library,
+            state.default_material,
+            state.shadow_shader_uv2,
+            state.shadow_shader_pos3_uv2,
+            state.shadow_shader_pos3_norm_uv2,
+            state.shadow_shader_pos3_color4,
+            shadow_frame.light_view_proj,
+        );
+    }
+    frame.setShadowUniforms(shadow_frame.uniforms, shadow_frame.map_slot, shadow_frame.map_size);
     const scene_target = if (post_process_passes.len > 0) blk: {
         break :blk try frameTargetForSlot(&state.renderer, 0, surface_size);
     } else render.FrameTarget.surface;
@@ -126,6 +180,42 @@ pub fn renderSystem(
             color_grading_opt.ptr,
             .{ .min_layer = processed_max_layer + 1 },
         );
+    }
+}
+
+fn drawShadowCasters(
+    frame: *render.Frame,
+    items: []const render.RenderItem,
+    mesh_library: *render.MeshLibrary,
+    default_material: render.BackendMaterial,
+    shader_uv2: render.ShadowShader,
+    shader_pos3_uv2: render.ShadowShader,
+    shader_pos3_norm_uv2: render.ShadowShader,
+    shader_pos3_color4: render.ShadowShader,
+    light_view_proj: common.Mat4,
+) void {
+    for (items) |item| {
+        switch (item) {
+            .mesh => |instance| {
+                if (instance.blend) continue;
+                const mesh = mesh_library.get(instance.mesh_handle) orelse continue;
+                const clip_model = common.Mat4.mul(light_view_proj, instance.transform);
+                const color_f = common.Color.F32.fromColor(instance.color);
+                const gpu_instance = render.BackendMeshInstance{
+                    .clip_transform = clip_model,
+                    .model_transform = instance.transform,
+                    .color = .{ color_f.r, color_f.g, color_f.b, color_f.a },
+                    .pbr_params = instance.pbr_params,
+                };
+                switch (mesh.vertex_layout) {
+                    .uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
+                    .pos3_uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_pos3_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
+                    .pos3_norm_uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_pos3_norm_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
+                    .pos3_color4 => frame.drawShadowColoredMeshes(mesh.*, shader_pos3_color4, &[_]render.BackendMeshInstance{gpu_instance}),
+                }
+            },
+            else => {},
+        }
     }
 }
 
@@ -654,6 +744,14 @@ fn frameTargetForSlot(renderer: *render.Renderer, slot: u32, size: render.Size) 
     return .{ .texture = slot_value };
 }
 
+fn frameTargetForShadowSlot(renderer: *render.Renderer, slot: u32, size: render.Size) !render.FrameTarget {
+    const slot_value = try renderer.ensureShadowMapSlot(slot, size.width, size.height);
+    if (@TypeOf(slot_value) == u32) {
+        return .{ .slot = slot_value };
+    }
+    return .{ .texture = slot_value };
+}
+
 fn layerViewportRect(
     layer: i32,
     viewports: ?*const types.LayerViewports,
@@ -812,6 +910,7 @@ const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
 const render = @import("render");
+const shadows = @import("shadows.zig");
 const types = @import("types.zig");
 
 const Commands = ecs.Commands;

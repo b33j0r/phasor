@@ -3,6 +3,7 @@ const render_types = @import("render/types.zig");
 const render_prepare = @import("render/prepare.zig");
 const render_extract = @import("render/extract.zig");
 const render_submit = @import("render/submit.zig");
+const render_shadows = @import("render/shadows.zig");
 
 pub const RenderSurface = render_types.RenderSurface;
 pub const RenderState = render_types.RenderState;
@@ -14,6 +15,8 @@ pub const LayerCameras = render_types.LayerCameras;
 pub const LayerCamera = render_types.LayerCamera;
 pub const LayerViewports = render_types.LayerViewports;
 pub const ExtractedSceneLighting = render_types.ExtractedSceneLighting;
+pub const ShadowSettings = render_types.ShadowSettings;
+pub const ShadowTechnique = render_shadows.ShadowTechnique;
 
 pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(common.ClearColor)) {
@@ -30,6 +33,9 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     }
     if (!commands.hasResource(ExtractedSceneLighting)) {
         try commands.insertResource(ExtractedSceneLighting{});
+    }
+    if (!commands.hasResource(ShadowSettings)) {
+        try commands.insertResource(ShadowSettings{});
     }
     if (!commands.hasResource(SpriteMeshCache)) {
         try commands.insertResource(SpriteMeshCache.init(commands.allocator));
@@ -99,6 +105,30 @@ fn initRenderer(commands: *Commands) !void {
     errdefer renderer.destroyTexture(&texture);
 
     const material = try renderer.createMaterial(texture, sampler);
+    var shadow_shader_uv2 = try renderer.createShadowShader(.{
+        .wgsl = @embedFile("render/shaders/shadow_caster_uv2.wgsl"),
+        .vertex_layout = .uv2,
+        .binding_mode = .material,
+    });
+    errdefer renderer.destroyShadowShader(&shadow_shader_uv2);
+    var shadow_shader_pos3_uv2 = try renderer.createShadowShader(.{
+        .wgsl = @embedFile("render/shaders/shadow_caster_pos3_uv2.wgsl"),
+        .vertex_layout = .pos3_uv2,
+        .binding_mode = .material,
+    });
+    errdefer renderer.destroyShadowShader(&shadow_shader_pos3_uv2);
+    var shadow_shader_pos3_norm_uv2 = try renderer.createShadowShader(.{
+        .wgsl = @embedFile("render/shaders/shadow_caster_pos3_norm_uv2.wgsl"),
+        .vertex_layout = .pos3_norm_uv2,
+        .binding_mode = .material,
+    });
+    errdefer renderer.destroyShadowShader(&shadow_shader_pos3_norm_uv2);
+    var shadow_shader_pos3_color4 = try renderer.createShadowShader(.{
+        .wgsl = @embedFile("render/shaders/shadow_caster_pos3_color4.wgsl"),
+        .vertex_layout = .pos3_color4,
+        .binding_mode = .none,
+    });
+    errdefer renderer.destroyShadowShader(&shadow_shader_pos3_color4);
 
     var font = render.Font.orbitronDefault();
     try font.load(commands.allocator, &renderer, sampler);
@@ -110,6 +140,10 @@ fn initRenderer(commands: *Commands) !void {
         .default_sampler = sampler,
         .default_texture = texture,
         .default_material = material,
+        .shadow_shader_uv2 = shadow_shader_uv2,
+        .shadow_shader_pos3_uv2 = shadow_shader_pos3_uv2,
+        .shadow_shader_pos3_norm_uv2 = shadow_shader_pos3_norm_uv2,
+        .shadow_shader_pos3_color4 = shadow_shader_pos3_color4,
         .submit_scratch = render_types.SubmitScratch.init(commands.allocator),
     });
 
@@ -202,6 +236,7 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.RenderQueue);
         _ = commands.removeResource(render.BuildContext);
         _ = commands.removeResource(render.DefaultFont);
+        _ = commands.removeResource(ShadowSettings);
         return;
     };
 
@@ -240,6 +275,7 @@ fn shutdownSystem(commands: *Commands) void {
     _ = commands.removeResource(LayerCameras);
     _ = commands.removeResource(LayerViewports);
     _ = commands.removeResource(ExtractedSceneLighting);
+    _ = commands.removeResource(ShadowSettings);
     _ = commands.removeResource(assets.AssetsContext);
     _ = commands.removeResource(render.BuildContext);
     _ = commands.removeResource(render.RenderQueue);

@@ -127,6 +127,7 @@ pub fn build(b: *std.Build) void {
         .module = gltf_embedded_assets,
     }});
     _ = addExample(&ctx, phasor.module, "warehouse", "examples/warehouse/main.zig", &.{});
+    _ = addExample(&ctx, phasor.module, "shadows", "examples/shadows/main.zig", &.{});
     const fetch_sponza = addFetchSponzaStep(&ctx);
     const sponza_example = addExample(&ctx, phasor.module, "sponza", "examples/sponza/main.zig", &.{});
     sponza_example.run_step.dependOn(fetch_sponza.prepare_step);
