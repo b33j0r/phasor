@@ -53,7 +53,7 @@ pub const SceneMetrics = struct {
 pub const FpsPhysics = modules.FpsPhysicsModule(Player);
 pub const FpsController = FpsPhysics.FpsController;
 
-pub const sponza_scene_path = "examples/sponza/assets/sponza/glTF/Sponza.gltf";
+pub const sponza_scene_path = "assets/sponza/glTF/Sponza.gltf";
 pub const sponza_panorama_bytes = @embedFile("assets/hdr/furstenstein_2k.hdr");
 pub const sponza_moon_overlay_bytes = @embedFile("assets/textures/moon_overlay_cc0.png");
 pub const sponza_ui_serif_font_bytes = @embedFile("assets/fonts/CormorantGaramond/CormorantGaramond[wght].ttf");

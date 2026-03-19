@@ -1,11 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("common");
 
 const http = std.http;
 const net = std.Io.net;
 
-pub const std_options = common.logging.stdOptions(.info);
+pub const std_options: std.Options = .{
+    .log_level = .info,
+};
 
 const default_https_cert = "local/tls/phasor.pem";
 const default_https_key = "local/tls/phasor-key.pem";

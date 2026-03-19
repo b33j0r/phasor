@@ -46,7 +46,7 @@ fn setupScene(
 ) !void {
     if (commands.hasResource(SceneReady)) return;
     const scene_asset = &gltf_assets.ptr.flight_helmet;
-    if (builtin.target.cpu.arch.isWasm() and !commands.hasResource(SceneHydrated)) {
+    if (!commands.hasResource(SceneHydrated)) {
         try hydrateEmbeddedFlightHelmet(commands.allocator, scene_asset);
         try commands.insertResource(SceneHydrated{});
     }
@@ -154,10 +154,7 @@ fn debugSceneStatus(
 }
 
 const Assets = struct {
-    flight_helmet: assets.Scene = if (builtin.target.cpu.arch.isWasm())
-        .embedded(embedded_assets.flight_helmet_gltf)
-    else
-        .file("assets/gltf/FlightHelmet/glTF/FlightHelmet.gltf"),
+    flight_helmet: assets.Scene = .embedded(embedded_assets.flight_helmet_gltf),
 };
 
 fn hydrateEmbeddedFlightHelmet(allocator: std.mem.Allocator, scene_asset: *assets.Scene) !void {

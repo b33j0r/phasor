@@ -1,0 +1,15 @@
+.{
+    .name = .physics_cubes,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.16.0-dev.2277+e6ac1b77f",
+    .dependencies = .{
+        .phasor = .{
+            .path = "../..",
+            // TIP: Delete the `.path` line and use
+            // `zig fetch --save https://github.com/b33j0r/phasor-lite#main`
+            // to create your own independent project from this example.
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0x95956f374f500fea,
+}
