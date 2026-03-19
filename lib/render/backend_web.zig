@@ -74,6 +74,12 @@ pub const Shader = struct {
     binding_mode: ShaderBindingMode,
 };
 
+pub const ShadowShader = struct {
+    handle: u32,
+    vertex_layout: ShaderVertexLayout,
+    binding_mode: ShaderBindingMode,
+};
+
 pub const PostProcessShader = struct {
     handle: u32,
 };
@@ -102,9 +108,10 @@ pub const ShaderSource = struct {
 };
 
 pub const ShaderVertexLayout = enum(u32) {
-    pos3_color4 = 0,
-    pos3_uv2 = 1,
-    pos3_norm_uv2 = 2,
+    uv2 = 0,
+    pos3_color4 = 1,
+    pos3_uv2 = 2,
+    pos3_norm_uv2 = 3,
 };
 
 pub const ShaderBindingMode = enum(u32) {
@@ -207,13 +214,17 @@ extern "env" fn webgpu_resize(ctx: u32, width: u32, height: u32) void;
 extern "env" fn webgpu_begin_frame(ctx: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
 extern "env" fn webgpu_begin_scene_pass(ctx: u32, target_slot: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
 extern "env" fn webgpu_begin_scene_pass_load(ctx: u32, target_slot: u32) void;
+extern "env" fn webgpu_begin_shadow_pass(ctx: u32, target_slot: u32) void;
 extern "env" fn webgpu_begin_post_process_pass(ctx: u32, target_slot: u32, clear_r: f32, clear_g: f32, clear_b: f32, clear_a: f32) void;
 extern "env" fn webgpu_draw_triangle(ctx: u32) void;
 extern "env" fn webgpu_draw_textured_quad(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: *const InstanceData, blend: u32) void;
 extern "env" fn webgpu_draw_textured_quads(ctx: u32, mesh_handle: u32, material_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_draw_colored_meshes(ctx: u32, mesh_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
 extern "env" fn webgpu_draw_textured_meshes_with_shader(ctx: u32, mesh_handle: u32, material_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32, blend: u32) void;
+extern "env" fn webgpu_draw_shadow_colored_meshes(ctx: u32, mesh_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32) void;
+extern "env" fn webgpu_draw_shadow_textured_meshes_with_shader(ctx: u32, mesh_handle: u32, material_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32) void;
 extern "env" fn webgpu_set_scene_uniforms(ctx: u32, uniforms_ptr: [*]const u8, uniforms_len: usize) void;
+extern "env" fn webgpu_set_shadow_state(ctx: u32, slot: u32, uniforms_ptr: [*]const u8, uniforms_len: usize) void;
 extern "env" fn webgpu_draw_post_process(ctx: u32, shader_handle: u32, source_slot: u32, uniforms_ptr: [*]const f32, blend: u32) void;
 extern "env" fn webgpu_end_frame(ctx: u32) void;
 extern "env" fn webgpu_set_viewport_scissor(ctx: u32, x: f32, y: f32, width: f32, height: f32) void;
@@ -229,13 +240,16 @@ extern "env" fn webgpu_update_mesh(ctx: u32, handle: u32, vertices_ptr: [*]const
 extern "env" fn webgpu_destroy_mesh(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_shader(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize) u32;
 extern "env" fn webgpu_create_shader_configured(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize, vertex_layout: u32, binding_mode: u32) u32;
+extern "env" fn webgpu_create_shadow_shader_configured(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize, vertex_layout: u32, binding_mode: u32) u32;
 extern "env" fn webgpu_destroy_shader(ctx: u32, handle: u32) void;
+extern "env" fn webgpu_destroy_shadow_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_post_process_shader(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize) u32;
 extern "env" fn webgpu_destroy_post_process_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_material(ctx: u32, texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_create_scene_material(ctx: u32, base_color_texture_handle: u32, metallic_roughness_texture_handle: u32, occlusion_texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_destroy_material(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_stats(ctx: u32, out_ptr: *RendererStats) void;
+extern "env" fn webgpu_ensure_shadow_map_slot(ctx: u32, slot: u32, width: u32, height: u32) u32;
 
 pub const Renderer = struct {
     ctx: u32,
@@ -428,9 +442,32 @@ pub const Renderer = struct {
         };
     }
 
+    pub fn createShadowShader(self: *Renderer, source: ShaderSource) !ShadowShader {
+        const wgsl = source.wgsl orelse return error.MissingShaderSource;
+        const handle = webgpu_create_shadow_shader_configured(
+            self.ctx,
+            wgsl.ptr,
+            wgsl.len,
+            @intFromEnum(source.vertex_layout),
+            @intFromEnum(source.binding_mode),
+        );
+        if (handle == 0) return error.ShaderCreationFailed;
+        return .{
+            .handle = handle,
+            .vertex_layout = source.vertex_layout,
+            .binding_mode = source.binding_mode,
+        };
+    }
+
     pub fn destroyShader(self: *Renderer, shader: *Shader) void {
         if (shader.handle == 0) return;
         webgpu_destroy_shader(self.ctx, shader.handle);
+        shader.handle = 0;
+    }
+
+    pub fn destroyShadowShader(self: *Renderer, shader: *ShadowShader) void {
+        if (shader.handle == 0) return;
+        webgpu_destroy_shadow_shader(self.ctx, shader.handle);
         shader.handle = 0;
     }
 
@@ -449,6 +486,10 @@ pub const Renderer = struct {
 
     pub fn ensurePostProcessSlot(_: *Renderer, slot_index: u32, _: u32, _: u32) !u32 {
         return slot_index;
+    }
+
+    pub fn ensureShadowMapSlot(self: *Renderer, slot_index: u32, width: u32, height: u32) !u32 {
+        return webgpu_ensure_shadow_map_slot(self.ctx, slot_index, width, height);
     }
 
     pub fn stats(self: *const Renderer) RendererStats {
@@ -477,6 +518,11 @@ pub const Frame = struct {
         webgpu_begin_scene_pass_load(self.renderer.ctx, targetSlotValue(target));
     }
 
+    pub fn beginShadowPass(self: *Frame, target: FrameTarget, clear: Color) !void {
+        _ = clear;
+        webgpu_begin_shadow_pass(self.renderer.ctx, targetSlotValue(target));
+    }
+
     pub fn beginPostProcessPass(self: *Frame, target: FrameTarget, clear: Color) !void {
         const clear_f = Color.F32.fromColor(clear);
         webgpu_begin_post_process_pass(self.renderer.ctx, targetSlotValue(target), clear_f.r, clear_f.g, clear_f.b, clear_f.a);
@@ -489,6 +535,34 @@ pub const Frame = struct {
     pub fn setSceneUniforms(self: *Frame, uniforms: scene_uniforms.SceneUniforms) void {
         const bytes = std.mem.asBytes(&uniforms);
         webgpu_set_scene_uniforms(self.renderer.ctx, bytes.ptr, bytes.len);
+    }
+
+    pub fn setShadowUniforms(self: *Frame, uniforms: shadow_uniforms.ShadowUniforms, slot_index: u32, _: Size) void {
+        const bytes = std.mem.asBytes(&uniforms);
+        webgpu_set_shadow_state(self.renderer.ctx, slot_index, bytes.ptr, bytes.len);
+    }
+
+    pub fn drawShadowTexturedMeshesWithShader(self: *Frame, mesh: Mesh, material: Material, shader: ShadowShader, instances: []const MeshInstance) void {
+        if (instances.len == 0) return;
+        webgpu_draw_shadow_textured_meshes_with_shader(
+            self.renderer.ctx,
+            mesh.handle,
+            material.handle,
+            shader.handle,
+            instances.ptr,
+            @intCast(instances.len),
+        );
+    }
+
+    pub fn drawShadowColoredMeshes(self: *Frame, mesh: Mesh, shader: ShadowShader, instances: []const MeshInstance) void {
+        if (instances.len == 0) return;
+        webgpu_draw_shadow_colored_meshes(
+            self.renderer.ctx,
+            mesh.handle,
+            shader.handle,
+            instances.ptr,
+            @intCast(instances.len),
+        );
     }
 
     fn drawTexturedQuad(self: *Frame, quad: TexturedQuad) void {
@@ -598,6 +672,7 @@ const builtin = @import("builtin");
 const utils = @import("utils.zig");
 const common = @import("common");
 const scene_uniforms = @import("scene_uniforms.zig");
+const shadow_uniforms = @import("shadow_uniforms.zig");
 
 const Color = common.Color;
 const Size = utils.Size;

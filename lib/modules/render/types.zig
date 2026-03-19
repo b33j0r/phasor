@@ -8,10 +8,18 @@ pub const RenderState = struct {
     default_sampler: render.Sampler,
     default_texture: render.Texture,
     default_material: render.BackendMaterial,
+    shadow_shader_uv2: render.ShadowShader,
+    shadow_shader_pos3_uv2: render.ShadowShader,
+    shadow_shader_pos3_norm_uv2: render.ShadowShader,
+    shadow_shader_pos3_color4: render.ShadowShader,
     submit_scratch: SubmitScratch,
 
     pub fn deinit(self: *RenderState) void {
         self.submit_scratch.deinit();
+        self.renderer.destroyShadowShader(&self.shadow_shader_uv2);
+        self.renderer.destroyShadowShader(&self.shadow_shader_pos3_uv2);
+        self.renderer.destroyShadowShader(&self.shadow_shader_pos3_norm_uv2);
+        self.renderer.destroyShadowShader(&self.shadow_shader_pos3_color4);
         self.renderer.destroyMaterial(&self.default_material);
         self.renderer.destroyTexture(&self.default_texture);
         self.renderer.destroySampler(&self.default_sampler);
@@ -51,6 +59,8 @@ pub const RenderRecovery = struct {
     lost: bool = false,
     restored: bool = false,
 };
+
+pub const ShadowSettings = @import("shadows.zig").ShadowSettings;
 
 pub const SpriteMeshCache = struct {
     allocator: std.mem.Allocator,

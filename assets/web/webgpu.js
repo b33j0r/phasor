@@ -15,6 +15,7 @@ const triangleShaderUrl = new URL("shaders/triangle.wgsl", import.meta.url);
 const quadShaderUrl = new URL("shaders/quad.wgsl", import.meta.url);
 const meshTexturedShaderUrl = new URL("shaders/mesh_textured.wgsl", import.meta.url);
 const sceneUniformsSize = 2352;
+const shadowUniformsSize = 96;
 const instanceStrideBytes = 160;
 const instanceFloatCount = instanceStrideBytes / 4;
 
@@ -254,6 +255,26 @@ function createDepthTexture(ctx, width, height) {
   webgpuCreates.textures += 1;
   ctx.depthView = ctx.depthTexture.createView();
   webgpuCreates.textureViews += 1;
+}
+
+function createShadowMapSlot(ctx, width, height) {
+  const texture = ctx.device.createTexture({
+    size: { width, height },
+    format: "depth32float",
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+  });
+  webgpuCreates.textures += 1;
+  const view = texture.createView();
+  webgpuCreates.textureViews += 1;
+  return { texture, view, width, height };
+}
+
+function destroyShadowMapSlot(slot) {
+  if (!slot) return;
+  if (slot.texture) {
+    slot.texture.destroy();
+    webgpuDestroys.textures += 1;
+  }
 }
 
 async function loadShaders() {
@@ -522,12 +543,39 @@ function createPipelines(ctx) {
   ctx.scenePipelineLayout = ctx.device.createPipelineLayout({
     bindGroupLayouts: [ctx.sceneBindGroupLayout],
   });
+  ctx.shadowBindGroupLayout = ctx.device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform", minBindingSize: shadowUniformsSize },
+      },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "comparison" } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
+    ],
+  });
+  ctx.sceneShadowPipelineLayout = ctx.device.createPipelineLayout({
+    bindGroupLayouts: [ctx.sceneBindGroupLayout, ctx.shadowBindGroupLayout],
+  });
   ctx.sceneUniformBuffer = ctx.device.createBuffer({
     size: sceneUniformsSize,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  webgpuCreates.samplers += 1;
-  webgpuCreates.buffers += 2;
+  ctx.shadowUniformBuffer = ctx.device.createBuffer({
+    size: shadowUniformsSize,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  ctx.shadowSampler = ctx.device.createSampler({
+    magFilter: "linear",
+    minFilter: "linear",
+    mipmapFilter: "nearest",
+    addressModeU: "clamp-to-edge",
+    addressModeV: "clamp-to-edge",
+    addressModeW: "clamp-to-edge",
+    compare: "less-equal",
+  });
+  webgpuCreates.samplers += 2;
+  webgpuCreates.buffers += 3;
 }
 
 function createColorPipelinesFromWgsl(ctx, wgslSource) {
@@ -617,12 +665,46 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
     depthCompare: "less-equal",
   };
   const materialPipelineLayout = bindingMode === 2
-    ? ctx.scenePipelineLayout
+    ? ctx.sceneShadowPipelineLayout
     : ctx.device.createPipelineLayout({
         bindGroupLayouts: [ctx.quadBindGroupLayout],
       });
 
-  const vertexBuffers = vertexLayout === 1
+  const vertexBuffers = vertexLayout === 0
+    ? [
+        {
+          arrayStride: 16,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x2" },
+            { shaderLocation: 1, offset: 8, format: "float32x2" },
+          ],
+        },
+        {
+          arrayStride: instanceStrideBytes,
+          stepMode: "instance",
+          attributes: bindingMode === 2
+            ? [
+                { shaderLocation: 2, offset: 0, format: "float32x4" },
+                { shaderLocation: 3, offset: 16, format: "float32x4" },
+                { shaderLocation: 4, offset: 32, format: "float32x4" },
+                { shaderLocation: 5, offset: 48, format: "float32x4" },
+                { shaderLocation: 6, offset: 64, format: "float32x4" },
+                { shaderLocation: 7, offset: 80, format: "float32x4" },
+                { shaderLocation: 8, offset: 96, format: "float32x4" },
+                { shaderLocation: 9, offset: 112, format: "float32x4" },
+                { shaderLocation: 10, offset: 128, format: "float32x4" },
+                { shaderLocation: 11, offset: 144, format: "float32x4" },
+              ]
+            : [
+                { shaderLocation: 2, offset: 0, format: "float32x4" },
+                { shaderLocation: 3, offset: 16, format: "float32x4" },
+                { shaderLocation: 4, offset: 32, format: "float32x4" },
+                { shaderLocation: 5, offset: 48, format: "float32x4" },
+                { shaderLocation: 6, offset: 128, format: "float32x4" },
+              ],
+        },
+      ]
+    : vertexLayout === 2
     ? [
         {
           arrayStride: 20,
@@ -643,7 +725,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
           ],
         },
       ]
-    : vertexLayout === 2
+    : vertexLayout === 3
       ? [
           {
             arrayStride: 32,
@@ -720,6 +802,120 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
   });
   webgpuCreates.pipelines += 2;
   return { opaque, blend, vertexLayout, bindingMode };
+}
+
+function createShadowPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMode = 1) {
+  if (bindingMode === 2) {
+    return null;
+  }
+  const module = ctx.device.createShaderModule({ code: wgslSource });
+  const depthState = {
+    format: "depth32float",
+    depthWriteEnabled: true,
+    depthCompare: "less-equal",
+  };
+  const pipelineLayout = bindingMode === 1
+    ? ctx.device.createPipelineLayout({
+        bindGroupLayouts: [ctx.quadBindGroupLayout],
+      })
+    : ctx.device.createPipelineLayout({
+        bindGroupLayouts: [],
+      });
+  const vertexBuffers = vertexLayout === 0
+    ? [
+        {
+          arrayStride: 16,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x2" },
+            { shaderLocation: 1, offset: 8, format: "float32x2" },
+          ],
+        },
+        {
+          arrayStride: instanceStrideBytes,
+          stepMode: "instance",
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: "float32x4" },
+            { shaderLocation: 3, offset: 16, format: "float32x4" },
+            { shaderLocation: 4, offset: 32, format: "float32x4" },
+            { shaderLocation: 5, offset: 48, format: "float32x4" },
+          ],
+        },
+      ]
+    : vertexLayout === 2
+      ? [
+          {
+            arrayStride: 20,
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "float32x2" },
+            ],
+          },
+          {
+            arrayStride: instanceStrideBytes,
+            stepMode: "instance",
+            attributes: [
+              { shaderLocation: 2, offset: 0, format: "float32x4" },
+              { shaderLocation: 3, offset: 16, format: "float32x4" },
+              { shaderLocation: 4, offset: 32, format: "float32x4" },
+              { shaderLocation: 5, offset: 48, format: "float32x4" },
+            ],
+          },
+        ]
+      : vertexLayout === 3
+        ? [
+            {
+              arrayStride: 32,
+              attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x3" },
+                { shaderLocation: 1, offset: 12, format: "float32x3" },
+                { shaderLocation: 2, offset: 24, format: "float32x2" },
+              ],
+            },
+            {
+              arrayStride: instanceStrideBytes,
+              stepMode: "instance",
+              attributes: [
+                { shaderLocation: 3, offset: 0, format: "float32x4" },
+                { shaderLocation: 4, offset: 16, format: "float32x4" },
+                { shaderLocation: 5, offset: 32, format: "float32x4" },
+                { shaderLocation: 6, offset: 48, format: "float32x4" },
+              ],
+            },
+          ]
+        : vertexLayout === 1
+          ? [
+              {
+                arrayStride: 28,
+                attributes: [
+                  { shaderLocation: 0, offset: 0, format: "float32x3" },
+                  { shaderLocation: 1, offset: 12, format: "float32x4" },
+                ],
+              },
+              {
+                arrayStride: instanceStrideBytes,
+                stepMode: "instance",
+                attributes: [
+                  { shaderLocation: 2, offset: 0, format: "float32x4" },
+                  { shaderLocation: 3, offset: 16, format: "float32x4" },
+                  { shaderLocation: 4, offset: 32, format: "float32x4" },
+                  { shaderLocation: 5, offset: 48, format: "float32x4" },
+                ],
+              },
+            ]
+          : null;
+  if (!vertexBuffers) return null;
+  const pipeline = ctx.device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: {
+      module,
+      entryPoint: "vs_main",
+      buffers: vertexBuffers,
+    },
+    depthStencil: depthState,
+    primitive: { topology: "triangle-list" },
+  });
+  webgpuCreates.pipelines += 1;
+  return { depthOnly: pipeline, vertexLayout, bindingMode };
 }
 
 function createPostProcessPipelinesFromWgsl(ctx, wgslSource) {
@@ -810,8 +1006,30 @@ function ensurePostProcessSlot(ctx, slotIndex) {
       destroyPostProcessSlot(slot);
     }
     ctx.postProcessSlots[slotIndex] = createPostProcessTexture(ctx, width, height);
+    if (ctx.shadowSlot === slotIndex) {
+      ctx.shadowBindGroup = null;
+    }
   }
   return ctx.postProcessSlots[slotIndex];
+}
+
+function ensureShadowMapSlot(ctx, slotIndex, width, height) {
+  while (ctx.shadowMapSlots.length <= slotIndex) {
+    ctx.shadowMapSlots.push(null);
+  }
+  const resolvedWidth = Math.max(1, width || 1);
+  const resolvedHeight = Math.max(1, height || 1);
+  const slot = ctx.shadowMapSlots[slotIndex];
+  if (!slot || slot.width !== resolvedWidth || slot.height !== resolvedHeight) {
+    if (slot) {
+      destroyShadowMapSlot(slot);
+    }
+    ctx.shadowMapSlots[slotIndex] = createShadowMapSlot(ctx, resolvedWidth, resolvedHeight);
+    if (ctx.shadowSlot === slotIndex) {
+      ctx.shadowBindGroup = null;
+    }
+  }
+  return ctx.shadowMapSlots[slotIndex];
 }
 
 function isSurfaceTargetSlot(slot) {
@@ -827,12 +1045,12 @@ function endCurrentPass(ctx) {
 function beginRenderPass(ctx, view, clearValue, depthView, loadColor = false) {
   endCurrentPass(ctx);
   const descriptor = {
-    colorAttachments: [{
+    colorAttachments: view ? [{
       view,
       loadOp: loadColor ? "load" : "clear",
       storeOp: "store",
       clearValue,
-    }],
+    }] : [],
   };
   if (depthView) {
     descriptor.depthStencilAttachment = {
@@ -872,6 +1090,7 @@ function createContext(canvas, enableValidation) {
     samplers: [null],
     materials: [null],
     postProcessSlots: [],
+    shadowMapSlots: [],
     instanceBufferSize: 512 * 1024,
     instanceOffset: 0,
     depthTexture: null,
@@ -880,6 +1099,8 @@ function createContext(canvas, enableValidation) {
     inFrame: false,
     errorScopeDepth: 0,
     enableValidation: Boolean(enableValidation),
+    shadowBindGroup: null,
+    shadowSlot: 0xffffffff,
   };
 
   createPipelines(ctx);
@@ -1140,6 +1361,14 @@ function destroyContextResources(ctx) {
     ctx.postProcessSlots[i] = null;
   }
   ctx.postProcessSlots.length = 0;
+  for (let i = 0; i < ctx.shadowMapSlots.length; i += 1) {
+    if (!ctx.shadowMapSlots[i]) continue;
+    destroyShadowMapSlot(ctx.shadowMapSlots[i]);
+    ctx.shadowMapSlots[i] = null;
+  }
+  ctx.shadowMapSlots.length = 0;
+  ctx.shadowBindGroup = null;
+  ctx.shadowSlot = 0xffffffff;
 
   if (ctx.postProcessSampler) {
     webgpuDestroys.samplers += 1;
@@ -1162,6 +1391,13 @@ function reconfigureContextSurface(ctx, reason) {
       destroyPostProcessSlot(ctx.postProcessSlots[i]);
       ctx.postProcessSlots[i] = null;
     }
+    for (let i = 0; i < ctx.shadowMapSlots.length; i += 1) {
+      if (!ctx.shadowMapSlots[i]) continue;
+      destroyShadowMapSlot(ctx.shadowMapSlots[i]);
+      ctx.shadowMapSlots[i] = null;
+    }
+    ctx.shadowBindGroup = null;
+    ctx.shadowSlot = 0xffffffff;
     if (phasorDebug.lifecycleLogs) {
       console.log(
         "[phasor] webgpu surface reconfigured",
@@ -1495,6 +1731,13 @@ const imports = {
       if (!target || !target.view) return;
       beginRenderPass(ctx, target.view, { r: 0, g: 0, b: 0, a: 0 }, ctx.depthView, true);
     },
+    webgpu_begin_shadow_pass(ctxId, targetSlot) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || !ctx.encoder) return;
+      const target = ctx.shadowMapSlots[targetSlot >>> 0];
+      if (!target || !target.view) return;
+      beginRenderPass(ctx, null, { r: 0, g: 0, b: 0, a: 0 }, target.view);
+    },
     webgpu_begin_post_process_pass(ctxId, targetSlot, r, g, b, a) {
       const ctx = ctxs.get(ctxId);
       if (!ctx || !ctx.encoder) return;
@@ -1631,7 +1874,7 @@ const imports = {
       const material = ctx.materials[materialHandle];
       const shader = ctx.shaders[shaderHandle];
       if (!mesh || !material || !shader) return;
-      if (mesh.vertexLayout !== 2 && mesh.vertexLayout !== 4) return;
+      if (mesh.vertexLayout !== 1 && mesh.vertexLayout !== 2 && mesh.vertexLayout !== 4) return;
       if (!instanceCount) return;
       const stride = instanceStrideBytes;
       const alignment = 256;
@@ -1654,6 +1897,71 @@ const imports = {
       const pipeline = blend ? shader.blend : shader.opaque;
       ctx.pass.setPipeline(pipeline);
       ctx.pass.setBindGroup(0, shader.bindingMode === 2 ? material.sceneBindGroup : material.bindGroup);
+      if (shader.bindingMode === 2 && ctx.shadowBindGroup) {
+        ctx.pass.setBindGroup(1, ctx.shadowBindGroup);
+      }
+      ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
+      ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
+      ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
+      ctx.pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, 0);
+    },
+    webgpu_draw_shadow_colored_meshes(ctxId, meshHandle, shaderHandle, instancePtr, instanceCount) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || deviceLost || recoveringDevice || !ctx.pass) return;
+      const mesh = ctx.meshes[meshHandle];
+      const shader = ctx.shaders[shaderHandle];
+      if (!mesh || !shader || !shader.depthOnly) return;
+      if (mesh.vertexLayout !== 3) return;
+      if (!instanceCount) return;
+      const stride = instanceStrideBytes;
+      const alignment = 256;
+      const byteLength = instanceCount * stride;
+      if (byteLength > ctx.instanceBufferSize) return;
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * instanceFloatCount);
+      ensureInstanceScratch(byteLength);
+      const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
+      scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
+      let offset = Math.ceil(ctx.instanceOffset / alignment) * alignment;
+      if (offset + byteLength > ctx.instanceBufferSize) {
+        offset = 0;
+      }
+      ctx.instanceOffset = offset + byteLength;
+      ctx.queue.writeBuffer(ctx.instanceBuffer, offset, scratch);
+
+      ctx.pass.setPipeline(shader.depthOnly);
+      ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
+      ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
+      ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
+      ctx.pass.drawIndexed(mesh.indexCount, instanceCount, 0, 0, 0);
+    },
+    webgpu_draw_shadow_textured_meshes_with_shader(ctxId, meshHandle, materialHandle, shaderHandle, instancePtr, instanceCount) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || deviceLost || recoveringDevice || !ctx.pass) return;
+      const mesh = ctx.meshes[meshHandle];
+      const material = ctx.materials[materialHandle];
+      const shader = ctx.shaders[shaderHandle];
+      if (!mesh || !material || !shader || !shader.depthOnly) return;
+      if (mesh.vertexLayout !== 1 && mesh.vertexLayout !== 2 && mesh.vertexLayout !== 4) return;
+      if (!instanceCount) return;
+      const stride = instanceStrideBytes;
+      const alignment = 256;
+      const byteLength = instanceCount * stride;
+      if (byteLength > ctx.instanceBufferSize) return;
+      const instanceData = new Float32Array(memory.buffer, instancePtr, instanceCount * instanceFloatCount);
+      ensureInstanceScratch(byteLength);
+      const scratch = new Uint8Array(instanceScratchBuffer, 0, byteLength);
+      scratch.set(new Uint8Array(instanceData.buffer, instanceData.byteOffset, byteLength));
+      let offset = Math.ceil(ctx.instanceOffset / alignment) * alignment;
+      if (offset + byteLength > ctx.instanceBufferSize) {
+        offset = 0;
+      }
+      ctx.instanceOffset = offset + byteLength;
+      ctx.queue.writeBuffer(ctx.instanceBuffer, offset, scratch);
+
+      ctx.pass.setPipeline(shader.depthOnly);
+      if (shader.bindingMode === 1) {
+        ctx.pass.setBindGroup(0, material.bindGroup);
+      }
       ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
       ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
       ctx.pass.setIndexBuffer(mesh.indexBuffer, "uint16");
@@ -1664,6 +1972,34 @@ const imports = {
       if (!ctx || !ctx.sceneUniformBuffer) return;
       const bytes = new Uint8Array(memory.buffer, uniformsPtr, uniformsLen);
       ctx.queue.writeBuffer(ctx.sceneUniformBuffer, 0, bytes);
+    },
+    webgpu_set_shadow_state(ctxId, slot, uniformsPtr, uniformsLen) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || !ctx.shadowUniformBuffer) return;
+      const bytes = new Uint8Array(memory.buffer, uniformsPtr, uniformsLen);
+      ctx.queue.writeBuffer(ctx.shadowUniformBuffer, 0, bytes);
+      const slotIndex = Number(slot >>> 0);
+      const shadowSlot = ctx.shadowMapSlots[slotIndex];
+      if (!shadowSlot) return;
+      if (!ctx.shadowBindGroup || ctx.shadowSlot !== slotIndex) {
+        ctx.shadowBindGroup = ctx.device.createBindGroup({
+          layout: ctx.shadowBindGroupLayout,
+          entries: [
+            {
+              binding: 0,
+              resource: {
+                buffer: ctx.shadowUniformBuffer,
+                offset: 0,
+                size: shadowUniformsSize,
+              },
+            },
+            { binding: 1, resource: ctx.shadowSampler },
+            { binding: 2, resource: shadowSlot.view },
+          ],
+        });
+        webgpuCreates.bindGroups += 1;
+        ctx.shadowSlot = slotIndex;
+      }
     },
     webgpu_draw_post_process(ctxId, shaderHandle, sourceSlot, uniformsPtr, blend) {
       const ctx = ctxs.get(ctxId);
@@ -2058,6 +2394,22 @@ const imports = {
       }
       return handle;
     },
+    webgpu_create_shadow_shader_configured(ctxId, wgslPtr, wgslLen, vertexLayout, bindingMode) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      const wgsl = readString(wgslPtr, wgslLen);
+      const shader = createShadowPipelinesFromWgsl(ctx, wgsl, vertexLayout, bindingMode);
+      if (!shader) return 0;
+      let handle = 0;
+      if (ctx.shaderFree.length > 0) {
+        handle = ctx.shaderFree.pop();
+        ctx.shaders[handle] = shader;
+      } else {
+        handle = ctx.shaders.length;
+        ctx.shaders.push(shader);
+      }
+      return handle;
+    },
     webgpu_create_post_process_shader(ctxId, wgslPtr, wgslLen) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return 0;
@@ -2080,6 +2432,17 @@ const imports = {
       if (!shader) return;
       ctx.shaders[handle] = null;
       webgpuDestroys.pipelines += 2;
+      if (handle !== 0) {
+        ctx.shaderFree.push(handle);
+      }
+    },
+    webgpu_destroy_shadow_shader(ctxId, handle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      const shader = ctx.shaders[handle];
+      if (!shader) return;
+      ctx.shaders[handle] = null;
+      webgpuDestroys.pipelines += 1;
       if (handle !== 0) {
         ctx.shaderFree.push(handle);
       }
@@ -2108,6 +2471,12 @@ const imports = {
       if (handle !== 0) {
         ctx.meshFree.push(handle);
       }
+    },
+    webgpu_ensure_shadow_map_slot(ctxId, slotIndex, width, height) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return 0;
+      ensureShadowMapSlot(ctx, slotIndex >>> 0, width, height);
+      return slotIndex >>> 0;
     },
     webgpu_resource_counts(outCreatesPtr, outDestroysPtr) {
       const view = getMemoryView();

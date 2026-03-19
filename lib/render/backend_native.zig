@@ -4,6 +4,7 @@ const DepthTarget = struct {
 };
 
 const depth_format = wgpu.TextureFormat.depth24_plus;
+const shadow_map_format = wgpu.TextureFormat.depth32_float;
 
 pub const RendererConfig = struct {
     present_mode: ?wgpu.PresentMode = null,
@@ -84,6 +85,12 @@ pub const Shader = struct {
     binding_mode: ShaderBindingMode,
 };
 
+pub const ShadowShader = struct {
+    pipeline: *wgpu.RenderPipeline,
+    vertex_layout: ShaderVertexLayout,
+    binding_mode: ShaderBindingMode,
+};
+
 pub const PostProcessShader = struct {
     pipeline_opaque: *wgpu.RenderPipeline,
     pipeline_blend: *wgpu.RenderPipeline,
@@ -114,6 +121,7 @@ pub const ShaderSource = struct {
 };
 
 pub const ShaderVertexLayout = enum(u8) {
+    uv2,
     pos3_color4,
     pos3_uv2,
     pos3_norm_uv2,
@@ -259,8 +267,16 @@ pub const Renderer = struct {
     mesh_textured_pipeline_blend: *wgpu.RenderPipeline,
     quad_bind_group_layout: *wgpu.BindGroupLayout,
     scene_bind_group_layout: *wgpu.BindGroupLayout,
+    shadow_bind_group_layout: *wgpu.BindGroupLayout,
     post_process_bind_group_layout: *wgpu.BindGroupLayout,
     scene_uniform_buffer: Buffer,
+    shadow_uniform_buffer: Buffer,
+    shadow_sampler: Sampler,
+    shadow_bind_group: ?*wgpu.BindGroup,
+    shadow_slot_index: u32,
+    shadow_slot_width: u32,
+    shadow_slot_height: u32,
+    shadow_map_texture: ?Texture,
     post_process_sampler: Sampler,
     post_process_uniform_buffer: Buffer,
 
@@ -334,8 +350,16 @@ pub const Renderer = struct {
             .mesh_textured_pipeline_blend = undefined,
             .quad_bind_group_layout = undefined,
             .scene_bind_group_layout = undefined,
+            .shadow_bind_group_layout = undefined,
             .post_process_bind_group_layout = undefined,
             .scene_uniform_buffer = undefined,
+            .shadow_uniform_buffer = undefined,
+            .shadow_sampler = undefined,
+            .shadow_bind_group = null,
+            .shadow_slot_index = 0,
+            .shadow_slot_width = 0,
+            .shadow_slot_height = 0,
+            .shadow_map_texture = null,
             .post_process_sampler = undefined,
             .post_process_uniform_buffer = undefined,
             .triangle_vertex_buffer = undefined,
@@ -391,6 +415,11 @@ pub const Renderer = struct {
             wgpu.BufferUsages.uniform | wgpu.BufferUsages.copy_dst,
             @sizeOf(scene_uniforms.SceneUniforms),
         );
+        self.shadow_uniform_buffer = try createEmptyBuffer(
+            self.device,
+            wgpu.BufferUsages.uniform | wgpu.BufferUsages.copy_dst,
+            @sizeOf(shadow_uniforms.ShadowUniforms),
+        );
 
         self.depth_target = try createDepthTarget(self.device, self.surface_size.width, self.surface_size.height);
 
@@ -418,8 +447,10 @@ pub const Renderer = struct {
         const quad_bind_group_layout = try createQuadBindGroupLayout(self.device);
         self.quad_bind_group_layout = quad_bind_group_layout;
         self.scene_bind_group_layout = try createSceneBindGroupLayout(self.device);
+        self.shadow_bind_group_layout = try createShadowBindGroupLayout(self.device);
         self.post_process_bind_group_layout = try createPostProcessBindGroupLayout(self.device);
         self.post_process_sampler = try self.createSampler();
+        self.shadow_sampler = try createComparisonSampler(self.device);
         self.quad_pipeline_opaque = try createQuadPipeline(
             self.device,
             shader_quad,
@@ -473,14 +504,19 @@ pub const Renderer = struct {
         self.mesh_textured_pipeline_blend.release();
         self.quad_bind_group_layout.release();
         self.scene_bind_group_layout.release();
+        self.shadow_bind_group_layout.release();
         self.post_process_bind_group_layout.release();
         self.destroySampler(&self.post_process_sampler);
+        self.destroySampler(&self.shadow_sampler);
+        if (self.shadow_bind_group) |bind_group| bind_group.release();
+        self.destroyShadowResources();
 
         self.triangle_vertex_buffer.buffer.release();
         self.quad_vertex_buffer.buffer.release();
         self.quad_index_buffer.buffer.release();
         self.instance_buffer.buffer.release();
         self.scene_uniform_buffer.buffer.release();
+        self.shadow_uniform_buffer.buffer.release();
         self.post_process_uniform_buffer.buffer.release();
         self.depth_target.view.release();
         self.depth_target.texture.release();
@@ -508,6 +544,13 @@ pub const Renderer = struct {
             destroyTextureStorage(&slot.texture);
             slot.alive = false;
         }
+        self.destroyShadowResources();
+        if (self.shadow_bind_group) |bind_group| {
+            bind_group.release();
+            self.shadow_bind_group = null;
+        }
+        self.shadow_slot_width = 0;
+        self.shadow_slot_height = 0;
     }
 
     pub fn beginFrame(self: *Renderer) !Frame {
@@ -994,6 +1037,27 @@ pub const Renderer = struct {
     }
 
     pub fn createShader(self: *Renderer, source: ShaderSource) !Shader {
+        return self.createShaderForFormat(source, self.surface_format);
+    }
+
+    pub fn createShadowShader(self: *Renderer, source: ShaderSource) !ShadowShader {
+        const shader_vertex = try createShaderModule(self.device, .vertex, source);
+        defer shader_vertex.release();
+        return .{
+            .pipeline = try createShadowPipeline(
+                self.device,
+                shader_vertex,
+                shadow_map_format,
+                source.vertex_layout,
+                source.binding_mode,
+                self.quad_bind_group_layout,
+            ),
+            .vertex_layout = source.vertex_layout,
+            .binding_mode = source.binding_mode,
+        };
+    }
+
+    fn createShaderForFormat(self: *Renderer, source: ShaderSource, color_format: wgpu.TextureFormat) !Shader {
         const shader_vertex = try createShaderModule(self.device, .vertex, source);
         defer shader_vertex.release();
         const shader_fragment = try createShaderModule(self.device, .fragment, source);
@@ -1004,7 +1068,7 @@ pub const Renderer = struct {
                     self.device,
                     shader_vertex,
                     shader_fragment,
-                    self.surface_format,
+                    color_format,
                     depth_format,
                     false,
                     true,
@@ -1013,7 +1077,7 @@ pub const Renderer = struct {
                     self.device,
                     shader_vertex,
                     shader_fragment,
-                    self.surface_format,
+                    color_format,
                     depth_format,
                     true,
                     false,
@@ -1026,9 +1090,10 @@ pub const Renderer = struct {
                     self.device,
                     shader_vertex,
                     shader_fragment,
-                    self.surface_format,
+                    color_format,
                     depth_format,
                     self.quad_bind_group_layout,
+                    self.shadow_bind_group_layout,
                     source.vertex_layout,
                     source.binding_mode,
                     false,
@@ -1038,9 +1103,10 @@ pub const Renderer = struct {
                     self.device,
                     shader_vertex,
                     shader_fragment,
-                    self.surface_format,
+                    color_format,
                     depth_format,
                     self.quad_bind_group_layout,
+                    self.shadow_bind_group_layout,
                     source.vertex_layout,
                     source.binding_mode,
                     true,
@@ -1054,9 +1120,10 @@ pub const Renderer = struct {
                     self.device,
                     shader_vertex,
                     shader_fragment,
-                    self.surface_format,
+                    color_format,
                     depth_format,
                     self.scene_bind_group_layout,
+                    self.shadow_bind_group_layout,
                     source.vertex_layout,
                     source.binding_mode,
                     false,
@@ -1066,9 +1133,10 @@ pub const Renderer = struct {
                     self.device,
                     shader_vertex,
                     shader_fragment,
-                    self.surface_format,
+                    color_format,
                     depth_format,
                     self.scene_bind_group_layout,
+                    self.shadow_bind_group_layout,
                     source.vertex_layout,
                     source.binding_mode,
                     true,
@@ -1083,6 +1151,10 @@ pub const Renderer = struct {
     pub fn destroyShader(_: *Renderer, shader: *Shader) void {
         shader.pipeline_opaque.release();
         shader.pipeline_blend.release();
+    }
+
+    pub fn destroyShadowShader(_: *Renderer, shader: *ShadowShader) void {
+        shader.pipeline.release();
     }
 
     pub fn createPostProcessShader(self: *Renderer, source: ShaderSource) !PostProcessShader {
@@ -1137,12 +1209,62 @@ pub const Renderer = struct {
         return slot.texture;
     }
 
+    pub fn ensureShadowMapSlot(self: *Renderer, slot_index: u32, width: u32, height: u32) !Texture {
+        _ = slot_index;
+        if (self.shadow_map_texture == null or
+            self.shadow_slot_width != width or
+            self.shadow_slot_height != height)
+        {
+            self.destroyShadowResources();
+            self.shadow_map_texture = try createShadowMapTexture(self.device, width, height);
+            self.shadow_slot_width = width;
+            self.shadow_slot_height = height;
+            if (self.shadow_bind_group) |bind_group| {
+                bind_group.release();
+                self.shadow_bind_group = null;
+            }
+        }
+        return self.shadow_map_texture.?;
+    }
+
+    fn ensureShadowBindGroup(self: *Renderer, slot_index: u32, width: u32, height: u32) !void {
+        const slot_texture = try self.ensureShadowMapSlot(slot_index, width, height);
+        if (self.shadow_bind_group != null and
+            self.shadow_slot_index == slot_index and
+            self.shadow_slot_width == width and
+            self.shadow_slot_height == height)
+        {
+            return;
+        }
+        if (self.shadow_bind_group) |bind_group| {
+            bind_group.release();
+            self.shadow_bind_group = null;
+        }
+        self.shadow_bind_group = try createShadowBindGroup(
+            self.device,
+            self.shadow_bind_group_layout,
+            self.shadow_uniform_buffer.buffer,
+            self.shadow_sampler.sampler,
+            slot_texture.view,
+        );
+        self.shadow_slot_index = slot_index;
+        self.shadow_slot_width = width;
+        self.shadow_slot_height = height;
+    }
+
     fn postProcessBindGroup(self: *Renderer, slot_index: u32) ?*wgpu.BindGroup {
         const index: usize = @intCast(slot_index);
         if (index >= self.post_process_slots.items.len) return null;
         const slot = &self.post_process_slots.items[index];
         if (!slot.alive) return null;
         return slot.bind_group;
+    }
+
+    fn destroyShadowResources(self: *Renderer) void {
+        if (self.shadow_map_texture) |*texture| {
+            destroyTextureStorage(texture);
+            self.shadow_map_texture = null;
+        }
     }
 
     pub fn stats(_: *const Renderer) RendererStats {
@@ -1165,15 +1287,23 @@ pub const Frame = struct {
     }
 
     pub fn beginScenePass(self: *Frame, target: FrameTarget, clear: Color) !void {
-        try self.beginPass(target, clear, true, false);
+        try self.beginPass(target, clear, true, false, null);
     }
 
     pub fn beginScenePassLoad(self: *Frame, target: FrameTarget) !void {
-        try self.beginPass(target, Color.rgba(0, 0, 0, 0), true, true);
+        try self.beginPass(target, Color.rgba(0, 0, 0, 0), true, true, null);
+    }
+
+    pub fn beginShadowPass(self: *Frame, target: FrameTarget, clear: Color) !void {
+        const depth_view = switch (target) {
+            .surface => self.renderer.depth_target.view,
+            .texture => |texture| texture.view,
+        };
+        try self.beginDepthOnlyPass(depth_view, clear);
     }
 
     pub fn beginPostProcessPass(self: *Frame, target: FrameTarget, clear: Color) !void {
-        try self.beginPass(target, clear, false, false);
+        try self.beginPass(target, clear, false, false, null);
     }
 
     pub fn setViewportScissor(self: *Frame, x: f32, y: f32, width: f32, height: f32) void {
@@ -1189,6 +1319,12 @@ pub const Frame = struct {
     pub fn setSceneUniforms(self: *Frame, uniforms: scene_uniforms.SceneUniforms) void {
         const bytes = std.mem.asBytes(&uniforms);
         self.renderer.queue.writeBuffer(self.renderer.scene_uniform_buffer.buffer, 0, bytes.ptr, bytes.len);
+    }
+
+    pub fn setShadowUniforms(self: *Frame, uniforms: shadow_uniforms.ShadowUniforms, slot_index: u32, slot_size: Size) void {
+        const bytes = std.mem.asBytes(&uniforms);
+        self.renderer.queue.writeBuffer(self.renderer.shadow_uniform_buffer.buffer, 0, bytes.ptr, bytes.len);
+        self.renderer.ensureShadowBindGroup(slot_index, slot_size.width, slot_size.height) catch return;
     }
 
     fn drawTriangle(self: *Frame, triangle: Triangle) void {
@@ -1262,6 +1398,36 @@ pub const Frame = struct {
         const pipeline = if (blend) shader.pipeline_blend else shader.pipeline_opaque;
         render_pass.setPipeline(pipeline);
         render_pass.setBindGroup(0, if (shader.binding_mode == .material_scene) material.scene_bind_group else material.bind_group, 0, null);
+        if (shader.binding_mode == .material_scene) {
+            if (self.renderer.shadow_bind_group) |shadow_bind_group| {
+                render_pass.setBindGroup(1, shadow_bind_group, 0, null);
+            }
+        }
+        render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
+        render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
+        render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
+        render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
+    }
+
+    pub fn drawShadowTexturedMeshesWithShader(self: *Frame, mesh: Mesh, material: Material, shader: ShadowShader, instances: []const MeshInstance) void {
+        if (instances.len == 0) return;
+        if (!shadowShaderMatchesMesh(shader, mesh.vertex_layout)) return;
+        const render_pass = self.render_pass orelse return;
+        const total_bytes: usize = instances.len * @sizeOf(InstanceData);
+        const offset = self.renderer.instance_ring.allocate(total_bytes, 256);
+
+        var i: usize = 0;
+        while (i < instances.len) : (i += 1) {
+            const data = buildInstanceData(instances[i]);
+            const bytes = std.mem.asBytes(&data);
+            const byte_offset = offset + i * @sizeOf(InstanceData);
+            self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, byte_offset, bytes.ptr, bytes.len);
+        }
+
+        render_pass.setPipeline(shader.pipeline);
+        if (shader.binding_mode == .material) {
+            render_pass.setBindGroup(0, material.bind_group, 0, null);
+        }
         render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
         render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
         render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
@@ -1285,6 +1451,29 @@ pub const Frame = struct {
 
         const pipeline = if (blend) shader.pipeline_blend else shader.pipeline_opaque;
         render_pass.setPipeline(pipeline);
+        render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
+        render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
+        render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
+        render_pass.drawIndexed(mesh.index_count, @intCast(instances.len), 0, 0, 0);
+    }
+
+    pub fn drawShadowColoredMeshes(self: *Frame, mesh: Mesh, shader: ShadowShader, instances: []const MeshInstance) void {
+        if (mesh.vertex_layout != .pos3_color4) return;
+        if (shader.vertex_layout != .pos3_color4) return;
+        if (instances.len == 0) return;
+        const render_pass = self.render_pass orelse return;
+        const total_bytes: usize = instances.len * @sizeOf(InstanceData);
+        const offset = self.renderer.instance_ring.allocate(total_bytes, 256);
+
+        var i: usize = 0;
+        while (i < instances.len) : (i += 1) {
+            const data = buildInstanceData(instances[i]);
+            const bytes = std.mem.asBytes(&data);
+            const byte_offset = offset + i * @sizeOf(InstanceData);
+            self.renderer.queue.writeBuffer(self.renderer.instance_buffer.buffer, byte_offset, bytes.ptr, bytes.len);
+        }
+
+        render_pass.setPipeline(shader.pipeline);
         render_pass.setVertexBuffer(0, mesh.vertex_buffer.buffer, 0, mesh.vertex_buffer.size);
         render_pass.setVertexBuffer(1, self.renderer.instance_buffer.buffer, offset, total_bytes);
         render_pass.setIndexBuffer(mesh.index_buffer.buffer, .uint16, 0, mesh.index_buffer.size);
@@ -1337,7 +1526,14 @@ pub const Frame = struct {
         self.encoder.release();
     }
 
-    fn beginPass(self: *Frame, target: FrameTarget, clear: Color, use_depth: bool, load_color: bool) !void {
+    fn beginPass(
+        self: *Frame,
+        target: FrameTarget,
+        clear: Color,
+        use_depth: bool,
+        load_color: bool,
+        depth_view_override: ?*wgpu.TextureView,
+    ) !void {
         self.endPass();
 
         const clear_f = Color.F32.fromColor(clear);
@@ -1357,8 +1553,9 @@ pub const Frame = struct {
             },
         };
         const attachments = [_]wgpu.ColorAttachment{color_attachment};
+        const depth_view = depth_view_override orelse self.renderer.depth_target.view;
         var depth_attachment = wgpu.DepthStencilAttachment{
-            .view = self.renderer.depth_target.view,
+            .view = depth_view,
             .depth_load_op = .clear,
             .depth_store_op = .store,
             .depth_clear_value = 1.0,
@@ -1367,6 +1564,24 @@ pub const Frame = struct {
             .color_attachment_count = attachments.len,
             .color_attachments = attachments[0..].ptr,
             .depth_stencil_attachment = if (use_depth) &depth_attachment else null,
+        }) orelse return error.RenderPassFailed;
+    }
+
+    fn beginDepthOnlyPass(self: *Frame, depth_view: *wgpu.TextureView, clear: Color) !void {
+        _ = clear;
+        self.endPass();
+
+        const no_color_attachments = [_]wgpu.ColorAttachment{};
+        var depth_attachment = wgpu.DepthStencilAttachment{
+            .view = depth_view,
+            .depth_load_op = .clear,
+            .depth_store_op = .store,
+            .depth_clear_value = 1.0,
+        };
+        self.render_pass = self.encoder.beginRenderPass(&wgpu.RenderPassDescriptor{
+            .color_attachment_count = 0,
+            .color_attachments = no_color_attachments[0..].ptr,
+            .depth_stencil_attachment = &depth_attachment,
         }) orelse return error.RenderPassFailed;
     }
 
@@ -1595,6 +1810,73 @@ fn createPostProcessBindGroup(
         .entry_count = entries.len,
         .entries = entries[0..].ptr,
     }) orelse error.BindGroupCreationFailed;
+}
+
+fn createShadowBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
+    return device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
+        .entry_count = 3,
+        .entries = &[_]wgpu.BindGroupLayoutEntry{
+            .{
+                .binding = 0,
+                .visibility = wgpu.ShaderStages.vertex | wgpu.ShaderStages.fragment,
+                .buffer = .{
+                    .type = .uniform,
+                    .min_binding_size = @sizeOf(shadow_uniforms.ShadowUniforms),
+                },
+            },
+            .{
+                .binding = 1,
+                .visibility = wgpu.ShaderStages.fragment,
+                .sampler = .{ .type = .comparison },
+            },
+            .{
+                .binding = 2,
+                .visibility = wgpu.ShaderStages.fragment,
+                .texture = .{
+                    .sample_type = .depth,
+                    .view_dimension = .@"2d",
+                    .multisampled = @intFromBool(false),
+                },
+            },
+        },
+    }) orelse error.BindGroupLayoutFailed;
+}
+
+fn createShadowBindGroup(
+    device: *wgpu.Device,
+    layout: *wgpu.BindGroupLayout,
+    uniform_buffer: *wgpu.Buffer,
+    sampler: *wgpu.Sampler,
+    texture_view: *wgpu.TextureView,
+) !*wgpu.BindGroup {
+    const entries = [_]wgpu.BindGroupEntry{
+        .{
+            .binding = 0,
+            .buffer = uniform_buffer,
+            .offset = 0,
+            .size = @sizeOf(shadow_uniforms.ShadowUniforms),
+        },
+        .{ .binding = 1, .sampler = sampler },
+        .{ .binding = 2, .texture_view = texture_view },
+    };
+    return device.createBindGroup(&wgpu.BindGroupDescriptor{
+        .layout = layout,
+        .entry_count = entries.len,
+        .entries = entries[0..].ptr,
+    }) orelse error.BindGroupCreationFailed;
+}
+
+fn createComparisonSampler(device: *wgpu.Device) !Sampler {
+    const sampler = device.createSampler(&wgpu.SamplerDescriptor{
+        .mag_filter = .linear,
+        .min_filter = .linear,
+        .mipmap_filter = .nearest,
+        .address_mode_u = .clamp_to_edge,
+        .address_mode_v = .clamp_to_edge,
+        .address_mode_w = .clamp_to_edge,
+        .compare = .less_equal,
+    }) orelse return error.SamplerCreationFailed;
+    return .{ .sampler = sampler };
 }
 
 fn destroyTextureStorage(texture: *Texture) void {
@@ -1970,10 +2252,151 @@ fn createMeshTexturedPipeline(
 
 fn shaderMatchesMesh(shader: Shader, layout: MeshVertexLayout) bool {
     return switch (shader.vertex_layout) {
+        .uv2 => layout == .uv2,
         .pos3_color4 => layout == .pos3_color4,
         .pos3_uv2 => layout == .pos3_uv2,
         .pos3_norm_uv2 => layout == .pos3_norm_uv2,
     };
+}
+
+fn shadowShaderMatchesMesh(shader: ShadowShader, layout: MeshVertexLayout) bool {
+    return switch (shader.vertex_layout) {
+        .uv2 => layout == .uv2,
+        .pos3_color4 => layout == .pos3_color4,
+        .pos3_uv2 => layout == .pos3_uv2,
+        .pos3_norm_uv2 => layout == .pos3_norm_uv2,
+    };
+}
+
+fn createShadowPipeline(
+    device: *wgpu.Device,
+    vertex_shader: *wgpu.ShaderModule,
+    depth_format_param: wgpu.TextureFormat,
+    vertex_layout_kind: ShaderVertexLayout,
+    binding_mode: ShaderBindingMode,
+    material_bind_group_layout: *wgpu.BindGroupLayout,
+) !*wgpu.RenderPipeline {
+    if (binding_mode == .material_scene) return error.PipelineCreationFailed;
+
+    const bind_group_layouts = [_]*wgpu.BindGroupLayout{material_bind_group_layout};
+    const no_bind_group_layouts = [_]*wgpu.BindGroupLayout{};
+    const bind_group_layout_count: usize = if (binding_mode == .material) 1 else 0;
+    const pipeline_layout = device.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
+        .bind_group_layout_count = bind_group_layout_count,
+        .bind_group_layouts = if (bind_group_layout_count > 0) bind_group_layouts[0..].ptr else no_bind_group_layouts[0..].ptr,
+    }) orelse return error.PipelineLayoutFailed;
+    defer pipeline_layout.release();
+
+    const uv2_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x2, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x2, .offset = @sizeOf([2]f32), .shader_location = 1 },
+    };
+    const pos3_uv2_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x2, .offset = @sizeOf([3]f32), .shader_location = 1 },
+    };
+    const pos3_norm_uv2_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x3, .offset = @sizeOf([3]f32), .shader_location = 1 },
+        .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
+    };
+    const pos3_color4_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x4, .offset = @sizeOf([3]f32), .shader_location = 1 },
+    };
+    const clip_rows_2 = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x4, .offset = 0, .shader_location = 2 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 3 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 4 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 5 },
+    };
+    const clip_rows_3 = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x4, .offset = 0, .shader_location = 3 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 4 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 5 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 6 },
+    };
+
+    const vertex_buffers = switch (vertex_layout_kind) {
+        .uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexUv),
+                .attribute_count = uv2_attributes.len,
+                .attributes = uv2_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = clip_rows_2.len,
+                .attributes = clip_rows_2[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+        .pos3_uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3Uv),
+                .attribute_count = pos3_uv2_attributes.len,
+                .attributes = pos3_uv2_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = clip_rows_2.len,
+                .attributes = clip_rows_2[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+        .pos3_norm_uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3NormUv),
+                .attribute_count = pos3_norm_uv2_attributes.len,
+                .attributes = pos3_norm_uv2_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = clip_rows_3.len,
+                .attributes = clip_rows_3[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+        .pos3_color4 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3Color),
+                .attribute_count = pos3_color4_attributes.len,
+                .attributes = pos3_color4_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = clip_rows_2.len,
+                .attributes = clip_rows_2[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+    };
+    const depth_state = wgpu.DepthStencilState{
+        .format = depth_format_param,
+        .depth_write_enabled = .true,
+        .depth_compare = .less_equal,
+        .stencil_front = .{},
+        .stencil_back = .{},
+    };
+    return device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
+        .layout = pipeline_layout,
+        .vertex = wgpu.VertexState{
+            .module = vertex_shader,
+            .entry_point = wgpu.StringView.fromSlice("vs_main"),
+            .buffer_count = vertex_buffers.len,
+            .buffers = vertex_buffers[0..].ptr,
+        },
+        .primitive = wgpu.PrimitiveState{
+            .topology = .triangle_list,
+        },
+        .depth_stencil = &depth_state,
+        .fragment = null,
+        .multisample = wgpu.MultisampleState{},
+    }) orelse return error.PipelineCreationFailed;
 }
 
 fn createCustomMaterialPipeline(
@@ -1983,17 +2406,24 @@ fn createCustomMaterialPipeline(
     format: wgpu.TextureFormat,
     depth_format_param: wgpu.TextureFormat,
     bind_group_layout: *wgpu.BindGroupLayout,
+    shadow_bind_group_layout: *wgpu.BindGroupLayout,
     vertex_layout_kind: ShaderVertexLayout,
     binding_mode: ShaderBindingMode,
     enable_blend: bool,
     depth_write_enabled: bool,
 ) !*wgpu.RenderPipeline {
+    var bind_group_layouts = [_]*wgpu.BindGroupLayout{ bind_group_layout, shadow_bind_group_layout };
+    const bind_group_layout_count: usize = if (binding_mode == .material_scene) 2 else 1;
     const pipeline_layout = device.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
-        .bind_group_layout_count = 1,
-        .bind_group_layouts = &[_]*wgpu.BindGroupLayout{bind_group_layout},
+        .bind_group_layout_count = bind_group_layout_count,
+        .bind_group_layouts = bind_group_layouts[0..].ptr,
     }) orelse return error.PipelineLayoutFailed;
     defer pipeline_layout.release();
 
+    const uv2_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x2, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x2, .offset = @sizeOf([2]f32), .shader_location = 1 },
+    };
     const pos3_uv_attributes = [_]wgpu.VertexAttribute{
         .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
         .{ .format = .float32x2, .offset = @sizeOf([3]f32), .shader_location = 1 },
@@ -2005,26 +2435,31 @@ fn createCustomMaterialPipeline(
     };
     const instance_attributes_default = [_]wgpu.VertexAttribute{
         .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 2,
             .pos3_uv2 => 2,
             .pos3_norm_uv2 => 3,
             else => 2,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 3,
             .pos3_uv2 => 3,
             .pos3_norm_uv2 => 4,
             else => 3,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 4,
             .pos3_uv2 => 4,
             .pos3_norm_uv2 => 5,
             else => 4,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 5,
             .pos3_uv2 => 5,
             .pos3_norm_uv2 => 6,
             else => 5,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 6,
             .pos3_uv2 => 6,
             .pos3_norm_uv2 => 7,
             else => 6,
@@ -2032,51 +2467,61 @@ fn createCustomMaterialPipeline(
     };
     const instance_attributes_scene = [_]wgpu.VertexAttribute{
         .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 2,
             .pos3_uv2 => 2,
             .pos3_norm_uv2 => 3,
             else => 2,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 3,
             .pos3_uv2 => 3,
             .pos3_norm_uv2 => 4,
             else => 3,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 4,
             .pos3_uv2 => 4,
             .pos3_norm_uv2 => 5,
             else => 4,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 5,
             .pos3_uv2 => 5,
             .pos3_norm_uv2 => 6,
             else => 5,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 6,
             .pos3_uv2 => 6,
             .pos3_norm_uv2 => 7,
             else => 6,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 5, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 7,
             .pos3_uv2 => 7,
             .pos3_norm_uv2 => 8,
             else => 7,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 6, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 8,
             .pos3_uv2 => 8,
             .pos3_norm_uv2 => 9,
             else => 8,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 7, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 9,
             .pos3_uv2 => 9,
             .pos3_norm_uv2 => 10,
             else => 9,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 10,
             .pos3_uv2 => 10,
             .pos3_norm_uv2 => 11,
             else => 10,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 9, .shader_location = switch (vertex_layout_kind) {
+            .uv2 => 11,
             .pos3_uv2 => 11,
             .pos3_norm_uv2 => 12,
             else => 11,
@@ -2084,6 +2529,20 @@ fn createCustomMaterialPipeline(
     };
     const instance_attributes = if (binding_mode == .material_scene) instance_attributes_scene[0..] else instance_attributes_default[0..];
     const vertex_buffers = switch (vertex_layout_kind) {
+        .uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexUv),
+                .attribute_count = uv2_attributes.len,
+                .attributes = uv2_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = instance_attributes.len,
+                .attributes = instance_attributes[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
         .pos3_uv2 => [_]wgpu.VertexBufferLayout{
             .{
                 .array_stride = @sizeOf(VertexPos3Uv),
@@ -2340,6 +2799,27 @@ fn createDepthTarget(device: *wgpu.Device, width: u32, height: u32) !DepthTarget
     };
 }
 
+fn createShadowMapTexture(device: *wgpu.Device, width: u32, height: u32) !Texture {
+    const texture = device.createTexture(&wgpu.TextureDescriptor{
+        .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
+        .format = shadow_map_format,
+        .usage = wgpu.TextureUsages.render_attachment | wgpu.TextureUsages.texture_binding,
+        .mip_level_count = 1,
+        .sample_count = 1,
+        .dimension = .@"2d",
+    }) orelse return error.TextureCreationFailed;
+    errdefer texture.release();
+
+    const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.TextureViewFailed;
+    return .{
+        .texture = texture,
+        .view = view,
+        .width = width,
+        .height = height,
+        .format = shadow_map_format,
+    };
+}
+
 fn toWgpuFilter(filter: SamplerFilter) wgpu.FilterMode {
     return switch (filter) {
         .nearest => .nearest,
@@ -2411,6 +2891,7 @@ const wgpu = @import("wgpu");
 const utils = @import("utils.zig");
 const common = @import("common");
 const scene_uniforms = @import("scene_uniforms.zig");
+const shadow_uniforms = @import("shadow_uniforms.zig");
 
 const Color = common.Color;
 const Size = utils.Size;
