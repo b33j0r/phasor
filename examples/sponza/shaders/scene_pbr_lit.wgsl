@@ -14,6 +14,8 @@ struct SceneUniforms {
     environment_dominant_direction: vec4<f32>,
     environment_dominant_color: vec4<f32>,
     light_counts: vec4<u32>,
+    debug_view: vec4<u32>,
+    environment_flags: vec4<u32>,
     environment_irradiance_sh: array<vec4<f32>, 9>,
     lights: array<SceneLight, 32>,
 };
@@ -298,10 +300,14 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     let ao = clamp(mix(1.0, occlusion_sample.r, input.pbr_params.z), 0.0, 1.0);
     let f0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
     let ndotv = saturate(dot(normal, view_dir));
+    let env_fresnel = fresnelSchlickRoughness(ndotv, f0, roughness);
+    let kd_ibl = (vec3<f32>(1.0) - env_fresnel) * (1.0 - metallic);
 
     let irradiance = evaluateIrradiance(normal) * scene.exposure_settings.z;
-    let ambient = (scene.ambient_color.rgb + irradiance) * albedo.rgb * (1.0 - metallic) * ao;
+    let ambient = (scene.ambient_color.rgb + irradiance) * albedo.rgb * kd_ibl * ao;
     var lighting = vec3<f32>(0.0);
+    var direct_specular = vec3<f32>(0.0);
+    var debug_ndotl = 0.0;
     let light_count = min(scene.light_counts.x, 32u);
     var i: u32 = 0u;
     loop {
@@ -343,6 +349,7 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
             }
         }
         let ndotl = saturate(dot(normal, light_dir));
+        debug_ndotl = max(debug_ndotl, ndotl);
         if (ndotl <= 0.0) {
             i += 1u;
             continue;
@@ -357,6 +364,7 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
         let ks = f;
         let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallic);
         let radiance = light.color_intensity.rgb * light.color_intensity.w * attenuation;
+        direct_specular += specular * radiance * ndotl;
         lighting += (kd * albedo.rgb / PI + specular) * radiance * ndotl;
         i += 1u;
     }
@@ -365,9 +373,35 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     let env_alignment = saturate(dot(reflection, normalize(scene.environment_dominant_direction.xyz)));
     let prefiltered_env = scene.environment_dominant_color.rgb * pow(env_alignment, mix(96.0, 12.0, roughness));
     let env_brdf = environmentBrdfApprox(roughness, ndotv);
-    let env_fresnel = fresnelSchlickRoughness(ndotv, f0, roughness);
     // Damped because we currently use dominant-direction proxy instead of prefiltered env cubemap mip chain.
-    let env_specular = prefiltered_env * (env_fresnel * env_brdf.x + vec3<f32>(env_brdf.y)) * scene.exposure_settings.w * 0.10;
+    let env_specular_enabled = f32(scene.environment_flags.x);
+    let env_specular = prefiltered_env * (env_fresnel * env_brdf.x + vec3<f32>(env_brdf.y)) * scene.exposure_settings.w * 0.10 * env_specular_enabled;
+    let specular_only = direct_specular + env_specular;
+    let debug_view = scene.debug_view.x;
+    if (debug_view == 1u) {
+        return vec4<f32>(albedo.rgb, 1.0);
+    }
+    if (debug_view == 2u) {
+        return vec4<f32>(normal * 0.5 + vec3<f32>(0.5), 1.0);
+    }
+    if (debug_view == 3u) {
+        return vec4<f32>(vec3<f32>(metallic), 1.0);
+    }
+    if (debug_view == 4u) {
+        return vec4<f32>(vec3<f32>(roughness), 1.0);
+    }
+    if (debug_view == 5u) {
+        return vec4<f32>(vec3<f32>(ao), 1.0);
+    }
+    if (debug_view == 6u) {
+        return vec4<f32>(vec3<f32>(debug_ndotl), 1.0);
+    }
+    if (debug_view == 7u) {
+        return vec4<f32>(vec3<f32>(ndotv), 1.0);
+    }
+    if (debug_view == 8u) {
+        return vec4<f32>(specular_only, 1.0);
+    }
     var lit_rgb = ambient + lighting + env_specular;
     if (scene.exposure_settings.y > 0.5) {
         lit_rgb *= scene.exposure_settings.x;

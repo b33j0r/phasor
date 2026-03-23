@@ -169,6 +169,38 @@ pub fn cycleColorGradeInput(
     try commands.insertResource(settings);
 }
 
+pub fn cycleDebugViewInput(
+    keyboard_opt: ResOpt(Keyboard),
+    commands: *ecs.Commands,
+    debug_view_opt: ResOpt(render.SceneDebugView),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+) !void {
+    if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
+    const keyboard = keyboard_opt.ptr orelse return;
+    if (!keyboard.isKeyPressed(.v)) return;
+
+    const current = if (debug_view_opt.ptr) |view| view.* else render.SceneDebugView.off;
+    try commands.insertResource(nextDebugView(current));
+}
+
+pub fn toggleEnvironmentSpecularInput(
+    keyboard_opt: ResOpt(Keyboard),
+    commands: *ecs.Commands,
+    environment_specular_mode_opt: ResOpt(render.EnvironmentSpecularMode),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+) !void {
+    if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
+    const keyboard = keyboard_opt.ptr orelse return;
+    if (!keyboard.isKeyPressed(.b)) return;
+
+    const current = if (environment_specular_mode_opt.ptr) |mode| mode.* else render.EnvironmentSpecularMode.on;
+    const next: render.EnvironmentSpecularMode = switch (current) {
+        .on => .off,
+        .off => .on,
+    };
+    try commands.insertResource(next);
+}
+
 pub fn updatePlayerCamera(
     players: Query(.{ Transform, FpsController, Player }),
     cameras: Query(.{ Transform, PlayerCamera }),
@@ -237,6 +269,8 @@ pub fn emitSponzaHudMetrics(
     imported: ResOpt(assets.ImportedScene),
     lighting_stats: ResOpt(lighting.AuthoringStats),
     color_grading_opt: ResOpt(render.ColorGradingSettings),
+    environment_specular_mode_opt: ResOpt(render.EnvironmentSpecularMode),
+    debug_view_opt: ResOpt(render.SceneDebugView),
     players: Query(.{ Transform, FpsController, Player }),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) void {
@@ -258,6 +292,8 @@ pub fn emitSponzaHudMetrics(
     const mouse_available = mouse_opt.ptr != null;
     const mesh_count: usize = if (imported_scene) |scene| scene.mesh_handles.len else 0;
     const color_grade: render.ColorGrade = if (color_grading_opt.ptr) |settings| settings.grade else .none;
+    const environment_specular_mode = if (environment_specular_mode_opt.ptr) |mode| mode.* else render.EnvironmentSpecularMode.on;
+    const debug_view = if (debug_view_opt.ptr) |view| view.* else render.SceneDebugView.off;
     const fly_mode_enabled = controller.fly_enabled;
 
     metrics.emitBus(true, bus.ptr, .{
@@ -276,8 +312,24 @@ pub fn emitSponzaHudMetrics(
         .lights_point = metrics.gauge(light_stats.point_lights),
         .lights_spot = metrics.gauge(light_stats.spot_lights),
         .color_grade = metrics.gauge(@intFromEnum(color_grade)),
+        .environment_specular_mode = metrics.gauge(@as(u32, switch (environment_specular_mode) {
+            .on => 1,
+            .off => 0,
+        })),
+        .scene_debug_view = metrics.gauge(@intFromEnum(debug_view)),
         .fly_mode = metrics.gauge(fly_mode_enabled),
     });
+}
+
+pub fn formatEnvironmentSpecularLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
+    const enabled = if (ctx.store.get("environment_specular_mode")) |sample| sample.value.asF64() >= 0.5 else true;
+    return std.fmt.bufPrint(out, "Env Specular: {s}", .{if (enabled) "On" else "Off"}) catch "Env Specular";
+}
+
+pub fn formatDebugViewLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
+    const value = if (ctx.store.get("scene_debug_view")) |sample| @as(u32, @intFromFloat(sample.value.asF64())) else @intFromEnum(render.SceneDebugView.off);
+    const debug_view: render.SceneDebugView = @enumFromInt(value);
+    return std.fmt.bufPrint(out, "Debug View: {s}", .{debugViewLabel(debug_view)}) catch "Debug View";
 }
 
 pub fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
@@ -487,6 +539,34 @@ fn nextColorGrade(grade: render.ColorGrade) render.ColorGrade {
         .aces_fitted => .agx,
         .agx => .pbr_neutral,
         .pbr_neutral => .none,
+    };
+}
+
+fn nextDebugView(view: render.SceneDebugView) render.SceneDebugView {
+    return switch (view) {
+        .off => .base_color,
+        .base_color => .normal,
+        .normal => .metallic,
+        .metallic => .roughness,
+        .roughness => .ao,
+        .ao => .ndotl,
+        .ndotl => .ndotv,
+        .ndotv => .specular,
+        .specular => .off,
+    };
+}
+
+fn debugViewLabel(view: render.SceneDebugView) []const u8 {
+    return switch (view) {
+        .off => "Off",
+        .base_color => "BaseColor",
+        .normal => "Normal",
+        .metallic => "Metallic",
+        .roughness => "Roughness",
+        .ao => "AO",
+        .ndotl => "NdotL",
+        .ndotv => "NdotV",
+        .specular => "Specular",
     };
 }
 

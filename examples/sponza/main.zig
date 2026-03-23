@@ -1,6 +1,8 @@
 pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 const sponza_metric_lines = [_]modules.MetricLine{
+    modules.lineFormat(-92, gameplay.formatEnvironmentSpecularLine),
+    modules.lineFormat(-91, gameplay.formatDebugViewLine),
     modules.lineFormat(-90, gameplay.formatPlayerPositionLine),
     modules.withExtraText(
         modules.lineFormat(-80, gameplay.formatControlsMoveLine),
@@ -12,7 +14,7 @@ const sponza_metric_lines = [_]modules.MetricLine{
     ),
     modules.withExtraText(
         modules.lineFormat(-78, gameplay.formatControlsModeLine),
-        "(F) Fly  (H) Sky  (C) Grade  (M) Bookmark",
+        "(F) Fly  (H) Sky  (C) Grade  (V) View  (B) EnvSpec  (M) Bookmark",
     ),
     modules.withExtraText(
         modules.lineFormat(-77, gameplay.formatControlsCaptureLine),
@@ -36,6 +38,12 @@ const App = struct {
 
     pub fn configure(app: *ecs.App) !void {
         try platform.installDefaultModules(app);
+        var commands = ecs.Commands.init(app.allocator, app.io, &app.world);
+        defer commands.deinit();
+        try commands.insertResource(render.ShadowMode.off);
+        try commands.insertResource(render.EnvironmentSpecularMode.on);
+        try commands.insertResource(render.SceneDebugView.off);
+        if (!commands.isEmpty()) try commands.apply();
         try app.installModule(phases.SponzaPhases);
         try app.installModule(modules.ParentModule);
         try app.installModule(modules.SkyModule);
@@ -63,7 +71,36 @@ const App = struct {
             },
             .extra_lines = &sponza_metric_lines,
         });
-        try app.addSystemTo(ecs.schedule.DefaultSchedule.Shutdown, loading.unloadImportedScene);
+
+        try app.addSystemTo("Startup", loading.ensureSceneLoader);
+        try app.addSystemTo("BeforeFrame", loading.ensureSceneLoader);
+        try app.addSystemTo("BeforeFrame", loading.ensureLoadingScreenVisuals);
+        try app.addSystemTo("BeforeFrame", loading.drainSceneLoader);
+        try app.addSystemTo("BeforeFrame", loading.advanceSceneFinalize);
+        try app.addSystemTo("Startup", lighting.setupColorGrading);
+        try app.addSystemTo("BeforeFrame", lighting.setupColorGrading);
+        try app.addSystemTo("Startup", lighting.setupLighting);
+        try app.addSystemTo("BeforeFrame", lighting.setupLighting);
+        try app.addSystemTo("Startup", lighting.setupSkyCycle);
+        try app.addSystemTo("BeforeFrame", lighting.setupSkyCycle);
+        try app.addSystemTo("Startup", particles.setupLionFire);
+        try app.addSystemTo("BeforeFrame", particles.setupLionFire);
+        try app.addSystemTo("Update", gameplay.spawnPlayerFromCollision);
+        try app.addSystemTo("Update", gameplay.handlePhaseInput);
+        try app.addSystemTo("Update", gameplay.cycleColorGradeInput);
+        try app.addSystemTo("Update", gameplay.cycleDebugViewInput);
+        try app.addSystemTo("Update", gameplay.toggleEnvironmentSpecularInput);
+        try app.addSystemTo("Update", lighting.toggleSkyModeInput);
+        try app.addSystemTo("Update", lighting.updateDayNightWeather);
+        try app.addSystemTo("Update", lighting.updateProceduralSkyMeshParams);
+        try app.addSystemTo("Update", gameplay.updatePlayerCamera);
+        try app.addSystemTo("Update", particles.updateLionFire);
+        try app.addSystemTo("Update", gameplay.emitSponzaHudMetrics);
+        try app.addSystemTo("Update", gameplay.logPlayerBookmark);
+        try app.addSystemTo("Update", gameplay.captureScreenshotInput);
+        try app.addSystemTo("Update", lighting.animateLights);
+        try app.addSystemTo("Update", loading.updateLoadingScreen);
+        try app.addSystemTo("Shutdown", loading.unloadImportedScene);
     }
 };
 

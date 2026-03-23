@@ -58,6 +58,26 @@ pub const RenderQueue = queue.RenderQueue;
 pub const VSync = struct {
     enabled: bool = true,
 };
+pub const ShadowMode = enum {
+    inherit,
+    off,
+    directional,
+};
+pub const EnvironmentSpecularMode = enum {
+    on,
+    off,
+};
+pub const SceneDebugView = enum(u32) {
+    off = 0,
+    base_color = 1,
+    normal = 2,
+    metallic = 3,
+    roughness = 4,
+    ao = 5,
+    ndotl = 6,
+    ndotv = 7,
+    specular = 8,
+};
 pub const VertexColor = backend.VertexColor;
 pub const VertexUv = backend.VertexUv;
 pub const VertexPos3Uv = backend.VertexPos3Uv;

@@ -37,6 +37,15 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(ShadowSettings)) {
         try commands.insertResource(ShadowSettings{});
     }
+    if (!commands.hasResource(render.ShadowMode)) {
+        try commands.insertResource(render.ShadowMode.inherit);
+    }
+    if (!commands.hasResource(render.EnvironmentSpecularMode)) {
+        try commands.insertResource(render.EnvironmentSpecularMode.on);
+    }
+    if (!commands.hasResource(render.SceneDebugView)) {
+        try commands.insertResource(render.SceneDebugView.off);
+    }
     if (!commands.hasResource(SpriteMeshCache)) {
         try commands.insertResource(SpriteMeshCache.init(commands.allocator));
     }
@@ -237,6 +246,8 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.BuildContext);
         _ = commands.removeResource(render.DefaultFont);
         _ = commands.removeResource(ShadowSettings);
+        _ = commands.removeResource(render.ShadowMode);
+        _ = commands.removeResource(render.SceneDebugView);
         return;
     };
 
@@ -276,6 +287,8 @@ fn shutdownSystem(commands: *Commands) void {
     _ = commands.removeResource(LayerViewports);
     _ = commands.removeResource(ExtractedSceneLighting);
     _ = commands.removeResource(ShadowSettings);
+    _ = commands.removeResource(render.ShadowMode);
+    _ = commands.removeResource(render.SceneDebugView);
     _ = commands.removeResource(assets.AssetsContext);
     _ = commands.removeResource(render.BuildContext);
     _ = commands.removeResource(render.RenderQueue);

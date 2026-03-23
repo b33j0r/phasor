@@ -66,8 +66,8 @@ pub fn setupLighting(
         range: f32,
         dynamic: bool,
     }{
-        // Soft neutral fill at scene origin to lift extreme center-corridor contrast.
-        .{ .pos = .{ .x = 0.0, .y = 1.9, .z = 0.0 }, .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 }, .intensity = 90.0, .range = 14.0, .dynamic = false },
+        // Soft white fill at scene origin to keep the center corridor readable.
+        .{ .pos = .{ .x = 0.0, .y = 1.9, .z = 0.0 }, .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 }, .intensity = 150.0, .range = 18.0, .dynamic = false },
         // Main corridor: static colored lights along Z (x = 0), leaving origin unlit.
         .{ .pos = .{ .x = 0.0, .y = 2.8, .z = scene_size.z * 0.30 }, .color = .{ .r = 1.0, .g = 0.42, .b = 0.28, .a = 1.0 }, .intensity = 120.0, .range = 9.0, .dynamic = false },
         .{ .pos = .{ .x = 0.0, .y = 2.8, .z = scene_size.z * 0.12 }, .color = .{ .r = 0.22, .g = 0.75, .b = 1.0, .a = 1.0 }, .intensity = 105.0, .range = 9.0, .dynamic = false },
@@ -115,6 +115,8 @@ pub fn setupLighting(
 pub fn setupSkyCycle(
     commands: *ecs.Commands,
     scene_ready: ResOpt(SceneReady),
+    scene_assets: ResOpt(Assets),
+    panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
 ) !void {
     if (scene_ready.ptr == null) return;
     if (commands.hasResource(SkyCycleReady)) return;
@@ -124,10 +126,13 @@ pub fn setupSkyCycle(
     const environment = commands.getResource(lighting.EnvironmentLight) orelse return;
 
     try commands.insertResource(SkyCycleState{
-        .mode = .procedural,
+        .mode = .panorama,
         .panorama_ambient = ambient.*,
         .panorama_environment = environment.*,
     });
+    if (scene_assets.ptr) |assets| {
+        applySkyVisualMode(panorama_faces, assets, .panorama);
+    }
     try commands.insertResource(SkyCycleReady{});
 }
 
