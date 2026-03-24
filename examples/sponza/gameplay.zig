@@ -99,6 +99,7 @@ pub fn spawnPlayerFromCollision(
 pub fn captureScreenshotInput(
     keyboard_opt: ResOpt(Keyboard),
     elapsed: Res(modules.TimeModule.ElapsedTime),
+    screenshot_state_opt: ResOpt(ScreenshotCaptureState),
     commands: *ecs.Commands,
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) void {
@@ -106,7 +107,7 @@ pub fn captureScreenshotInput(
     if (builtin.os.tag == .wasi) return;
 
     const keyboard = keyboard_opt.ptr orelse return;
-    var state = if (commands.getResource(ScreenshotCaptureState)) |existing| existing.* else ScreenshotCaptureState{};
+    var state = if (screenshot_state_opt.ptr) |existing| existing.* else ScreenshotCaptureState{};
 
     if (keyboard.isKeyPressed(.o)) {
         state.auto_enabled = !state.auto_enabled;

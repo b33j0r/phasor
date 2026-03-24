@@ -48,7 +48,7 @@ fn updateTimeSystem(
     res_delta_time: ResMut(DeltaTime),
     res_elapsed_time: ResMut(ElapsedTime),
     res_run_time: ResMut(RunTime),
-    res_paused: ResOpt(Paused),
+    r_is_paused: HasResource(Paused),
     res_simulation_delta_time: ResMut(SimulationDeltaTime),
     res_last_instant: ResMut(LastInstant),
     res_start_instant: ResMut(StartInstant),
@@ -67,7 +67,7 @@ fn updateTimeSystem(
     last_instant.value = now;
     delta_time.seconds = dt;
 
-    if (res_paused.ptr != null) {
+    if (r_is_paused.value) {
         simulation_delta_time.seconds = 0.0;
     } else {
         simulation_delta_time.seconds = dt;
@@ -124,7 +124,7 @@ const common = @import("common");
 const ecs = @import("ecs");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
-const ResOpt = ecs.system_params.ResOpt;
+const HasResource = ecs.system_params.HasResource;
 const ResMut = ecs.system_params.ResMut;
 const schedule = ecs.schedule;
 

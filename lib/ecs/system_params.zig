@@ -40,6 +40,16 @@ pub fn ResOpt(comptime T: type) type {
     };
 }
 
+pub fn HasResource(comptime T: type) type {
+    return struct {
+        value: bool = false,
+
+        pub fn init_system_param(self: *@This(), comptime _: anytype, commands: *Commands) !void {
+            self.value = commands.hasResource(T);
+        }
+    };
+}
+
 pub const WorldRef = struct {
     ptr: *World,
 
@@ -146,6 +156,34 @@ test "Query system param executes compiled queries" {
     const row = query_param.first().?;
     try std.testing.expect(row.entity_id == 1);
     try std.testing.expect(row.get(fixtures.Position) != null);
+}
+
+test "HasResource reports resource presence" {
+    const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var world = World.init(allocator);
+    defer world.deinit();
+
+    var commands = Commands.init(allocator, &io, &world);
+    defer commands.deinit();
+
+    const Marker = struct { value: u32 = 0 };
+    const sys_fn = struct {
+        fn run(_: HasResource(Marker)) void {}
+    }.run;
+
+    var absent: HasResource(Marker) = undefined;
+    try absent.init_system_param(sys_fn, &commands);
+    try std.testing.expect(!absent.value);
+
+    try world.insertResource(Marker{ .value = 42 });
+
+    var present: HasResource(Marker) = undefined;
+    try present.init_system_param(sys_fn, &commands);
+    try std.testing.expect(present.value);
 }
 
 // Imports
