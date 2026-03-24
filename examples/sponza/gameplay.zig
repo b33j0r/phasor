@@ -280,9 +280,6 @@ pub fn emitSponzaHudMetrics(
     bus: ResMut(metrics.Bus),
     capture_opt: ResOpt(MouseCapture),
     mouse_opt: ResOpt(Mouse),
-    scene_metrics: ResOpt(SceneMetrics),
-    imported: ResOpt(assets.ImportedScene),
-    lighting_stats: ResOpt(lighting.AuthoringStats),
     color_grading_opt: ResOpt(render.ColorGradingSettings),
     environment_specular_mode_opt: ResOpt(render.EnvironmentSpecularMode),
     normal_map_scale_opt: ResOpt(render.NormalMapScale),
@@ -295,18 +292,9 @@ pub fn emitSponzaHudMetrics(
     const row = it.next() orelse return;
     const transform = row.get(Transform) orelse return;
     const controller = row.get(FpsController) orelse return;
-    const imported_scene = imported.ptr;
-    const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
-        scene_metrics_res.scene_size
-    else if (imported_scene) |scene|
-        scene.bounds.size()
-    else
-        Vec3{};
-    const light_stats = if (lighting_stats.ptr) |stats| stats.* else lighting.AuthoringStats{};
     const mouse_captured = if (mouse_opt.ptr) |mouse| mouse.captured else false;
     const mouse_capture_enabled = if (capture_opt.ptr) |capture| capture.enabled else false;
     const mouse_available = mouse_opt.ptr != null;
-    const mesh_count: usize = if (imported_scene) |scene| scene.mesh_handles.len else 0;
     const color_grade: render.ColorGrade = if (color_grading_opt.ptr) |settings| settings.grade else .none;
     const environment_specular_mode = if (environment_specular_mode_opt.ptr) |mode| mode.* else render.EnvironmentSpecularMode.on;
     const normal_map_scale = if (normal_map_scale_opt.ptr) |scale| scale.multiplier else 1.0;
@@ -320,14 +308,6 @@ pub fn emitSponzaHudMetrics(
         .mouse_look_available = metrics.gauge(mouse_available),
         .mouse_look_captured = metrics.gauge(mouse_captured),
         .mouse_look_capture_enabled = metrics.gauge(mouse_capture_enabled),
-        .scene_mesh_count = metrics.gauge(mesh_count),
-        .scene_size_x = metrics.gauge(scene_size.x),
-        .scene_size_y = metrics.gauge(scene_size.y),
-        .scene_size_z = metrics.gauge(scene_size.z),
-        .lights_total = metrics.gauge(light_stats.total_lights),
-        .lights_dynamic = metrics.gauge(light_stats.dynamic_lights),
-        .lights_point = metrics.gauge(light_stats.point_lights),
-        .lights_spot = metrics.gauge(light_stats.spot_lights),
         .color_grade = metrics.gauge(@intFromEnum(color_grade)),
         .environment_specular_mode = metrics.gauge(@as(u32, switch (environment_specular_mode) {
             .on => 1,
@@ -629,7 +609,6 @@ const Mouse = modules.InputModule.Mouse;
 const MouseCapture = modules.InputModule.MouseCapture;
 const Player = shared.Player;
 const PlayerCamera = shared.PlayerCamera;
-const SceneMetrics = shared.SceneMetrics;
 const SceneSpawnPlan = shared.SceneSpawnPlan;
 const SpawnChoice = shared.SpawnChoice;
 const Transform = common.Transform;

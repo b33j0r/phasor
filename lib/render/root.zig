@@ -67,6 +67,25 @@ pub const EnvironmentSpecularMode = enum {
     on,
     off,
 };
+pub const SceneStatsMode = struct {
+    enabled: bool = false,
+    max_scene_layer: i32 = 999,
+};
+pub const SceneStatsSnapshot = struct {
+    mesh_count: usize = 0,
+    min: common.Vec3 = .{},
+    max: common.Vec3 = .{},
+    valid: bool = false,
+
+    pub fn size(self: SceneStatsSnapshot) common.Vec3 {
+        if (!self.valid) return .{};
+        return .{
+            .x = self.max.x - self.min.x,
+            .y = self.max.y - self.min.y,
+            .z = self.max.z - self.min.z,
+        };
+    }
+};
 pub const SceneEnvironmentMap = struct {
     texture_handle: TextureHandle = TextureHandle.invalid(),
 };
@@ -83,6 +102,12 @@ pub const SceneDebugView = enum(u32) {
     ndotl = 6,
     ndotv = 7,
     specular = 8,
+};
+pub const CoreShaders = struct {
+    color_pos3_color4: ShaderHandle = ShaderHandle.invalid(),
+    simple_shadow_lit: ShaderHandle = ShaderHandle.invalid(),
+    sky_procedural: ShaderHandle = ShaderHandle.invalid(),
+    sky_panorama_hdr: ShaderHandle = ShaderHandle.invalid(),
 };
 pub const VertexColor = backend.VertexColor;
 pub const VertexUv = backend.VertexUv;

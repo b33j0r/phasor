@@ -45,6 +45,7 @@ const App = struct {
         try commands.insertResource(render.EnvironmentSpecularMode.on);
         try commands.insertResource(render.NormalMapScale{ .multiplier = 1.0 });
         try commands.insertResource(render.SceneDebugView.off);
+        try commands.insertResource(render.SceneStatsMode{ .enabled = true });
         if (!commands.isEmpty()) try commands.apply();
         try app.installModule(phases.SponzaPhases);
         try app.installModule(modules.ParentModule);

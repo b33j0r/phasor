@@ -13,9 +13,11 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     }
 
     try app.addSystem("BeforeFrame", syncAuthoringStats);
+    try app.addSystem("BeforeFrame", emitAuthoringMetrics);
 }
 
 pub fn uninstall(app: *AppCommands, commands: *Commands) void {
+    app.removeSystem(emitAuthoringMetrics);
     app.removeSystem(syncAuthoringStats);
     _ = commands.removeResource(lighting.AuthoringStats);
     _ = commands.removeResource(lighting.ExposureSettings);
@@ -64,11 +66,30 @@ fn accumulate(
     }
 }
 
+fn emitAuthoringMetrics(
+    bus: ResMut(metrics.Bus),
+    mode_opt: ResOpt(render.SceneStatsMode),
+    stats: ResMut(lighting.AuthoringStats),
+) void {
+    const mode = mode_opt.ptr orelse return;
+    if (!mode.enabled) return;
+
+    metrics.emitBus(true, bus.ptr, .{
+        .lights_total = metrics.gauge(stats.ptr.total_lights),
+        .lights_dynamic = metrics.gauge(stats.ptr.dynamic_lights),
+        .lights_point = metrics.gauge(stats.ptr.point_lights),
+        .lights_spot = metrics.gauge(stats.ptr.spot_lights),
+    });
+}
+
 const ecs = @import("ecs");
 const lighting = @import("lighting");
+const metrics = @import("metrics");
+const render = @import("render");
 
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const Query = ecs.system_params.Query;
 const ResMut = ecs.system_params.ResMut;
+const ResOpt = ecs.system_params.ResOpt;
 const Without = ecs.system_params.Without;

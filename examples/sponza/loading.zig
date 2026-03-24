@@ -15,6 +15,7 @@ pub fn ensureSceneLoader(commands: *ecs.Commands) !void {
 pub fn ensureLoadingScreenVisuals(
     commands: *ecs.Commands,
     build_ctx: ResOpt(render.BuildContext),
+    core_shaders: ResMut(render.CoreShaders),
     scene_assets: ResMut(Assets),
     screen_state: ResOpt(LoadingScreenState),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
@@ -25,10 +26,13 @@ pub fn ensureLoadingScreenVisuals(
     if (commands.hasResource(LoadingScreenVisualState)) return;
 
     const build_ctx_res = build_ctx.ptr orelse return;
-    if (!scene_assets.ptr.color_shader.handle.isValid()) return error.ColorShaderMissing;
+    try build_ctx_res.ensureCoreColorPos3Color4Shader(&core_shaders.ptr.color_pos3_color4);
+    _ = scene_assets;
+    const shaders = core_shaders.ptr;
+    if (!shaders.color_pos3_color4.isValid()) return error.CoreColorShaderMissing;
 
     const mesh_handle = try createUiRectMesh(commands.allocator, build_ctx_res, 1.0, 1.0);
-    const shader_material = render.Material.withShader(scene_assets.ptr.color_shader.handle);
+    const shader_material = render.Material.withShader(shaders.color_pos3_color4);
 
     const track_entity = try commands.createEntity(.{
         Transform{},
@@ -76,6 +80,7 @@ pub fn drainSceneLoader(commands: *ecs.Commands, loader: ResMut(SceneLoaderState
 pub fn advanceSceneFinalize(
     commands: *ecs.Commands,
     build_ctx: ResOpt(render.BuildContext),
+    core_shaders: ResMut(render.CoreShaders),
     collision_store: ResMut(physics.CollisionMeshStore),
     scene_assets: ResMut(Assets),
     loader: ResMut(SceneLoaderState),
@@ -84,11 +89,14 @@ pub fn advanceSceneFinalize(
     if (loader.ptr.failed != null) return;
 
     const build_ctx_res = build_ctx.ptr orelse return;
+    try build_ctx_res.ensureCoreSkyPanoramaHdrShader(&core_shaders.ptr.sky_panorama_hdr);
+    try build_ctx_res.ensureCoreSkyProceduralShader(&core_shaders.ptr.sky_procedural);
     if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
     if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
     if (!scene_assets.ptr.sky_moon_overlay.material_handle.isValid()) return error.SkyMoonOverlayMissing;
-    if (!scene_assets.ptr.sky_shader.handle.isValid()) return error.SkyShaderMissing;
-    if (!scene_assets.ptr.sky_procedural_shader.handle.isValid()) return error.SkyProceduralShaderMissing;
+    const shaders = core_shaders.ptr;
+    if (!shaders.sky_panorama_hdr.isValid()) return error.CoreSkyPanoramaShaderMissing;
+    if (!shaders.sky_procedural.isValid()) return error.CoreSkyProceduralShaderMissing;
 
     if (!commands.hasResource(SceneFinalizeState)) {
         if (loader.ptr.payload) |payload| {
@@ -138,7 +146,7 @@ pub fn advanceSceneFinalize(
                 },
                 modules.SkyModule.PanoramaSky{
                     .material = scene_assets.ptr.sky_moon_overlay.material,
-                    .shader_handle = scene_assets.ptr.sky_procedural_shader.handle,
+                    .shader_handle = shaders.sky_procedural,
                     .size = @max(@max(finalize.scene_size.x, finalize.scene_size.y), finalize.scene_size.z) * 4.0,
                     .follow_camera = true,
                     .face_segments = 56,
@@ -222,9 +230,6 @@ pub fn advanceSceneFinalize(
             finalize.scene_apply = null;
             try commands.insertResource(imported);
             try commands.insertResource(SceneSpawnPlan{
-                .scene_size = finalize.scene_size,
-            });
-            try commands.insertResource(SceneMetrics{
                 .scene_size = finalize.scene_size,
             });
             try commands.insertResource(SceneReady{});
@@ -352,7 +357,6 @@ pub fn unloadImportedScene(commands: *ecs.Commands) void {
     _ = commands.removeResource(assets.ImportedScene);
     _ = commands.removeResource(SceneReady);
     _ = commands.removeResource(SceneSpawnPlan);
-    _ = commands.removeResource(SceneMetrics);
     _ = commands.removeResource(SceneFinalizeState);
     _ = commands.removeResource(SceneLoaderState);
     _ = commands.removeResource(LightingReady);
@@ -770,7 +774,6 @@ const SceneLoaderMessage = shared.SceneLoaderMessage;
 const SceneLoaderProgress = shared.SceneLoaderProgress;
 const SceneLoaderState = shared.SceneLoaderState;
 const SceneLoaderTaskContext = shared.SceneLoaderTaskContext;
-const SceneMetrics = shared.SceneMetrics;
 const SceneReady = shared.SceneReady;
 const SceneRoot = shared.SceneRoot;
 const SceneSpawnPlan = shared.SceneSpawnPlan;

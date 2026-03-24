@@ -162,6 +162,8 @@ pub const Mesh = struct {
     index_buffer: Buffer,
     index_count: u32,
     vertex_layout: MeshVertexLayout,
+    local_bounds_min: common.Vec3 = .{},
+    local_bounds_max: common.Vec3 = .{},
 };
 
 pub const max_instances_per_draw: usize = 6000;
@@ -217,6 +219,86 @@ pub const VertexPos3Color = extern struct {
     position: [3]f32,
     color: [4]f32,
 };
+
+fn boundsFromVertexUv(vertices: []const VertexUv) [2]common.Vec3 {
+    return boundsFromPos2(vertices, struct {
+        fn position(vertex: VertexUv) [2]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromVertexColor(vertices: []const VertexColor) [2]common.Vec3 {
+    return boundsFromPos2(vertices, struct {
+        fn position(vertex: VertexColor) [2]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromVertexPos3Uv(vertices: []const VertexPos3Uv) [2]common.Vec3 {
+    return boundsFromPos3(vertices, struct {
+        fn position(vertex: VertexPos3Uv) [3]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromVertexPos3NormUv(vertices: []const VertexPos3NormUv) [2]common.Vec3 {
+    return boundsFromPos3(vertices, struct {
+        fn position(vertex: VertexPos3NormUv) [3]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromVertexPos3NormTangentUv(vertices: []const VertexPos3NormTangentUv) [2]common.Vec3 {
+    return boundsFromPos3(vertices, struct {
+        fn position(vertex: VertexPos3NormTangentUv) [3]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromVertexPos3Color(vertices: []const VertexPos3Color) [2]common.Vec3 {
+    return boundsFromPos3(vertices, struct {
+        fn position(vertex: VertexPos3Color) [3]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromPos2(vertices: anytype, comptime position_fn: fn (@typeInfo(@TypeOf(vertices)).pointer.child) [2]f32) [2]common.Vec3 {
+    if (vertices.len == 0) return .{ .{}, .{} };
+    const first = position_fn(vertices[0]);
+    var min = common.Vec3{ .x = first[0], .y = first[1], .z = 0.0 };
+    var max = min;
+    for (vertices[1..]) |vertex| {
+        const position = position_fn(vertex);
+        min.x = @min(min.x, position[0]);
+        min.y = @min(min.y, position[1]);
+        max.x = @max(max.x, position[0]);
+        max.y = @max(max.y, position[1]);
+    }
+    return .{ min, max };
+}
+
+fn boundsFromPos3(vertices: anytype, comptime position_fn: fn (@typeInfo(@TypeOf(vertices)).pointer.child) [3]f32) [2]common.Vec3 {
+    if (vertices.len == 0) return .{ .{}, .{} };
+    const first = position_fn(vertices[0]);
+    var min = common.Vec3{ .x = first[0], .y = first[1], .z = first[2] };
+    var max = min;
+    for (vertices[1..]) |vertex| {
+        const position = position_fn(vertex);
+        min.x = @min(min.x, position[0]);
+        min.y = @min(min.y, position[1]);
+        min.z = @min(min.z, position[2]);
+        max.x = @max(max.x, position[0]);
+        max.y = @max(max.y, position[1]);
+        max.z = @max(max.z, position[2]);
+    }
+    return .{ min, max };
+}
 
 pub const Triangle = struct {
     vertices: [3]VertexColor,
@@ -899,6 +981,7 @@ pub const Renderer = struct {
     }
 
     pub fn createMeshUv(self: *Renderer, vertices: []const VertexUv, indices: []const u16) !Mesh {
+        const bounds = boundsFromVertexUv(vertices);
         const vertex_buf = try createBufferWithData(
             self.allocator,
             self.device,
@@ -918,6 +1001,8 @@ pub const Renderer = struct {
             .index_buffer = index_buf,
             .index_count = @intCast(indices.len),
             .vertex_layout = .uv2,
+            .local_bounds_min = bounds[0],
+            .local_bounds_max = bounds[1],
         };
     }
 
@@ -947,9 +1032,13 @@ pub const Renderer = struct {
             self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
         }
         mesh.index_count = @intCast(indices.len);
+        const bounds = boundsFromVertexUv(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
     }
 
     pub fn createMeshPos3Uv(self: *Renderer, vertices: []const VertexPos3Uv, indices: []const u16) !Mesh {
+        const bounds = boundsFromVertexPos3Uv(vertices);
         const vertex_buf = try createBufferWithData(
             self.allocator,
             self.device,
@@ -969,6 +1058,8 @@ pub const Renderer = struct {
             .index_buffer = index_buf,
             .index_count = @intCast(indices.len),
             .vertex_layout = .pos3_uv2,
+            .local_bounds_min = bounds[0],
+            .local_bounds_max = bounds[1],
         };
     }
 
@@ -998,9 +1089,13 @@ pub const Renderer = struct {
             self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
         }
         mesh.index_count = @intCast(indices.len);
+        const bounds = boundsFromVertexPos3Uv(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
     }
 
     pub fn createMeshPos3NormUv(self: *Renderer, vertices: []const VertexPos3NormUv, indices: []const u16) !Mesh {
+        const bounds = boundsFromVertexPos3NormUv(vertices);
         const vertex_buf = try createBufferWithData(
             self.allocator,
             self.device,
@@ -1020,6 +1115,8 @@ pub const Renderer = struct {
             .index_buffer = index_buf,
             .index_count = @intCast(indices.len),
             .vertex_layout = .pos3_norm_uv2,
+            .local_bounds_min = bounds[0],
+            .local_bounds_max = bounds[1],
         };
     }
 
@@ -1049,9 +1146,13 @@ pub const Renderer = struct {
             self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
         }
         mesh.index_count = @intCast(indices.len);
+        const bounds = boundsFromVertexPos3NormUv(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
     }
 
     pub fn createMeshPos3NormTangentUv(self: *Renderer, vertices: []const VertexPos3NormTangentUv, indices: []const u16) !Mesh {
+        const bounds = boundsFromVertexPos3NormTangentUv(vertices);
         const vertex_buf = try createBufferWithData(
             self.allocator,
             self.device,
@@ -1071,6 +1172,8 @@ pub const Renderer = struct {
             .index_buffer = index_buf,
             .index_count = @intCast(indices.len),
             .vertex_layout = .pos3_norm_tangent_uv2,
+            .local_bounds_min = bounds[0],
+            .local_bounds_max = bounds[1],
         };
     }
 
@@ -1100,9 +1203,13 @@ pub const Renderer = struct {
             self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
         }
         mesh.index_count = @intCast(indices.len);
+        const bounds = boundsFromVertexPos3NormTangentUv(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
     }
 
     pub fn createMeshPos3Color(self: *Renderer, vertices: []const VertexPos3Color, indices: []const u16) !Mesh {
+        const bounds = boundsFromVertexPos3Color(vertices);
         const vertex_buf = try createBufferWithData(
             self.allocator,
             self.device,
@@ -1122,6 +1229,8 @@ pub const Renderer = struct {
             .index_buffer = index_buf,
             .index_count = @intCast(indices.len),
             .vertex_layout = .pos3_color4,
+            .local_bounds_min = bounds[0],
+            .local_bounds_max = bounds[1],
         };
     }
 
@@ -1151,6 +1260,9 @@ pub const Renderer = struct {
             self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
         }
         mesh.index_count = @intCast(indices.len);
+        const bounds = boundsFromVertexPos3Color(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
     }
 
     pub fn destroyMesh(_: *Renderer, mesh: *Mesh) void {

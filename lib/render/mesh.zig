@@ -299,6 +299,11 @@ pub const MeshLibrary = struct {
         return &slot.mesh;
     }
 
+    pub fn getConst(self: *const MeshLibrary, handle: MeshHandle) ?*const backend.Mesh {
+        const slot = self.slotPtrConst(handle) orelse return null;
+        return &slot.mesh;
+    }
+
     pub fn destroyMesh(self: *MeshLibrary, renderer: *backend.Renderer, handle: MeshHandle) bool {
         const slot = self.slotPtr(handle) orelse return false;
         renderer.destroyMesh(&slot.mesh);
@@ -369,6 +374,15 @@ pub const MeshLibrary = struct {
     }
 
     fn slotPtr(self: *MeshLibrary, handle: MeshHandle) ?*MeshSlot {
+        if (!handle.isValid()) return null;
+        const index: usize = @intCast(handle.index);
+        if (index >= self.slots.items.len) return null;
+        const slot = &self.slots.items[index];
+        if (!slot.alive or slot.generation != handle.generation) return null;
+        return slot;
+    }
+
+    fn slotPtrConst(self: *const MeshLibrary, handle: MeshHandle) ?*const MeshSlot {
         if (!handle.isValid()) return null;
         const index: usize = @intCast(handle.index);
         if (index >= self.slots.items.len) return null;

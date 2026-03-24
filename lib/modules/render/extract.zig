@@ -1,6 +1,9 @@
 pub fn extractSystem(
     queue: ResMut(render.RenderQueue),
     extracted_lighting: ResMut(types.ExtractedSceneLighting),
+    scene_stats_mode_opt: ResOpt(render.SceneStatsMode),
+    scene_stats_snapshot: ResMut(render.SceneStatsSnapshot),
+    mesh_library_opt: ResOpt(render.MeshLibrary),
     ambient_light: ResOpt(lighting.AmbientLight),
     environment_light: ResOpt(lighting.EnvironmentLight),
     exposure_settings: ResOpt(lighting.ExposureSettings),
@@ -18,10 +21,13 @@ pub fn extractSystem(
 ) !void {
     queue.ptr.reset();
     extracted_lighting.ptr.* = .{};
+    scene_stats_snapshot.ptr.* = .{};
     const normal_scale_multiplier = if (normal_map_scale_opt.ptr) |scale|
         @max(scale.multiplier, 0.0)
     else
         1.0;
+    const scene_stats_mode = if (scene_stats_mode_opt.ptr) |mode| mode.* else render.SceneStatsMode{};
+    const mesh_library = mesh_library_opt.ptr;
     if (ambient_light.ptr) |ambient| {
         extracted_lighting.ptr.ambient_color = .{
             .r = ambient.color.r * ambient.intensity,
@@ -61,10 +67,10 @@ pub fn extractSystem(
     try extractTrianglesForRows(queue.ptr, triangle_unlayered_query, 0);
     try extractTrianglesForGroups(queue.ptr, triangle_layer_groups);
 
-    try extractMeshesForRows(queue.ptr, mesh_override_query, normal_scale_multiplier, null);
-    try extractMeshesForRows(queue.ptr, mesh_zero_query, normal_scale_multiplier, 0);
-    try extractMeshesForRows(queue.ptr, mesh_unlayered_query, normal_scale_multiplier, 0);
-    try extractMeshesForGroups(queue.ptr, mesh_layer_groups, normal_scale_multiplier);
+    try extractMeshesForRows(queue.ptr, mesh_override_query, mesh_library, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier, null);
+    try extractMeshesForRows(queue.ptr, mesh_zero_query, mesh_library, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier, 0);
+    try extractMeshesForRows(queue.ptr, mesh_unlayered_query, mesh_library, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier, 0);
+    try extractMeshesForGroups(queue.ptr, mesh_layer_groups, mesh_library, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier);
 }
 
 fn extractLights(store: *types.ExtractedSceneLighting, query: anytype, comptime has_visibility: bool) void {
@@ -130,25 +136,84 @@ fn extractTrianglesForGroups(queue: *render.RenderQueue, groups: GroupBy(render.
     }
 }
 
-fn extractMeshesForRows(queue: *render.RenderQueue, query: anytype, normal_scale_multiplier: f32, forced_layer: ?i32) !void {
+fn extractMeshesForRows(
+    queue: *render.RenderQueue,
+    query: anytype,
+    mesh_library: ?*const render.MeshLibrary,
+    scene_stats_snapshot: *render.SceneStatsSnapshot,
+    scene_stats_mode: render.SceneStatsMode,
+    normal_scale_multiplier: f32,
+    forced_layer: ?i32,
+) !void {
     var it = query.iterator();
     while (it.next()) |row| {
         const instance = row.get(render.MeshInstance) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
         const layer = forced_layer orelse layerKeyForRow(row);
         const sort_key = sortKeyForRow(row);
+        accumulateSceneStats(scene_stats_snapshot, scene_stats_mode, mesh_library, instance.*, transform.toMat4(), layer);
         try queue.pushMeshInstance(instance.*, transform.toMat4(), normal_scale_multiplier, layer, sort_key, row.entity_id);
     }
 }
 
-fn extractMeshesForGroups(queue: *render.RenderQueue, groups: GroupBy(render.LayerN), normal_scale_multiplier: f32) !void {
+fn extractMeshesForGroups(
+    queue: *render.RenderQueue,
+    groups: GroupBy(render.LayerN),
+    mesh_library: ?*const render.MeshLibrary,
+    scene_stats_snapshot: *render.SceneStatsSnapshot,
+    scene_stats_mode: render.SceneStatsMode,
+    normal_scale_multiplier: f32,
+) !void {
     var it = groups.iterator();
     while (it.next()) |group| {
         if (group.key == 0) continue;
         var rows = try group.query(.{ render.MeshInstance, common.Transform, Without(render.LayerOverride) });
         defer rows.deinit();
-        try extractMeshesForRows(queue, rows, normal_scale_multiplier, group.key);
+        try extractMeshesForRows(queue, rows, mesh_library, scene_stats_snapshot, scene_stats_mode, normal_scale_multiplier, group.key);
     }
+}
+
+fn accumulateSceneStats(
+    snapshot: *render.SceneStatsSnapshot,
+    mode: render.SceneStatsMode,
+    mesh_library: ?*const render.MeshLibrary,
+    instance: render.MeshInstance,
+    transform: common.Mat4,
+    layer: i32,
+) void {
+    if (!mode.enabled or layer > mode.max_scene_layer) return;
+    const library = mesh_library orelse return;
+    const mesh = library.getConst(instance.mesh_handle) orelse return;
+
+    snapshot.mesh_count += 1;
+    const corners = [_]common.Vec3{
+        .{ .x = mesh.local_bounds_min.x, .y = mesh.local_bounds_min.y, .z = mesh.local_bounds_min.z },
+        .{ .x = mesh.local_bounds_max.x, .y = mesh.local_bounds_min.y, .z = mesh.local_bounds_min.z },
+        .{ .x = mesh.local_bounds_min.x, .y = mesh.local_bounds_max.y, .z = mesh.local_bounds_min.z },
+        .{ .x = mesh.local_bounds_max.x, .y = mesh.local_bounds_max.y, .z = mesh.local_bounds_min.z },
+        .{ .x = mesh.local_bounds_min.x, .y = mesh.local_bounds_min.y, .z = mesh.local_bounds_max.z },
+        .{ .x = mesh.local_bounds_max.x, .y = mesh.local_bounds_min.y, .z = mesh.local_bounds_max.z },
+        .{ .x = mesh.local_bounds_min.x, .y = mesh.local_bounds_max.y, .z = mesh.local_bounds_max.z },
+        .{ .x = mesh.local_bounds_max.x, .y = mesh.local_bounds_max.y, .z = mesh.local_bounds_max.z },
+    };
+    for (corners) |corner| {
+        includePoint(snapshot, transform.transformVec3(corner));
+    }
+}
+
+fn includePoint(snapshot: *render.SceneStatsSnapshot, point: common.Vec3) void {
+    if (!snapshot.valid) {
+        snapshot.min = point;
+        snapshot.max = point;
+        snapshot.valid = true;
+        return;
+    }
+    snapshot.min.x = @min(snapshot.min.x, point.x);
+    snapshot.min.y = @min(snapshot.min.y, point.y);
+    snapshot.min.z = @min(snapshot.min.z, point.z);
+    snapshot.max.x = @max(snapshot.max.x, point.x);
+    snapshot.max.y = @max(snapshot.max.y, point.y);
+    snapshot.max.z = @max(snapshot.max.z, point.z);
 }
 
 fn layerKeyForRow(row: db.QueryResult.Row) i32 {

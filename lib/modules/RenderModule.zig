@@ -40,11 +40,20 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(render.ShadowMode)) {
         try commands.insertResource(render.ShadowMode.inherit);
     }
+    if (!commands.hasResource(render.SceneStatsMode)) {
+        try commands.insertResource(render.SceneStatsMode{});
+    }
+    if (!commands.hasResource(render.SceneStatsSnapshot)) {
+        try commands.insertResource(render.SceneStatsSnapshot{});
+    }
     if (!commands.hasResource(render.EnvironmentSpecularMode)) {
         try commands.insertResource(render.EnvironmentSpecularMode.on);
     }
     if (!commands.hasResource(render.SceneDebugView)) {
         try commands.insertResource(render.SceneDebugView.off);
+    }
+    if (!commands.hasResource(render.CoreShaders)) {
+        try commands.insertResource(render.CoreShaders{});
     }
     if (!commands.hasResource(SpriteMeshCache)) {
         try commands.insertResource(SpriteMeshCache.init(commands.allocator));
@@ -65,6 +74,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try app.addSystem("BeforeFrame", render_prepare.updateTextMeshes);
     try app.addSystem("BeforeFrame", render_prepare.updateLayerCameras);
     try app.addSystem("BeforeFrame", render_extract.extractSystem);
+    try app.addSystem("BeforeFrame", emitSceneMetricsSystem);
     try app.addSystem(schedule.DefaultSchedule.Render, render_submit.renderSystem);
     try app.addSystem("AfterFrame", render_prepare.cleanupUnusedMeshes);
     try app.addSystem(schedule.DefaultSchedule.WindowDestroy, shutdownSystem);
@@ -79,6 +89,7 @@ pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(render_prepare.updateTextMeshes);
     app.removeSystem(render_prepare.updateLayerCameras);
     app.removeSystem(render_extract.extractSystem);
+    app.removeSystem(emitSceneMetricsSystem);
     app.removeSystem(render_prepare.cleanupUnusedMeshes);
     app.removeSystem(render_submit.renderSystem);
     app.removeSystem(shutdownSystem);
@@ -183,7 +194,69 @@ fn initRenderer(commands: *Commands) !void {
     if (!commands.hasResource(render.MaterialLibrary)) {
         try commands.insertResource(render.MaterialLibrary.init(commands.allocator));
     }
+    try ensureCoreShaders(commands);
+    if (!commands.isEmpty()) {
+        try commands.apply();
+    }
     log.debug("renderer core resources initialized", .{});
+}
+
+fn ensureCoreShaders(commands: *Commands) !void {
+    const state = commands.getResourceMut(RenderState) orelse return;
+    const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
+    const existing = commands.getResource(render.CoreShaders) orelse return;
+    if (existing.color_pos3_color4.isValid() and existing.simple_shadow_lit.isValid() and existing.sky_procedural.isValid() and existing.sky_panorama_hdr.isValid()) {
+        return;
+    }
+
+    var core = render.CoreShaders{};
+
+    core.color_pos3_color4 = try createCoreShader(&state.renderer, shader_library, .{
+        .wgsl = @embedFile("render/shaders/core_color_pos3_color4.wgsl"),
+        .vertex_layout = .pos3_color4,
+        .binding_mode = .none,
+    });
+    errdefer _ = shader_library.destroyShader(&state.renderer, core.color_pos3_color4);
+
+    core.simple_shadow_lit = try createCoreShader(&state.renderer, shader_library, .{
+        .wgsl = @embedFile("render/shaders/core_simple_shadow_lit.wgsl"),
+        .vertex_layout = .pos3_norm_uv2,
+        .binding_mode = .material_scene,
+    });
+    errdefer _ = shader_library.destroyShader(&state.renderer, core.simple_shadow_lit);
+
+    core.sky_procedural = try createCoreShader(&state.renderer, shader_library, .{
+        .wgsl = @embedFile("render/shaders/core_sky_procedural.wgsl"),
+        .vertex_layout = .pos3_uv2,
+        .binding_mode = .material_scene,
+    });
+    errdefer _ = shader_library.destroyShader(&state.renderer, core.sky_procedural);
+
+    core.sky_panorama_hdr = try createCoreShader(&state.renderer, shader_library, .{
+        .wgsl = @embedFile("render/shaders/core_sky_panorama_hdr.wgsl"),
+        .vertex_layout = .pos3_uv2,
+        .binding_mode = .material_scene,
+    });
+    errdefer _ = shader_library.destroyShader(&state.renderer, core.sky_panorama_hdr);
+
+    if (commands.getResourceMut(render.CoreShaders)) |core_res| {
+        core_res.* = core;
+    } else {
+        try commands.insertResource(core);
+    }
+}
+
+fn createCoreShader(
+    renderer: *render.Renderer,
+    shader_library: *render.ShaderLibrary,
+    source: render.ShaderSource,
+) !render.ShaderHandle {
+    const shader = try renderer.createShader(source);
+    errdefer {
+        var cleanup = shader;
+        renderer.destroyShader(&cleanup);
+    }
+    return shader_library.addShader(shader);
 }
 
 fn ensureAssetsContextSystem(commands: *Commands) !void {
@@ -252,6 +325,9 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.RenderQueue);
         _ = commands.removeResource(render.BuildContext);
         _ = commands.removeResource(render.DefaultFont);
+        _ = commands.removeResource(render.CoreShaders);
+        _ = commands.removeResource(render.SceneStatsMode);
+        _ = commands.removeResource(render.SceneStatsSnapshot);
         _ = commands.removeResource(ShadowSettings);
         _ = commands.removeResource(render.ShadowMode);
         _ = commands.removeResource(render.SceneDebugView);
@@ -293,6 +369,9 @@ fn shutdownSystem(commands: *Commands) void {
     _ = commands.removeResource(LayerCameras);
     _ = commands.removeResource(LayerViewports);
     _ = commands.removeResource(ExtractedSceneLighting);
+    _ = commands.removeResource(render.CoreShaders);
+    _ = commands.removeResource(render.SceneStatsMode);
+    _ = commands.removeResource(render.SceneStatsSnapshot);
     _ = commands.removeResource(ShadowSettings);
     _ = commands.removeResource(render.ShadowMode);
     _ = commands.removeResource(render.SceneDebugView);
@@ -355,13 +434,34 @@ pub fn setSurfaceSize(
     }) catch {};
 }
 
+fn emitSceneMetricsSystem(
+    bus: ResMut(metrics.Bus),
+    scene_stats_mode_opt: ResOpt(render.SceneStatsMode),
+    scene_stats_snapshot_opt: ResOpt(render.SceneStatsSnapshot),
+) void {
+    const mode = scene_stats_mode_opt.ptr orelse return;
+    if (!mode.enabled) return;
+
+    const snapshot = if (scene_stats_snapshot_opt.ptr) |stats| stats.* else render.SceneStatsSnapshot{};
+    const size = snapshot.size();
+    metrics.emitBus(true, bus.ptr, .{
+        .scene_mesh_count = metrics.gauge(snapshot.mesh_count),
+        .scene_size_x = metrics.gauge(size.x),
+        .scene_size_y = metrics.gauge(size.y),
+        .scene_size_z = metrics.gauge(size.z),
+    });
+}
+
 // Imports
 const common = @import("common");
 const ecs = @import("ecs");
 const render = @import("render");
 const assets = @import("assets");
+const metrics = @import("metrics");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
+const ResMut = ecs.system_params.ResMut;
+const ResOpt = ecs.system_params.ResOpt;
 const schedule = ecs.schedule;
 const std = @import("std");
 const log = std.log.scoped(.render_module);

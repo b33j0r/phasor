@@ -63,9 +63,16 @@ const App = struct {
 
 pub const main = platform.main(App);
 
-fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), assets_res: ResMut(Assets)) !void {
+fn setupScene(
+    commands: *ecs.Commands,
+    build_ctx: ResMut(render.BuildContext),
+    assets_res: ResMut(Assets),
+    core_shaders: ResMut(render.CoreShaders),
+) !void {
     const build = build_ctx.deref();
     const scene_assets = assets_res.deref();
+    try build_ctx.ptr.ensureCoreSimpleShadowLitShader(&core_shaders.ptr.simple_shadow_lit);
+    try build_ctx.ptr.ensureCoreSkyProceduralShader(&core_shaders.ptr.sky_procedural);
     const sun_direction = (Vec3{ .x = -0.72, .y = 0.46, .z = -0.52 }).normalize();
     const light_forward = sun_direction.scale(-1.0);
     const player_spawn = Vec3{ .x = 9.0, .y = 0.9, .z = 14.5 };
@@ -82,11 +89,12 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
 
     if (!scene_assets.floor_tex.material_handle.isValid()) return error.FloorTextureMissing;
     if (!scene_assets.pillar_tex.material_handle.isValid()) return error.PillarTextureMissing;
-    if (!scene_assets.shadow_lit_shader.handle.isValid()) return error.ShadowShaderMissing;
-    if (!scene_assets.sky_procedural_shader.handle.isValid()) return error.SkyShaderMissing;
     if (!scene_assets.sky_moon_overlay.material_handle.isValid()) return error.SkyTextureMissing;
+    if (!core_shaders.ptr.simple_shadow_lit.isValid()) return error.CoreShadowShaderMissing;
+    if (!core_shaders.ptr.sky_procedural.isValid()) return error.CoreSkyShaderMissing;
 
     try commands.insertResource(DayNightCycle{});
+    try commands.insertResource(render.SceneStatsMode{ .enabled = true });
     try commands.insertResource(ClearColor{ .color = Color.rgb(145, 190, 235) });
     try commands.insertResource(MouseCapture{ .enabled = true });
     try commands.insertResource(lighting.AmbientLight{
@@ -111,10 +119,10 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
     });
     try commands.insertResource(modules.RenderModule.ShadowSettings{
         .technique = .directional_shadow_map,
-        .map_resolution = 1536,
+        .map_resolution = 2048,
         .strength = 1.0,
-        .depth_bias = 0.00006,
-        .normal_bias = 0.00055,
+        .depth_bias = 0.00010,
+        .normal_bias = 0.00120,
         .max_distance = 52.0,
         .frustum_padding = 6.0,
         .depth_padding = 40.0,
@@ -144,7 +152,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
         Transform{},
         MeshInstance{
             .mesh_handle = plane_mesh,
-            .shader_handle = scene_assets.shadow_lit_shader.handle,
+            .shader_handle = core_shaders.ptr.simple_shadow_lit,
             .material = scene_assets.floor_tex.material,
             .color = Color.rgb(165, 172, 180),
         },
@@ -159,7 +167,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
         },
         MeshInstance{
             .mesh_handle = pillar_mesh,
-            .shader_handle = scene_assets.shadow_lit_shader.handle,
+            .shader_handle = core_shaders.ptr.simple_shadow_lit,
             .material = scene_assets.pillar_tex.material,
             .color = Color.WHITE,
         },
@@ -173,7 +181,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
         },
         modules.SkyModule.PanoramaSky{
             .material = scene_assets.sky_moon_overlay.material,
-            .shader_handle = scene_assets.sky_procedural_shader.handle,
+            .shader_handle = core_shaders.ptr.sky_procedural,
             .size = 180.0,
             .follow_camera = true,
             .face_segments = 36,
@@ -529,16 +537,6 @@ const Assets = struct {
     floor_tex: assets.Texture = assets.Texture.embedded(@embedFile("assets/textures/Concrete011_Color.png")).asOpaque().tiledLinear(),
     pillar_tex: assets.Texture = assets.Texture.embedded(@embedFile("assets/textures/Wood049_Color.png")).asOpaque(),
     sky_moon_overlay: assets.Texture = assets.Texture.embedded(@embedFile("assets/textures/moon_overlay_cc0.png")).asBlended(),
-    shadow_lit_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/simple_shadow_lit.wgsl"),
-        .vertex_layout = .pos3_norm_uv2,
-        .binding_mode = .material_scene,
-    },
-    sky_procedural_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/sky_procedural.wgsl"),
-        .vertex_layout = .pos3_uv2,
-        .binding_mode = .material_scene,
-    },
 };
 
 // Imports

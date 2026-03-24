@@ -42,10 +42,6 @@ pub const SceneSpawnPlan = struct {
     scene_size: Vec3,
 };
 
-pub const SceneMetrics = struct {
-    scene_size: Vec3,
-};
-
 pub const FpsPhysics = modules.FpsPhysicsModule(Player);
 pub const FpsController = FpsPhysics.FpsController;
 
@@ -230,19 +226,6 @@ pub const Assets = struct {
         .wgsl_source = @embedFile("shaders/scene_pbr_lit.wgsl"),
         .vertex_layout = .pos3_norm_tangent_uv2,
         .binding_mode = .material_scene_env,
-    },
-    color_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/ui_color.wgsl"),
-    },
-    sky_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/sky_panorama_hdr.wgsl"),
-        .vertex_layout = .pos3_uv2,
-        .binding_mode = .material_scene,
-    },
-    sky_procedural_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/sky_procedural.wgsl"),
-        .vertex_layout = .pos3_uv2,
-        .binding_mode = .material_scene,
     },
     lion_fire_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/lion_fire_particles.wgsl"),

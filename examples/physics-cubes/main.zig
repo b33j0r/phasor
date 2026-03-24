@@ -60,10 +60,16 @@ fn nativeMain(init: std.process.Init) !u8 {
 
 pub const main = if (is_wasm) platform.main(App) else nativeMain;
 
-fn setupScene(commands: *ecs.Commands, demo_assets: Res(Assets)) !void {
+fn setupScene(
+    commands: *ecs.Commands,
+    build_ctx: ResMut(render.BuildContext),
+    demo_assets: Res(Assets),
+    core_shaders: ResMut(render.CoreShaders),
+) !void {
     const assets_ptr = demo_assets.ptr;
+    try build_ctx.ptr.ensureCoreColorPos3Color4Shader(&core_shaders.ptr.color_pos3_color4);
     if (!assets_ptr.cube_mesh.handle.isValid()) return error.CubeMeshMissing;
-    if (!assets_ptr.cube_shader.handle.isValid()) return error.CubeShaderMissing;
+    if (!core_shaders.ptr.color_pos3_color4.isValid()) return error.CoreColorShaderMissing;
 
     try commands.insertResource(SpawnState.init(0xC0B_E123));
     try commands.insertResource(ClearColor{ .color = Color.rgb(18, 24, 34) });
@@ -77,7 +83,7 @@ fn setupScene(commands: *ecs.Commands, demo_assets: Res(Assets)) !void {
         },
     );
 
-    const cube_material = render.Material.withShader(assets_ptr.cube_shader.handle);
+    const cube_material = render.Material.withShader(core_shaders.ptr.color_pos3_color4);
 
     _ = try commands.createEntity(.{
         Transform{
@@ -122,6 +128,7 @@ fn spawnCubes(
     dt: Res(DeltaTime),
     spawn_state: ResMut(SpawnState),
     demo_assets: Res(Assets),
+    core_shaders: Res(render.CoreShaders),
 ) !void {
     if (spawn_state.ptr.spawned >= g_demo_config.cube_count) return;
 
@@ -130,11 +137,16 @@ fn spawnCubes(
 
     while (spawn_state.ptr.accumulator >= 1.0 and spawn_state.ptr.spawned < g_demo_config.cube_count) {
         spawn_state.ptr.accumulator -= 1.0;
-        try spawnCube(commands, spawn_state.ptr, demo_assets.ptr);
+        try spawnCube(commands, spawn_state.ptr, demo_assets.ptr, core_shaders.ptr.color_pos3_color4);
     }
 }
 
-fn spawnCube(commands: *ecs.Commands, spawn_state: *SpawnState, demo_assets: *const Assets) !void {
+fn spawnCube(
+    commands: *ecs.Commands,
+    spawn_state: *SpawnState,
+    demo_assets: *const Assets,
+    color_shader: render.ShaderHandle,
+) !void {
     const rand = spawn_state.prng.random();
     const stack_layer = spawn_state.spawned / 16;
     const layer_y = 8.0 + @as(f32, @floatFromInt(stack_layer)) * 1.35;
@@ -152,7 +164,7 @@ fn spawnCube(commands: *ecs.Commands, spawn_state: *SpawnState, demo_assets: *co
         },
         render.MeshInstance{
             .mesh_handle = demo_assets.cube_mesh.handle,
-            .material = render.Material.withShader(demo_assets.cube_shader.handle),
+            .material = render.Material.withShader(color_shader),
             .color = color,
         },
         render.Layer(0){},
@@ -235,9 +247,6 @@ const Assets = struct {
     cube_mesh: assets.Mesh = .{
         .pos3_color_vertices = cube_vertices[0..],
         .indices = cube_indices[0..],
-    },
-    cube_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/cube_color.wgsl"),
     },
 };
 

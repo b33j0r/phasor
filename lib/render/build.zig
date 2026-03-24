@@ -75,6 +75,42 @@ pub const BuildContext = struct {
         return self.shader_library.addShader(shader);
     }
 
+    pub fn ensureCoreColorPos3Color4Shader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
+        if (handle.isValid()) return;
+        handle.* = try self.createShader(.{
+            .wgsl = @embedFile("shaders/core_color_pos3_color4.wgsl"),
+            .vertex_layout = .pos3_color4,
+            .binding_mode = .none,
+        });
+    }
+
+    pub fn ensureCoreSimpleShadowLitShader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
+        if (handle.isValid()) return;
+        handle.* = try self.createShader(.{
+            .wgsl = @embedFile("shaders/core_simple_shadow_lit.wgsl"),
+            .vertex_layout = .pos3_norm_uv2,
+            .binding_mode = .material_scene,
+        });
+    }
+
+    pub fn ensureCoreSkyProceduralShader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
+        if (handle.isValid()) return;
+        handle.* = try self.createShader(.{
+            .wgsl = @embedFile("shaders/core_sky_procedural.wgsl"),
+            .vertex_layout = .pos3_uv2,
+            .binding_mode = .material_scene,
+        });
+    }
+
+    pub fn ensureCoreSkyPanoramaHdrShader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
+        if (handle.isValid()) return;
+        handle.* = try self.createShader(.{
+            .wgsl = @embedFile("shaders/core_sky_panorama_hdr.wgsl"),
+            .vertex_layout = .pos3_uv2,
+            .binding_mode = .material_scene,
+        });
+    }
+
     pub fn destroyShader(self: *const BuildContext, handle: mesh.ShaderHandle) bool {
         return self.shader_library.destroyShader(self.renderer, handle);
     }

@@ -56,9 +56,15 @@ const App = struct {
 
 pub const main = platform.main(App);
 
-fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), res_scene_assets: ResMut(Assets)) !void {
+fn setupScene(
+    commands: *ecs.Commands,
+    build_ctx: ResMut(render.BuildContext),
+    res_scene_assets: ResMut(Assets),
+    core_shaders: ResMut(render.CoreShaders),
+) !void {
     const render_build = build_ctx.deref();
     const scene_assets = res_scene_assets.deref();
+    try build_ctx.ptr.ensureCoreColorPos3Color4Shader(&core_shaders.ptr.color_pos3_color4);
 
     if (!scene_assets.floor_tex.material_handle.isValid()) return error.FloorTextureMissing;
     if (!scene_assets.wall_tex.material_handle.isValid()) return error.WallTextureMissing;
@@ -66,7 +72,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), r
     if (!scene_assets.crate_tex.material_handle.isValid()) return error.CrateTextureMissing;
     if (!scene_assets.panorama_tex.material_handle.isValid()) return error.PanoramaTextureMissing;
     if (scene_assets.music.bytesSlice() == null) return error.MusicMissing;
-    if (!scene_assets.color_shader.handle.isValid()) return error.ColorShaderMissing;
+    if (!core_shaders.ptr.color_pos3_color4.isValid()) return error.CoreColorShaderMissing;
 
     try commands.insertResource(ClearColor{ .color = Color.rgb(13, 15, 20) });
     try commands.insertResource(MouseCapture{ .enabled = true });
@@ -76,7 +82,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), r
 
     try spawnWarehouseShell(commands, render_build, scene_assets);
     try spawnWarehouseProps(commands, render_build, scene_assets);
-    try spawnWarehousePrimitives(commands, cyl_mesh, sphere_mesh, scene_assets);
+    try spawnWarehousePrimitives(commands, cyl_mesh, sphere_mesh, core_shaders.ptr.color_pos3_color4);
 
     _ = try commands.createEntity(.{
         Transform{
@@ -313,9 +319,9 @@ fn spawnWarehousePrimitives(
     commands: *ecs.Commands,
     cylinder_mesh: MeshHandle,
     sphere_mesh: MeshHandle,
-    scene_assets: *const Assets,
+    color_shader: render.ShaderHandle,
 ) !void {
-    const shader_material = render.Material.withShader(scene_assets.color_shader.handle);
+    const shader_material = render.Material.withShader(color_shader);
 
     _ = try commands.createEntity(.{
         Transform{
@@ -783,9 +789,6 @@ const Assets = struct {
     panorama_tex: assets.Texture = assets.Texture.embedded(@embedFile("assets/textures/panorama_autumn_field_puresky.jpg")).asBlended().equirectangularLinear(),
     music: assets.Sound = .{
         .data = @embedFile("assets/music/Programmed it on my own.mp3"),
-    },
-    color_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/cube_color.wgsl"),
     },
 };
 

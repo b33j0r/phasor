@@ -8,7 +8,6 @@ pub fn setupColorGrading(commands: *ecs.Commands) !void {
 pub fn setupLighting(
     commands: *ecs.Commands,
     scene_ready: ResOpt(SceneReady),
-    scene_metrics: ResOpt(SceneMetrics),
     scene_assets: ResOpt(Assets),
 ) !void {
     if (commands.hasResource(LightingReady)) return;
@@ -16,8 +15,8 @@ pub fn setupLighting(
     const assets = scene_assets.ptr orelse return;
     if (!assets.sky_panorama.texture_handle.isValid()) return;
 
-    const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
-        scene_metrics_res.scene_size
+    const scene_size = if (commands.getResource(SceneSpawnPlan)) |spawn_plan|
+        spawn_plan.scene_size
     else
         Vec3{ .x = 40.0, .y = 20.0, .z = 40.0 };
 
@@ -122,6 +121,7 @@ pub fn setupSkyCycle(
     commands: *ecs.Commands,
     scene_ready: ResOpt(SceneReady),
     scene_assets: ResOpt(Assets),
+    core_shaders: ResOpt(render.CoreShaders),
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
 ) !void {
     if (scene_ready.ptr == null) return;
@@ -136,15 +136,15 @@ pub fn setupSkyCycle(
         .panorama_ambient = ambient.*,
         .panorama_environment = environment.*,
     });
-    if (scene_assets.ptr) |assets| {
-        applySkyVisualMode(panorama_faces, assets, .panorama);
-    }
+    const assets = scene_assets.ptr orelse return;
+    if (core_shaders.ptr) |shaders| applySkyVisualMode(panorama_faces, shaders, assets, .panorama);
     try commands.insertResource(SkyCycleReady{});
 }
 
 pub fn toggleSkyModeInput(
     keyboard_opt: ResOpt(Keyboard),
     commands: *ecs.Commands,
+    core_shaders: ResOpt(render.CoreShaders),
     scene_assets: ResOpt(Assets),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
@@ -153,6 +153,7 @@ pub fn toggleSkyModeInput(
     const keyboard = keyboard_opt.ptr orelse return;
     if (!keyboard.isKeyPressed(.h)) return;
 
+    const shaders = core_shaders.ptr orelse return;
     const assets = scene_assets.ptr orelse return;
     const state = commands.getResourceMut(SkyCycleState) orelse return;
     state.mode = switch (state.mode) {
@@ -161,9 +162,9 @@ pub fn toggleSkyModeInput(
     };
 
     switch (state.mode) {
-        .procedural => applySkyVisualMode(panorama_faces, assets, .procedural),
+        .procedural => applySkyVisualMode(panorama_faces, shaders, assets, .procedural),
         .panorama => {
-            applySkyVisualMode(panorama_faces, assets, .panorama);
+            applySkyVisualMode(panorama_faces, shaders, assets, .panorama);
             if (state.panorama_ambient) |ambient| try commands.insertResource(ambient);
             if (state.panorama_environment) |environment| try commands.insertResource(environment);
         },
@@ -342,12 +343,13 @@ pub fn animateLights(
 
 fn applySkyVisualMode(
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
+    core_shaders: *const render.CoreShaders,
     scene_assets: *const Assets,
     mode: SkyMode,
 ) void {
     const shader = switch (mode) {
-        .procedural => scene_assets.sky_procedural_shader.handle,
-        .panorama => scene_assets.sky_shader.handle,
+        .procedural => core_shaders.sky_procedural,
+        .panorama => core_shaders.sky_panorama_hdr,
     };
     const material = switch (mode) {
         .procedural => scene_assets.sky_moon_overlay.material,
@@ -463,8 +465,8 @@ const Color = common.Color;
 const DeltaTime = modules.TimeModule.DeltaTime;
 const Keyboard = modules.InputModule.Keyboard;
 const LightingReady = shared.LightingReady;
-const SceneMetrics = shared.SceneMetrics;
 const SceneReady = shared.SceneReady;
+const SceneSpawnPlan = shared.SceneSpawnPlan;
 const SkyCycleReady = shared.SkyCycleReady;
 const SkyCycleState = shared.SkyCycleState;
 const SkyMode = shared.SkyMode;
