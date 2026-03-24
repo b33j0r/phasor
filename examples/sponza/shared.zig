@@ -33,7 +33,6 @@ pub const SkyCycleState = struct {
     mode: SkyMode = .procedural,
     day_night: DayNightSettings = .{},
     weather: WeatherSettings = .{},
-    simulation_seconds: f32 = 0.0,
     panorama_environment: ?lighting.EnvironmentLight = null,
     panorama_ambient: ?lighting.AmbientLight = null,
 };

@@ -172,7 +172,7 @@ pub fn toggleSkyModeInput(
 }
 
 pub fn updateDayNightWeather(
-    dt: Res(DeltaTime),
+    elapsed: Res(ElapsedTime),
     cycle_state: ResMut(SkyCycleState),
     ambient_opt: ResMut(lighting.AmbientLight),
     environment_opt: ResMut(lighting.EnvironmentLight),
@@ -180,15 +180,12 @@ pub fn updateDayNightWeather(
     directional_lights: Query(.{ Transform, lighting.Light, lighting.LightVisibility }),
 ) void {
     const state = cycle_state.ptr;
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
     if (state.mode != .procedural) return;
     const ambient = ambient_opt.ptr;
     const environment = environment_opt.ptr;
     const base_ambient = state.panorama_ambient orelse ambient.*;
     const base_environment = state.panorama_environment orelse environment.*;
-
-    const step: f32 = @floatCast(std.math.clamp(dt.ptr.seconds, 0.0, 0.1));
-    state.simulation_seconds += step;
-    const t = state.simulation_seconds;
     const day_length = @max(30.0, state.day_night.day_length_seconds);
     const start_phase = state.day_night.start_hour / 24.0;
     const day_phase = fract(start_phase + t / day_length);
@@ -276,12 +273,13 @@ pub fn updateDayNightWeather(
 }
 
 pub fn updateProceduralSkyMeshParams(
+    elapsed: Res(ElapsedTime),
     cycle_state: ResOpt(SkyCycleState),
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
 ) void {
     const state = cycle_state.ptr orelse return;
     var it = panorama_faces.iterator();
-    const t = state.simulation_seconds;
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
     const weather_phase = (t / @max(20.0, state.weather.weather_cycle_seconds)) * (2.0 * std.math.pi);
     const raw_coverage = state.weather.cloud_coverage +
         0.26 * std.math.sin(weather_phase * 0.43) +
@@ -310,11 +308,10 @@ pub fn updateProceduralSkyMeshParams(
 }
 
 pub fn animateLights(
-    cycle_state: ResOpt(SkyCycleState),
+    elapsed: Res(ElapsedTime),
     animated_lights: Query(.{ Transform, lighting.Light, AnimatedLight }),
 ) void {
-    const state = cycle_state.ptr orelse return;
-    const t = state.simulation_seconds;
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
 
     var it = animated_lights.iterator();
     while (it.next()) |row| {
@@ -462,7 +459,7 @@ const ResOpt = ecs.system_params.ResOpt;
 const Assets = shared.Assets;
 const AnimatedLight = shared.AnimatedLight;
 const Color = common.Color;
-const DeltaTime = modules.TimeModule.DeltaTime;
+const ElapsedTime = modules.TimeModule.ElapsedTime;
 const Keyboard = modules.InputModule.Keyboard;
 const LightingReady = shared.LightingReady;
 const SceneReady = shared.SceneReady;

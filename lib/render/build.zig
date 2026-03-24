@@ -6,6 +6,7 @@ else
 const mesh = @import("mesh.zig");
 const post_process = @import("post_process.zig");
 const text = @import("text.zig");
+const core_shaders = @import("core_shaders.zig");
 
 pub const BuildContext = struct {
     allocator: std.mem.Allocator,
@@ -78,7 +79,7 @@ pub const BuildContext = struct {
     pub fn ensureCoreColorPos3Color4Shader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
         if (handle.isValid()) return;
         handle.* = try self.createShader(.{
-            .wgsl = @embedFile("shaders/core_color_pos3_color4.wgsl"),
+            .wgsl = core_shaders.color_pos3_color4_wgsl,
             .vertex_layout = .pos3_color4,
             .binding_mode = .none,
         });
@@ -87,7 +88,7 @@ pub const BuildContext = struct {
     pub fn ensureCoreSimpleShadowLitShader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
         if (handle.isValid()) return;
         handle.* = try self.createShader(.{
-            .wgsl = @embedFile("shaders/core_simple_shadow_lit.wgsl"),
+            .wgsl = core_shaders.simple_shadow_lit_wgsl,
             .vertex_layout = .pos3_norm_uv2,
             .binding_mode = .material_scene,
         });
@@ -96,7 +97,7 @@ pub const BuildContext = struct {
     pub fn ensureCoreSkyProceduralShader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
         if (handle.isValid()) return;
         handle.* = try self.createShader(.{
-            .wgsl = @embedFile("shaders/core_sky_procedural.wgsl"),
+            .wgsl = core_shaders.sky_procedural_wgsl,
             .vertex_layout = .pos3_uv2,
             .binding_mode = .material_scene,
         });
@@ -105,7 +106,7 @@ pub const BuildContext = struct {
     pub fn ensureCoreSkyPanoramaHdrShader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
         if (handle.isValid()) return;
         handle.* = try self.createShader(.{
-            .wgsl = @embedFile("shaders/core_sky_panorama_hdr.wgsl"),
+            .wgsl = core_shaders.sky_panorama_hdr_wgsl,
             .vertex_layout = .pos3_uv2,
             .binding_mode = .material_scene,
         });

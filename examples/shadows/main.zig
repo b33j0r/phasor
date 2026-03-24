@@ -76,16 +76,16 @@ fn setupScene(
     const sun_direction = (Vec3{ .x = -0.72, .y = 0.46, .z = -0.52 }).normalize();
     const light_forward = sun_direction.scale(-1.0);
     const player_spawn = Vec3{ .x = 9.0, .y = 0.9, .z = 14.5 };
-    const camera_target = Vec3{ .x = 0.0, .y = 2.0, .z = 0.0 };
-    const look_direction = camera_target.sub(player_spawn).normalize();
-    const player_yaw = std.math.atan2(look_direction.x, -look_direction.z);
-    const player_pitch = std.math.asin(std.math.clamp(look_direction.y, -1.0, 1.0));
-    const player_controller = FpsController{
-        .yaw = player_yaw,
-        .pitch = player_pitch,
+    const pillar_center = Vec3{ .x = 0.0, .y = 4.0, .z = 0.0 };
+    var player_controller = FpsController{
         .fly_toggle_enabled = true,
         .fly_speed_multiplier = 1.0,
     };
+    const camera_spawn = player_spawn.add(FpsPhysics.cameraOffset(player_controller));
+    const look_angles = Quat.yawPitchFromForward(pillar_center.sub(camera_spawn));
+    player_controller.yaw = look_angles.yaw;
+    player_controller.pitch = look_angles.pitch;
+    const look_rotation = Quat.lookAt(camera_spawn, pillar_center, .{ .x = 0.0, .y = 1.0, .z = 0.0 });
 
     if (!scene_assets.floor_tex.material_handle.isValid()) return error.FloorTextureMissing;
     if (!scene_assets.pillar_tex.material_handle.isValid()) return error.PillarTextureMissing;
@@ -95,6 +95,7 @@ fn setupScene(
 
     try commands.insertResource(DayNightCycle{});
     try commands.insertResource(render.SceneStatsMode{ .enabled = true });
+    try modules.TimeModule.setPaused(commands, false);
     try commands.insertResource(ClearColor{ .color = Color.rgb(145, 190, 235) });
     try commands.insertResource(MouseCapture{ .enabled = true });
     try commands.insertResource(lighting.AmbientLight{
@@ -163,7 +164,7 @@ fn setupScene(
     const pillar_mesh = try createBoxMesh(build, .{ .x = 1.25, .y = 4.0, .z = 1.25 }, 1.0, 1.0);
     _ = try commands.createEntity(.{
         Transform{
-            .translation = .{ .x = 0.0, .y = 4.0, .z = 0.0 },
+            .translation = pillar_center,
         },
         MeshInstance{
             .mesh_handle = pillar_mesh,
@@ -173,7 +174,7 @@ fn setupScene(
         },
         render.Layer(0){},
     });
-    try addStaticCollider(commands, .{ .x = 0.0, .y = 4.0, .z = 0.0 }, .{ .x = 1.25, .y = 4.0, .z = 1.25 });
+    try addStaticCollider(commands, pillar_center, .{ .x = 1.25, .y = 4.0, .z = 1.25 });
 
     _ = try commands.createEntity(.{
         Transform{
@@ -194,7 +195,7 @@ fn setupScene(
         player_controller,
         Transform{
             .translation = player_spawn,
-            .rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, player_yaw),
+            .rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, look_angles.yaw),
         },
         physics.Character{},
         physics.Collider{
@@ -215,7 +216,7 @@ fn setupScene(
         PlayerCamera{},
         Transform{
             .translation = player_spawn.add(FpsPhysics.cameraOffset(player_controller)),
-            .rotation = quatFromEuler(player_pitch, player_yaw, 0.0),
+            .rotation = look_rotation,
         },
         Camera3d{ .Perspective = .{
             .fov = std.math.pi / 3.0,
@@ -243,11 +244,13 @@ fn updateMouseCaptureToggle(
 
     if (keyboard.isKeyPressed(.escape)) {
         capture.enabled = false;
+        try modules.TimeModule.setPaused(commands, true);
         try commands.insertResource(capture);
         return;
     }
     if (keyboard.isKeyPressed(.enter)) {
         capture.enabled = true;
+        try modules.TimeModule.setPaused(commands, false);
         try commands.insertResource(capture);
     }
 }

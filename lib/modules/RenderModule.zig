@@ -212,28 +212,28 @@ fn ensureCoreShaders(commands: *Commands) !void {
     var core = render.CoreShaders{};
 
     core.color_pos3_color4 = try createCoreShader(&state.renderer, shader_library, .{
-        .wgsl = @embedFile("render/shaders/core_color_pos3_color4.wgsl"),
+        .wgsl = render.CoreShaderSources.color_pos3_color4_wgsl,
         .vertex_layout = .pos3_color4,
         .binding_mode = .none,
     });
     errdefer _ = shader_library.destroyShader(&state.renderer, core.color_pos3_color4);
 
     core.simple_shadow_lit = try createCoreShader(&state.renderer, shader_library, .{
-        .wgsl = @embedFile("render/shaders/core_simple_shadow_lit.wgsl"),
+        .wgsl = render.CoreShaderSources.simple_shadow_lit_wgsl,
         .vertex_layout = .pos3_norm_uv2,
         .binding_mode = .material_scene,
     });
     errdefer _ = shader_library.destroyShader(&state.renderer, core.simple_shadow_lit);
 
     core.sky_procedural = try createCoreShader(&state.renderer, shader_library, .{
-        .wgsl = @embedFile("render/shaders/core_sky_procedural.wgsl"),
+        .wgsl = render.CoreShaderSources.sky_procedural_wgsl,
         .vertex_layout = .pos3_uv2,
         .binding_mode = .material_scene,
     });
     errdefer _ = shader_library.destroyShader(&state.renderer, core.sky_procedural);
 
     core.sky_panorama_hdr = try createCoreShader(&state.renderer, shader_library, .{
-        .wgsl = @embedFile("render/shaders/core_sky_panorama_hdr.wgsl"),
+        .wgsl = render.CoreShaderSources.sky_panorama_hdr_wgsl,
         .vertex_layout = .pos3_uv2,
         .binding_mode = .material_scene,
     });

@@ -119,6 +119,7 @@ pub const Triangle = backend.Triangle;
 pub const TexturedQuad = backend.TexturedQuad;
 pub const DrawCmd = backend.DrawCmd;
 pub const BuildContext = @import("build.zig").BuildContext;
+pub const CoreShaderSources = @import("core_shaders.zig");
 pub const ColorGrade = @import("color_grading.zig").ColorGrade;
 pub const ColorGradingSettings = @import("color_grading.zig").ColorGradingSettings;
 pub const PostProcessShaderHandle = @import("post_process.zig").PostProcessShaderHandle;

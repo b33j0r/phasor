@@ -42,7 +42,7 @@ pub fn setupLionFire(
 }
 
 pub fn updateLionFire(
-    dt: Res(DeltaTime),
+    dt: Res(SimulationDeltaTime),
     elapsed: Res(ElapsedTime),
     commands: *ecs.Commands,
     cameras: Query(.{ Transform, PlayerCamera }),
@@ -286,8 +286,8 @@ const Res = ecs.system_params.Res;
 const ResOpt = ecs.system_params.ResOpt;
 
 const Assets = shared.Assets;
-const DeltaTime = modules.TimeModule.DeltaTime;
 const ElapsedTime = modules.TimeModule.ElapsedTime;
+const SimulationDeltaTime = modules.TimeModule.SimulationDeltaTime;
 const PlayerCamera = shared.PlayerCamera;
 const Quat = common.Quat;
 const SceneReady = shared.SceneReady;

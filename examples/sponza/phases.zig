@@ -11,6 +11,7 @@ pub const Loading = struct {
         defer commands.deinit();
         try loading.ensureSceneLoader(&commands);
         try lighting.setupColorGrading(&commands);
+        try modules.TimeModule.setPaused(&commands, false);
         if (!commands.isEmpty()) {
             try commands.apply();
         }
@@ -111,6 +112,7 @@ pub const Playing = struct {
         var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
         defer commands.deinit();
         try commands.insertResource(MouseCapture{ .enabled = true });
+        try modules.TimeModule.setPaused(&commands, false);
         if (!commands.isEmpty()) {
             try commands.apply();
         }
@@ -127,6 +129,7 @@ pub const Paused = struct {
         var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
         defer commands.deinit();
         try commands.insertResource(MouseCapture{ .enabled = false });
+        try modules.TimeModule.setPaused(&commands, true);
         if (!commands.isEmpty()) {
             try commands.apply();
         }
