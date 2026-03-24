@@ -229,7 +229,7 @@ pub const Assets = struct {
     scene_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/scene_pbr_lit.wgsl"),
         .vertex_layout = .pos3_norm_tangent_uv2,
-        .binding_mode = .material_scene,
+        .binding_mode = .material_scene_env,
     },
     color_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/ui_color.wgsl"),

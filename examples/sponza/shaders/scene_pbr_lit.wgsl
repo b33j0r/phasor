@@ -49,10 +49,12 @@ struct VertexOut {
 
 @group(0) @binding(0) var mesh_sampler: sampler;
 @group(0) @binding(1) var mesh_texture: texture_2d<f32>;
-@group(0) @binding(2) var<uniform> scene: SceneUniforms;
-@group(0) @binding(3) var metallic_roughness_texture: texture_2d<f32>;
-@group(0) @binding(4) var occlusion_texture: texture_2d<f32>;
-@group(0) @binding(5) var normal_texture: texture_2d<f32>;
+@group(0) @binding(2) var metallic_roughness_texture: texture_2d<f32>;
+@group(0) @binding(3) var occlusion_texture: texture_2d<f32>;
+@group(0) @binding(4) var normal_texture: texture_2d<f32>;
+@group(1) @binding(0) var<uniform> scene: SceneUniforms;
+@group(1) @binding(1) var environment_sampler: sampler;
+@group(1) @binding(2) var environment_texture: texture_2d<f32>;
 
 fn saturate(value: f32) -> f32 {
     return clamp(value, 0.0, 1.0);
@@ -222,22 +224,18 @@ fn environmentBrdfApprox(roughness: f32, ndotv: f32) -> vec2<f32> {
     return vec2<f32>(-1.04, 1.04) * a004 + r.zw;
 }
 
-fn approximateEnvironmentSpecularColor(
-    reflection: vec3<f32>,
-    normal: vec3<f32>,
-    roughness: f32,
-    ndotv: f32,
-) -> vec3<f32> {
-    let dominant_dir = normalize(scene.environment_dominant_direction.xyz);
-    let dominant_alignment = saturate(dot(reflection, dominant_dir));
-    let dominant_facing = saturate(dot(normal, dominant_dir) * 0.5 + 0.5);
-    let smoothness = 1.0 - roughness;
-    let dominant_weight = smoothness * smoothness;
-    let dominant_lobe = pow(dominant_alignment, mix(24.0, 4.0, roughness));
-    let low_frequency_color = evaluateIrradiance(reflection);
-    let dominant_color = scene.environment_dominant_color.rgb * dominant_lobe * dominant_facing;
-    let grazing_damp = mix(0.35, 1.0, ndotv * ndotv);
-    return mix(low_frequency_color, dominant_color, dominant_weight) * grazing_damp;
+fn environmentUv(direction: vec3<f32>) -> vec2<f32> {
+    let dir = normalize(direction);
+    let u = atan2(dir.x, dir.z) * (0.5 / PI) + 0.5;
+    let v = 0.5 - asin(clamp(dir.y, -1.0, 1.0)) / PI;
+    return vec2<f32>(u, v);
+}
+
+fn samplePrefilteredEnvironment(reflection: vec3<f32>, roughness: f32) -> vec3<f32> {
+    let level_count = textureNumLevels(environment_texture);
+    let max_lod = max(f32(level_count) - 1.0, 0.0);
+    let lod = roughness * max_lod;
+    return textureSampleLevel(environment_texture, environment_sampler, environmentUv(reflection), lod).rgb;
 }
 
 fn distributionGGX(n: vec3<f32>, h: vec3<f32>, roughness: f32) -> f32 {
@@ -282,6 +280,10 @@ fn inverseMat3(m: mat3x3<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(r0 * inv_det, r1 * inv_det, r2 * inv_det);
 }
 
+fn determinantMat3(m: mat3x3<f32>) -> f32 {
+    return dot(m[0], cross(m[1], m[2]));
+}
+
 fn sampleSceneNormal(
     geometric_normal: vec3<f32>,
     world_tangent: vec4<f32>,
@@ -290,9 +292,10 @@ fn sampleSceneNormal(
 ) -> vec3<f32> {
     let mapped = textureSample(normal_texture, mesh_sampler, uv).xyz * 2.0 - vec3<f32>(1.0, 1.0, 1.0);
     let tangent_space = normalize(vec3<f32>(mapped.xy * normal_scale, mapped.z));
-    let tangent = normalize(world_tangent.xyz);
-    let bitangent = normalize(cross(geometric_normal, tangent)) * world_tangent.w;
-    let tbn = mat3x3<f32>(tangent, bitangent, geometric_normal);
+    let normal = normalize(geometric_normal);
+    let tangent = normalize(world_tangent.xyz - normal * dot(normal, world_tangent.xyz));
+    let bitangent = normalize(cross(normal, tangent)) * world_tangent.w;
+    let tbn = mat3x3<f32>(tangent, bitangent, normal);
     return normalize(tbn * tangent_space);
 }
 
@@ -300,15 +303,17 @@ fn sampleSceneNormal(
 fn vs_main(input: VertexIn) -> VertexOut {
     let clip_model = mat4x4<f32>(input.clip0, input.clip1, input.clip2, input.clip3);
     let model = mat4x4<f32>(input.model0, input.model1, input.model2, input.model3);
-    let normal_matrix = transpose(inverseMat3(mat3x3<f32>(
+    let model3 = mat3x3<f32>(
         model[0].xyz,
         model[1].xyz,
         model[2].xyz,
-    )));
+    );
+    let normal_matrix = transpose(inverseMat3(model3));
+    let model_handedness = select(-1.0, 1.0, determinantMat3(model3) >= 0.0);
     let clip_position = clip_model * vec4<f32>(input.position, 1.0);
     let world_position = model * vec4<f32>(input.position, 1.0);
     let world_normal = normalize(normal_matrix * input.normal);
-    let world_tangent = vec4<f32>(normalize(normal_matrix * input.tangent.xyz), input.tangent.w);
+    let world_tangent = vec4<f32>(normalize(normal_matrix * input.tangent.xyz), input.tangent.w * model_handedness);
 
     var out: VertexOut;
     out.position = clip_position;
@@ -407,12 +412,10 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     }
 
     let reflection = reflect(-view_dir, normal);
-    let prefiltered_env = approximateEnvironmentSpecularColor(reflection, normal, roughness, ndotv);
+    let prefiltered_env = samplePrefilteredEnvironment(reflection, roughness);
     let env_brdf = environmentBrdfApprox(roughness, ndotv);
-    // Damped because we currently approximate a prefiltered env cubemap using
-    // low-frequency irradiance plus a soft dominant-direction lobe.
     let env_specular_enabled = f32(scene.environment_flags.x);
-    let env_specular = prefiltered_env * (env_fresnel * env_brdf.x + vec3<f32>(env_brdf.y)) * scene.exposure_settings.w * 0.06 * env_specular_enabled;
+    let env_specular = prefiltered_env * (env_fresnel * env_brdf.x + vec3<f32>(env_brdf.y)) * scene.exposure_settings.w * env_specular_enabled;
     let specular_only = direct_specular + env_specular;
     let debug_view = scene.debug_view.x;
     if (debug_view == 1u) {

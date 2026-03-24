@@ -188,7 +188,7 @@ pub const Texture = struct {
                 self.width = image.width;
                 self.height = image.height;
 
-                const texture = try renderer.createTextureRgba16Float(self.width, self.height, image.data);
+                const texture = try renderer.createTextureRgba16FloatMipmapped(self.width, self.height, image.data);
                 errdefer {
                     var t = texture;
                     renderer.destroyTexture(&t);

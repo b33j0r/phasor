@@ -15,6 +15,7 @@ pub fn renderSystem(
     shadow_settings_opt: ResOpt(types.ShadowSettings),
     shadow_mode_opt: ResOpt(render.ShadowMode),
     environment_specular_mode_opt: ResOpt(render.EnvironmentSpecularMode),
+    scene_environment_map_opt: ResOpt(render.SceneEnvironmentMap),
     debug_view_opt: ResOpt(render.SceneDebugView),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
@@ -22,8 +23,21 @@ pub fn renderSystem(
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
     const post_process_shader_library = commands.getResourceMut(render.PostProcessShaderLibrary) orelse return;
+    const texture_library = commands.getResourceMut(render.TextureLibrary) orelse return;
     const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
     const extracted_lighting = commands.getResource(types.ExtractedSceneLighting) orelse return;
+
+    const scene_environment_handle = if (scene_environment_map_opt.ptr) |map| map.texture_handle else render.TextureHandle.invalid();
+    if (!scene_environment_handle.isValid()) {
+        if (state.current_scene_environment.isValid()) {
+            try state.renderer.resetSceneEnvironment();
+            state.current_scene_environment = render.TextureHandle.invalid();
+        }
+    } else if (!textureHandleEqual(scene_environment_handle, state.current_scene_environment)) {
+        const environment_texture = texture_library.get(scene_environment_handle) orelse return error.MissingTexture;
+        try state.renderer.setSceneEnvironment(environment_texture.*);
+        state.current_scene_environment = scene_environment_handle;
+    }
 
     const surface_size = if (framebuffer_opt.ptr) |bounds|
         render.Size{
@@ -195,6 +209,10 @@ pub fn renderSystem(
             .{ .min_layer = processed_max_layer + 1 },
         );
     }
+}
+
+fn textureHandleEqual(a: render.TextureHandle, b: render.TextureHandle) bool {
+    return a.index == b.index and a.generation == b.generation;
 }
 
 fn resolveShadowSettings(
@@ -523,7 +541,7 @@ fn drawSceneLayers(
                                     .instance = gpu_instance,
                                 });
                             },
-                            .material_scene => {
+                            .material_scene, .material_scene_env => {
                                 const material = if (instance.material_handle) |handle|
                                     (material_library.get(handle) orelse continue).*
                                 else
@@ -659,7 +677,7 @@ fn drawSceneLayers(
                                     instance.material orelse default_material;
                                 frame.drawTexturedMeshesWithShader(mesh.*, material, shader.*, &[_]render.BackendMeshInstance{gpu_instance}, true);
                             },
-                            .material_scene => {
+                            .material_scene, .material_scene_env => {
                                 const material = if (instance.material_handle) |handle|
                                     (material_library.get(handle) orelse continue).*
                                 else

@@ -13,6 +13,7 @@ pub const RenderState = struct {
     shadow_shader_pos3_norm_uv2: render.ShadowShader,
     shadow_shader_pos3_norm_tangent_uv2: render.ShadowShader,
     shadow_shader_pos3_color4: render.ShadowShader,
+    current_scene_environment: render.TextureHandle = render.TextureHandle.invalid(),
     submit_scratch: SubmitScratch,
 
     pub fn deinit(self: *RenderState) void {

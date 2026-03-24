@@ -4,6 +4,7 @@ pub fn extractSystem(
     ambient_light: ResOpt(lighting.AmbientLight),
     environment_light: ResOpt(lighting.EnvironmentLight),
     exposure_settings: ResOpt(lighting.ExposureSettings),
+    normal_map_scale_opt: ResOpt(render.NormalMapScale),
     mesh_override_query: Query(.{ render.MeshInstance, common.Transform, render.LayerOverride }),
     mesh_zero_query: Query(.{ render.MeshInstance, common.Transform, render.Layer(0), Without(render.LayerOverride) }),
     mesh_unlayered_query: Query(.{ render.MeshInstance, common.Transform, Without(render.LayerN), Without(render.LayerOverride) }),
@@ -17,6 +18,10 @@ pub fn extractSystem(
 ) !void {
     queue.ptr.reset();
     extracted_lighting.ptr.* = .{};
+    const normal_scale_multiplier = if (normal_map_scale_opt.ptr) |scale|
+        @max(scale.multiplier, 0.0)
+    else
+        1.0;
     if (ambient_light.ptr) |ambient| {
         extracted_lighting.ptr.ambient_color = .{
             .r = ambient.color.r * ambient.intensity,
@@ -56,10 +61,10 @@ pub fn extractSystem(
     try extractTrianglesForRows(queue.ptr, triangle_unlayered_query, 0);
     try extractTrianglesForGroups(queue.ptr, triangle_layer_groups);
 
-    try extractMeshesForRows(queue.ptr, mesh_override_query, null);
-    try extractMeshesForRows(queue.ptr, mesh_zero_query, 0);
-    try extractMeshesForRows(queue.ptr, mesh_unlayered_query, 0);
-    try extractMeshesForGroups(queue.ptr, mesh_layer_groups);
+    try extractMeshesForRows(queue.ptr, mesh_override_query, normal_scale_multiplier, null);
+    try extractMeshesForRows(queue.ptr, mesh_zero_query, normal_scale_multiplier, 0);
+    try extractMeshesForRows(queue.ptr, mesh_unlayered_query, normal_scale_multiplier, 0);
+    try extractMeshesForGroups(queue.ptr, mesh_layer_groups, normal_scale_multiplier);
 }
 
 fn extractLights(store: *types.ExtractedSceneLighting, query: anytype, comptime has_visibility: bool) void {
@@ -125,24 +130,24 @@ fn extractTrianglesForGroups(queue: *render.RenderQueue, groups: GroupBy(render.
     }
 }
 
-fn extractMeshesForRows(queue: *render.RenderQueue, query: anytype, forced_layer: ?i32) !void {
+fn extractMeshesForRows(queue: *render.RenderQueue, query: anytype, normal_scale_multiplier: f32, forced_layer: ?i32) !void {
     var it = query.iterator();
     while (it.next()) |row| {
         const instance = row.get(render.MeshInstance) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
         const layer = forced_layer orelse layerKeyForRow(row);
         const sort_key = sortKeyForRow(row);
-        try queue.pushMeshInstance(instance.*, transform.toMat4(), layer, sort_key, row.entity_id);
+        try queue.pushMeshInstance(instance.*, transform.toMat4(), normal_scale_multiplier, layer, sort_key, row.entity_id);
     }
 }
 
-fn extractMeshesForGroups(queue: *render.RenderQueue, groups: GroupBy(render.LayerN)) !void {
+fn extractMeshesForGroups(queue: *render.RenderQueue, groups: GroupBy(render.LayerN), normal_scale_multiplier: f32) !void {
     var it = groups.iterator();
     while (it.next()) |group| {
         if (group.key == 0) continue;
         var rows = try group.query(.{ render.MeshInstance, common.Transform, Without(render.LayerOverride) });
         defer rows.deinit();
-        try extractMeshesForRows(queue, rows, group.key);
+        try extractMeshesForRows(queue, rows, normal_scale_multiplier, group.key);
     }
 }
 

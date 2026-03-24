@@ -9,9 +9,12 @@ pub fn setupLighting(
     commands: *ecs.Commands,
     scene_ready: ResOpt(SceneReady),
     scene_metrics: ResOpt(SceneMetrics),
+    scene_assets: ResOpt(Assets),
 ) !void {
     if (commands.hasResource(LightingReady)) return;
     if (scene_ready.ptr == null) return;
+    const assets = scene_assets.ptr orelse return;
+    if (!assets.sky_panorama.texture_handle.isValid()) return;
 
     const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
         scene_metrics_res.scene_size
@@ -38,6 +41,9 @@ pub fn setupLighting(
             .specular_strength = 0.03,
         },
     ));
+    try commands.insertResource(render.SceneEnvironmentMap{
+        .texture_handle = assets.sky_panorama.texture_handle,
+    });
 
     _ = try commands.createEntity(.{
         Transform{

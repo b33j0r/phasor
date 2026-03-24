@@ -201,6 +201,21 @@ pub fn toggleEnvironmentSpecularInput(
     try commands.insertResource(next);
 }
 
+pub fn cycleNormalMapScaleInput(
+    keyboard_opt: ResOpt(Keyboard),
+    commands: *ecs.Commands,
+    normal_map_scale_opt: ResOpt(render.NormalMapScale),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+) !void {
+    if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
+    const keyboard = keyboard_opt.ptr orelse return;
+    if (!keyboard.isKeyPressed(.n)) return;
+
+    var settings = if (normal_map_scale_opt.ptr) |scale| scale.* else render.NormalMapScale{};
+    settings.multiplier = nextNormalMapScale(settings.multiplier);
+    try commands.insertResource(settings);
+}
+
 pub fn updatePlayerCamera(
     players: Query(.{ Transform, FpsController, Player }),
     cameras: Query(.{ Transform, PlayerCamera }),
@@ -270,6 +285,7 @@ pub fn emitSponzaHudMetrics(
     lighting_stats: ResOpt(lighting.AuthoringStats),
     color_grading_opt: ResOpt(render.ColorGradingSettings),
     environment_specular_mode_opt: ResOpt(render.EnvironmentSpecularMode),
+    normal_map_scale_opt: ResOpt(render.NormalMapScale),
     debug_view_opt: ResOpt(render.SceneDebugView),
     players: Query(.{ Transform, FpsController, Player }),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
@@ -293,6 +309,7 @@ pub fn emitSponzaHudMetrics(
     const mesh_count: usize = if (imported_scene) |scene| scene.mesh_handles.len else 0;
     const color_grade: render.ColorGrade = if (color_grading_opt.ptr) |settings| settings.grade else .none;
     const environment_specular_mode = if (environment_specular_mode_opt.ptr) |mode| mode.* else render.EnvironmentSpecularMode.on;
+    const normal_map_scale = if (normal_map_scale_opt.ptr) |scale| scale.multiplier else 1.0;
     const debug_view = if (debug_view_opt.ptr) |view| view.* else render.SceneDebugView.off;
     const fly_mode_enabled = controller.fly_enabled;
 
@@ -316,9 +333,15 @@ pub fn emitSponzaHudMetrics(
             .on => 1,
             .off => 0,
         })),
+        .normal_map_scale = metrics.gauge(normal_map_scale),
         .scene_debug_view = metrics.gauge(@intFromEnum(debug_view)),
         .fly_mode = metrics.gauge(fly_mode_enabled),
     });
+}
+
+pub fn formatNormalMapScaleLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
+    const scale = if (ctx.store.get("normal_map_scale")) |sample| sample.value.asF64() else 1.0;
+    return std.fmt.bufPrint(out, "Normal Scale: {d:.1}x", .{scale}) catch "Normal Scale";
 }
 
 pub fn formatEnvironmentSpecularLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
@@ -540,6 +563,13 @@ fn nextColorGrade(grade: render.ColorGrade) render.ColorGrade {
         .agx => .pbr_neutral,
         .pbr_neutral => .none,
     };
+}
+
+fn nextNormalMapScale(current: f32) f32 {
+    if (current < 0.5) return 1.0;
+    if (current < 1.5) return 2.0;
+    if (current < 3.0) return 4.0;
+    return 0.0;
 }
 
 fn nextDebugView(view: render.SceneDebugView) render.SceneDebugView {

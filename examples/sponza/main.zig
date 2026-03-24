@@ -1,6 +1,7 @@
 pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 const sponza_metric_lines = [_]modules.MetricLine{
+    modules.lineFormat(-93, gameplay.formatNormalMapScaleLine),
     modules.lineFormat(-92, gameplay.formatEnvironmentSpecularLine),
     modules.lineFormat(-91, gameplay.formatDebugViewLine),
     modules.lineFormat(-90, gameplay.formatPlayerPositionLine),
@@ -14,7 +15,7 @@ const sponza_metric_lines = [_]modules.MetricLine{
     ),
     modules.withExtraText(
         modules.lineFormat(-78, gameplay.formatControlsModeLine),
-        "(F) Fly  (H) Sky  (C) Grade  (V) View  (B) EnvSpec  (M) Bookmark",
+        "(F) Fly  (H) Sky  (C) Grade  (V) View  (B) EnvSpec  (N) Normals  (M) Bookmark",
     ),
     modules.withExtraText(
         modules.lineFormat(-77, gameplay.formatControlsCaptureLine),
@@ -42,6 +43,7 @@ const App = struct {
         defer commands.deinit();
         try commands.insertResource(render.ShadowMode.off);
         try commands.insertResource(render.EnvironmentSpecularMode.on);
+        try commands.insertResource(render.NormalMapScale{ .multiplier = 1.0 });
         try commands.insertResource(render.SceneDebugView.off);
         if (!commands.isEmpty()) try commands.apply();
         try app.installModule(phases.SponzaPhases);

@@ -67,6 +67,12 @@ pub const EnvironmentSpecularMode = enum {
     on,
     off,
 };
+pub const SceneEnvironmentMap = struct {
+    texture_handle: TextureHandle = TextureHandle.invalid(),
+};
+pub const NormalMapScale = struct {
+    multiplier: f32 = 1.0,
+};
 pub const SceneDebugView = enum(u32) {
     off = 0,
     base_color = 1,
