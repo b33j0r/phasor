@@ -17,7 +17,7 @@ pub const SkyMode = enum {
 
 pub const DayNightSettings = struct {
     start_hour: f32 = 14.5,
-    day_length_seconds: f32 = 720.0,
+    day_length_seconds: f32 = 3600.0,
     latitude_deg: f32 = 47.0,
 };
 
@@ -33,6 +33,7 @@ pub const SkyCycleState = struct {
     mode: SkyMode = .procedural,
     day_night: DayNightSettings = .{},
     weather: WeatherSettings = .{},
+    simulation_seconds: f32 = 0.0,
     panorama_environment: ?lighting.EnvironmentLight = null,
     panorama_ambient: ?lighting.AmbientLight = null,
 };

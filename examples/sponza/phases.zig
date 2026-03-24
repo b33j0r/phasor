@@ -7,6 +7,23 @@ pub const SponzaPhase = union(enum) {
 
 pub const Loading = struct {
     pub fn enter(_: *Loading, ctx: *modules.PhasesModule.PhaseContext) !void {
+        var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
+        defer commands.deinit();
+        try loading.ensureSceneLoader(&commands);
+        try lighting.setupColorGrading(&commands);
+        if (!commands.isEmpty()) {
+            try commands.apply();
+        }
+
+        try ctx.addSystem(schedule.DefaultSchedule.BeforeFrame, loading.ensureSceneLoader);
+        try ctx.addSystem(schedule.DefaultSchedule.BeforeFrame, loading.ensureLoadingScreenVisuals);
+        try ctx.addSystem(schedule.DefaultSchedule.BeforeFrame, loading.drainSceneLoader);
+        try ctx.addSystem(schedule.DefaultSchedule.BeforeFrame, loading.advanceSceneFinalize);
+        try ctx.addSystem(schedule.DefaultSchedule.BeforeFrame, lighting.setupLighting);
+        try ctx.addSystem(schedule.DefaultSchedule.BeforeFrame, lighting.setupSkyCycle);
+        try ctx.addSystem(schedule.DefaultSchedule.BeforeFrame, particles.setupLionFire);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, loading.updateLoadingScreen);
+
         try ctx.world.insertResource(ClearColor{ .color = Color.BLACK });
 
         const db = ctx.world.dbMut();
@@ -54,8 +71,8 @@ pub const Loading = struct {
 };
 
 pub const InGame = union(enum) {
-    Playing: struct {},
-    Paused: struct {},
+    Playing: Playing,
+    Paused: Paused,
 
     pub fn enter(_: *InGame, ctx: *modules.PhasesModule.PhaseContext) !void {
         const db = ctx.world.dbMut();
@@ -67,12 +84,48 @@ pub const InGame = union(enum) {
             HudCameraTag{},
         });
         try ctx.world.insertResource(HudCameraState{ .camera_entity = camera_entity });
+
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.handlePhaseInput);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.cycleColorGradeInput);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.toggleSkyModeInput);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.updateDayNightWeather);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.updateProceduralSkyMeshParams);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.animateLights);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.emitSponzaHudMetrics);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.captureScreenshotInput);
     }
 
     pub fn exit(_: *InGame, ctx: *modules.PhasesModule.PhaseContext) !void {
         if (ctx.world.getResource(HudCameraState)) |state| {
             ctx.world.dbMut().removeEntity(state.camera_entity) catch {};
             _ = ctx.world.removeResource(HudCameraState);
+        }
+    }
+};
+
+pub const Playing = struct {
+    pub fn enter(_: *Playing, ctx: *modules.PhasesModule.PhaseContext) !void {
+        var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
+        defer commands.deinit();
+        try commands.insertResource(MouseCapture{ .enabled = true });
+        if (!commands.isEmpty()) {
+            try commands.apply();
+        }
+
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.spawnPlayerFromCollision);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.updatePlayerCamera);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, particles.updateLionFire);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.logPlayerBookmark);
+    }
+};
+
+pub const Paused = struct {
+    pub fn enter(_: *Paused, ctx: *modules.PhasesModule.PhaseContext) !void {
+        var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
+        defer commands.deinit();
+        try commands.insertResource(MouseCapture{ .enabled = false });
+        if (!commands.isEmpty()) {
+            try commands.apply();
         }
     }
 };
@@ -101,11 +154,17 @@ pub fn isPausedPhase(current_phase: ?*const SponzaPhases.CurrentPhase) bool {
 
 // Imports
 const phasor = @import("phasor");
+const gameplay = @import("gameplay.zig");
+const lighting = @import("lighting.zig");
+const loading = @import("loading.zig");
+const particles = @import("particles.zig");
 const shared = @import("shared.zig");
 
 const common = phasor.common;
+const ecs = phasor.ecs;
 const modules = phasor.modules;
 const render = phasor.renderer;
+const schedule = ecs.schedule;
 
 const Camera3d = common.Camera3d;
 const CameraLayer = render.CameraLayer;
@@ -117,4 +176,5 @@ const LoadingScreen = shared.LoadingScreen;
 const LoadingScreenState = shared.LoadingScreenState;
 const LoadingScreenText = shared.LoadingScreenText;
 const LoadingScreenVisualState = shared.LoadingScreenVisualState;
+const MouseCapture = modules.InputModule.MouseCapture;
 const Transform = common.Transform;

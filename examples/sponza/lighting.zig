@@ -160,21 +160,23 @@ pub fn toggleSkyModeInput(
 }
 
 pub fn updateDayNightWeather(
-    elapsed: Res(ElapsedTime),
-    cycle_state: ResOpt(SkyCycleState),
+    dt: Res(DeltaTime),
+    cycle_state: ResMut(SkyCycleState),
     ambient_opt: ResMut(lighting.AmbientLight),
     environment_opt: ResMut(lighting.EnvironmentLight),
     exposure_opt: ResMut(lighting.ExposureSettings),
     directional_lights: Query(.{ Transform, lighting.Light, lighting.LightVisibility }),
 ) void {
-    const state = cycle_state.ptr orelse return;
+    const state = cycle_state.ptr;
     if (state.mode != .procedural) return;
     const ambient = ambient_opt.ptr;
     const environment = environment_opt.ptr;
     const base_ambient = state.panorama_ambient orelse ambient.*;
     const base_environment = state.panorama_environment orelse environment.*;
 
-    const t: f32 = @floatCast(elapsed.ptr.seconds);
+    const step: f32 = @floatCast(std.math.clamp(dt.ptr.seconds, 0.0, 0.1));
+    state.simulation_seconds += step;
+    const t = state.simulation_seconds;
     const day_length = @max(30.0, state.day_night.day_length_seconds);
     const start_phase = state.day_night.start_hour / 24.0;
     const day_phase = fract(start_phase + t / day_length);
@@ -215,26 +217,26 @@ pub fn updateDayNightWeather(
     const ambient_weather = mulColor(base_ambient.color, ambient_tint);
     ambient.color = ambient_weather;
     ambient.intensity = base_ambient.intensity *
-        lerp(0.14, 1.10, daylight) *
+        lerp(0.55, 1.10, daylight) *
         lerp(1.0, 1.28, twilight) *
         lerp(1.0, 0.88, haze);
 
     environment.enabled = true;
     environment.intensity = base_environment.intensity *
-        lerp(0.10, 1.12, daylight) *
+        lerp(0.55, 1.12, daylight) *
         lerp(1.0, 1.24, twilight) *
         lerp(1.0, 0.90, storminess);
     environment.diffuse_strength = base_environment.diffuse_strength *
-        lerp(0.35, 1.05, daylight) *
+        lerp(0.78, 1.05, daylight) *
         lerp(1.0, 1.15, twilight) *
         lerp(1.0, 0.90, storminess);
     environment.specular_strength = base_environment.specular_strength *
-        lerp(0.25, 1.15, daylight) *
+        lerp(0.72, 1.15, daylight) *
         lerp(1.0, 1.14, twilight) *
         lerp(1.0, 0.88, storminess);
     environment.average_luminance = std.math.clamp(
         base_environment.average_luminance *
-            lerp(0.06, 1.10, daylight) *
+            lerp(0.18, 1.10, daylight) *
             lerp(1.0, 1.28, twilight) *
             lerp(1.0, 0.92, coverage),
         0.01,
@@ -255,20 +257,19 @@ pub fn updateDayNightWeather(
     exposure.enabled = true;
     exposure.auto_enabled = true;
     exposure.auto_key_value = lerp(0.13, 0.17, daylight) * lerp(1.0, 0.85, storminess);
-    exposure.min_exposure = lerp(0.035, 0.13, daylight) * lerp(1.0, 1.18, night);
-    exposure.max_exposure = lerp(0.36, 0.58, daylight) * lerp(1.0, 0.88, storminess);
+    exposure.min_exposure = lerp(0.14, 0.13, daylight) * lerp(1.0, 1.08, night);
+    exposure.max_exposure = lerp(0.92, 0.58, daylight) * lerp(1.0, 0.90, storminess);
 
     updateDirectionalSun(directional_lights, sun, daylight, storminess);
 }
 
 pub fn updateProceduralSkyMeshParams(
-    elapsed: Res(ElapsedTime),
     cycle_state: ResOpt(SkyCycleState),
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
 ) void {
     const state = cycle_state.ptr orelse return;
     var it = panorama_faces.iterator();
-    const t: f32 = @floatCast(elapsed.ptr.seconds);
+    const t = state.simulation_seconds;
     const weather_phase = (t / @max(20.0, state.weather.weather_cycle_seconds)) * (2.0 * std.math.pi);
     const raw_coverage = state.weather.cloud_coverage +
         0.26 * std.math.sin(weather_phase * 0.43) +
@@ -297,10 +298,11 @@ pub fn updateProceduralSkyMeshParams(
 }
 
 pub fn animateLights(
-    elapsed: Res(ElapsedTime),
+    cycle_state: ResOpt(SkyCycleState),
     animated_lights: Query(.{ Transform, lighting.Light, AnimatedLight }),
 ) void {
-    const t: f32 = @floatCast(elapsed.ptr.seconds);
+    const state = cycle_state.ptr orelse return;
+    const t = state.simulation_seconds;
 
     var it = animated_lights.iterator();
     while (it.next()) |row| {
@@ -374,7 +376,7 @@ fn updateDirectionalSun(
                 const storm_color = common.Color.F32{ .r = 0.66, .g = 0.72, .b = 0.78, .a = 1.0 };
                 const twilight = std.math.exp(-@abs(sun_dir.y) * 16.0);
                 dir.color = mixColor(mixColor(clear_color, dusk_color, twilight), storm_color, storminess);
-                dir.illuminance_lux = (lerp(0.045, 220.0, daylight) + twilight * 46.0) * lerp(1.0, 0.42, storminess);
+                dir.illuminance_lux = (lerp(20.0, 220.0, daylight) + twilight * 46.0) * lerp(1.0, 0.42, storminess);
                 visibility.enabled = true;
             },
             else => {},
@@ -447,7 +449,7 @@ const ResOpt = ecs.system_params.ResOpt;
 const Assets = shared.Assets;
 const AnimatedLight = shared.AnimatedLight;
 const Color = common.Color;
-const ElapsedTime = modules.TimeModule.ElapsedTime;
+const DeltaTime = modules.TimeModule.DeltaTime;
 const Keyboard = modules.InputModule.Keyboard;
 const LightingReady = shared.LightingReady;
 const SceneMetrics = shared.SceneMetrics;

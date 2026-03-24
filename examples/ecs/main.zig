@@ -23,7 +23,7 @@ const Boot = struct {
         if (!commands.isEmpty()) {
             try commands.apply();
         }
-        try ctx.addSystem("Update", advanceToRunning);
+        try ctx.addSystem(ecs.schedule.DefaultSchedule.Update, advanceToRunning);
     }
 
     fn advanceToRunning(commands: *ecs.Commands) !void {
@@ -44,10 +44,10 @@ const Boot = struct {
 
 const Running = struct {
     pub fn enter(_: *Running, ctx: *PhaseContext) !void {
-        try ctx.addSystem("Update", spawnParticles);
-        try ctx.addSystem("Update", integratePhysics);
-        try ctx.addSystem("Update", requestExitAfterCountdown);
-        try ctx.addSystem("Update", handleExitEvent);
+        try ctx.addSystem(ecs.schedule.DefaultSchedule.Update, spawnParticles);
+        try ctx.addSystem(ecs.schedule.DefaultSchedule.Update, integratePhysics);
+        try ctx.addSystem(ecs.schedule.DefaultSchedule.Update, requestExitAfterCountdown);
+        try ctx.addSystem(ecs.schedule.DefaultSchedule.Update, handleExitEvent);
     }
 
     fn spawnParticles(commands: *ecs.Commands, counter: ResMut(SpawnCounter), spawner_query: Query(.{ SpawnerTag, StopwatchTimer })) !void {
