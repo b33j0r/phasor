@@ -14,6 +14,8 @@ struct SceneUniforms {
     environment_dominant_direction: vec4<f32>,
     environment_dominant_color: vec4<f32>,
     light_counts: vec4<u32>,
+    debug_view: vec4<u32>,
+    environment_flags: vec4<u32>,
     environment_irradiance_sh: array<vec4<f32>, 9>,
     lights: array<SceneLight, 32>,
 };
