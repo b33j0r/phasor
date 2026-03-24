@@ -418,6 +418,11 @@ pub const Renderer = struct {
         };
     }
 
+    pub fn createTextureRgba16FloatMipmapped(self: *Renderer, width: u32, height: u32, data: []const f32) !Texture {
+        // The WebGPU bridge currently uploads a single rgba16float level only.
+        return self.createTextureRgba16Float(width, height, data);
+    }
+
     pub fn destroyTexture(self: *Renderer, texture: *Texture) void {
         if (texture.handle == 0) return;
         webgpu_destroy_texture(self.ctx, texture.handle);

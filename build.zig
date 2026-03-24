@@ -41,6 +41,11 @@ pub fn build(b: *std.Build) void {
             .enable_wasm = true,
         },
         .{
+            .name = "particles",
+            .dir = "examples/particles",
+            .enable_wasm = true,
+        },
+        .{
             .name = "cube",
             .dir = "examples/cube",
             .enable_wasm = true,
