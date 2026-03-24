@@ -207,7 +207,7 @@ pub fn advanceSceneFinalize(
                 .{
                     .parent = finalize.scene_root,
                     .shader_handle = scene_assets.ptr.scene_shader.handle,
-                    .mesh_layout = .Pos3NormUv,
+                    .mesh_layout = .Pos3NormTangentUv,
                 },
                 apply,
                 6,
@@ -717,7 +717,7 @@ fn runSceneLoader(
         resolved_z,
         &scene_data,
         .{
-            .mesh_layout = .Pos3NormUv,
+            .mesh_layout = .Pos3NormTangentUv,
             .material_overrides = &material_overrides,
         },
     );

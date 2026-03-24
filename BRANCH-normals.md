@@ -10,20 +10,31 @@ Debug the Sponza curtain/banner rendering regression without adding Sponza-only 
 
 - Branch: `normals`
 - Repo: `/Users/brian/Projects/phasor/phasor-lite`
+- Rebased onto local `main` on 2026-03-23.
+- Rebase follow-up:
+  - kept the `main` phase-owned Sponza system wiring
+  - re-added normals-only `V` / `B` inputs in `examples/sponza/phases.zig`
+  - removed duplicated top-level `app.addSystemTo(...)` wiring from `examples/sponza/main.zig`
 - Interactive smoke check most recently passed with:
   - `timeout 15s /Users/brian/src/zig/build/stage3/bin/zig build run-sponza`
 - Latest successful smoke behavior:
   - app reached `app startup complete`
-  - new `B` toggle for environment specular worked in live testing
+  - app stayed up until `timeout` after the rebase fix
+  - new `B` toggle for environment specular still exists for live comparison
 
 ## Strongest Current Conclusion
 
 The bad banner/curtain look is not primarily caused by:
 - glTF metallic/roughness decoding
-- glTF normal decoding
 - normal-strength scaling alone
 - high-level lighting on/off
 - shadows
+
+Normal maps are now actually wired through the renderer on this branch:
+- glTF `normal_texture` / `normal_scale` were already parsed
+- scene materials now bind a normal texture
+- the Sponza PBR shader now applies tangent-space normals using glTF-authored mesh tangents
+- Sponza now uploads a dedicated `position/normal/tangent/uv` mesh layout instead of reconstructing tangent space from screen-space derivatives
 
 The main remaining problem is the environment specular approximation in the Sponza PBR shader.
 
@@ -68,6 +79,14 @@ That means the dominant-direction environment specular proxy is the current culp
   - User confirmed `B` fixes the specular overload.
 - Corrected one real IBL energy issue:
   - diffuse environment lighting now uses Fresnel-aware energy split instead of always using full `(1 - metallic)` diffuse.
+- Replaced the sharp dominant-direction environment proxy with a softer fallback:
+  - rough materials now lean more on low-frequency irradiance sampled along the reflection vector
+  - smoother materials still get a dominant-direction lobe, but with much lower energy and a softer exponent
+  - this keeps the investigation renderer-level without adding Sponza material hacks
+- Implemented actual normal-map consumption in the renderer:
+  - scene materials now carry a bound normal texture with a flat-normal fallback
+  - `scene_pbr_lit.wgsl` samples the normal map and applies `normal_scale`
+  - tangent space now comes from glTF `TANGENT` data threaded through the importer, native/web mesh layouts, and shadow pipeline variants
 
 ## User Findings To Preserve
 
@@ -134,17 +153,17 @@ The direct-light BRDF is not obviously the broken part. The more suspicious shad
 Current implementation still uses:
 - a single dominant environment direction
 - a single dominant environment color
-- a gloss lobe synthesized with `pow(env_alignment, mix(...))`
+- a conservative hybrid fallback instead of real prefiltered environment sampling
 
-That is not physically robust enough to stand in for proper prefiltered environment sampling.
+This is safer than the earlier sharp proxy, but still not physically robust enough to stand in for proper prefiltered environment sampling.
 
 ## Recommended Next Steps
 
 Resume with this order:
 
 1. Keep the Fresnel-aware diffuse IBL split.
-2. Do not re-open metallic/roughness import unless new evidence appears.
-3. Replace the current dominant-direction environment specular proxy with a more conservative fallback, or keep it disabled by default until a better implementation exists.
+2. Compare the curtain/ornament viewpoint again now that normal maps are actually active.
+3. Evaluate the softer hybrid fallback against the `B` toggle from the same curtain/ornament viewpoints.
 4. Prefer a renderer-level solution over Sponza material overrides.
 
 ## Suggested Next Technical Options

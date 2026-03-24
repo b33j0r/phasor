@@ -25,6 +25,7 @@ pub const ImportedScene = struct {
     pub const MeshLayout = enum {
         Pos3Uv,
         Pos3NormUv,
+        Pos3NormTangentUv,
     };
 
     pub const Bounds = struct {
@@ -159,6 +160,7 @@ pub const PreparedImportedScene = struct {
         loaded_textures_linear: []?render.TextureHandle = &.{},
         scene_materials: []?render.MaterialHandle = &.{},
         default_white_texture: ?render.TextureHandle = null,
+        default_flat_normal_texture: ?render.TextureHandle = null,
         mesh_handles: std.ArrayListUnmanaged(render.MeshHandle) = .empty,
         texture_handles: std.ArrayListUnmanaged(render.TextureHandle) = .empty,
         material_handles: std.ArrayListUnmanaged(render.MaterialHandle) = .empty,
@@ -568,6 +570,10 @@ const PreparedMesh = union(ImportedScene.MeshLayout) {
         vertices: []render.VertexPos3NormUv,
         indices: []u16,
     },
+    Pos3NormTangentUv: struct {
+        vertices: []render.VertexPos3NormTangentUv,
+        indices: []u16,
+    },
 
     fn deinit(self: *PreparedMesh, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -576,6 +582,10 @@ const PreparedMesh = union(ImportedScene.MeshLayout) {
                 allocator.free(mesh.indices);
             },
             .Pos3NormUv => |mesh| {
+                allocator.free(mesh.vertices);
+                allocator.free(mesh.indices);
+            },
+            .Pos3NormTangentUv => |mesh| {
                 allocator.free(mesh.vertices);
                 allocator.free(mesh.indices);
             },
@@ -810,6 +820,41 @@ fn preparePrimitiveMesh(
             }
             return .{ .Pos3NormUv = .{ .vertices = vertices, .indices = indices } };
         },
+        .Pos3NormTangentUv => {
+            const vertices = try allocator.alloc(render.VertexPos3NormTangentUv, vertex_count);
+            errdefer allocator.free(vertices);
+
+            const normal_accessor = primitive.normal_accessor;
+            const normal_meta = if (normal_accessor) |ref| scene_data.accessors[ref.accessor_index] else null;
+            const normal_bytes = if (normal_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
+            const tangent_accessor = primitive.tangent_accessor;
+            const tangent_meta = if (tangent_accessor) |ref| scene_data.accessors[ref.accessor_index] else null;
+            const tangent_bytes = if (tangent_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
+
+            for (0..vertex_count) |i| {
+                const pos = readVec3(position_bytes, positionMetaStride(position_meta), i);
+                bounds.include(pos);
+                const normal = if (normal_accessor != null and normal_meta != null and normal_bytes != null)
+                    readVec3(normal_bytes.?, positionMetaStride(normal_meta.?), i)
+                else
+                    common.Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 };
+                const tangent = if (tangent_accessor != null and tangent_meta != null and tangent_bytes != null)
+                    readVec4(tangent_bytes.?, positionMetaStride(tangent_meta.?), i)
+                else
+                    [4]f32{ 1.0, 0.0, 0.0, 1.0 };
+                const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
+                    readVec2(uv_bytes.?, uvMetaStride(uv_meta.?), i)
+                else
+                    common.Vec2{};
+                vertices[i] = .{
+                    .position = .{ pos.x, pos.y, pos.z },
+                    .normal = .{ normal.x, normal.y, normal.z },
+                    .tangent = tangent,
+                    .uv = .{ uv.x, uv.y },
+                };
+            }
+            return .{ .Pos3NormTangentUv = .{ .vertices = vertices, .indices = indices } };
+        },
     }
 }
 
@@ -817,6 +862,7 @@ fn createPreparedMesh(build_ctx: *const render.BuildContext, prepared_mesh: Prep
     return switch (prepared_mesh) {
         .Pos3Uv => |mesh| build_ctx.addMeshPos3Uv(mesh.vertices, mesh.indices),
         .Pos3NormUv => |mesh| build_ctx.addMeshPos3NormUv(mesh.vertices, mesh.indices),
+        .Pos3NormTangentUv => |mesh| build_ctx.addMeshPos3NormTangentUv(mesh.vertices, mesh.indices),
     };
 }
 
@@ -902,6 +948,7 @@ fn ensurePreparedSceneMaterial(
     if (state.scene_materials[material_index]) |handle| return handle;
 
     const default_white = try ensurePreparedDefaultWhiteTexture(build_ctx, state);
+    const default_flat_normal = try ensurePreparedDefaultFlatNormalTexture(build_ctx, state);
     _ = scene_material;
     const base_color_handle = if (prepared_material.base_color_texture) |texture_ref|
         (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .srgb, state) orelse default_white)
@@ -915,11 +962,16 @@ fn ensurePreparedSceneMaterial(
         (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .linear, state) orelse default_white)
     else
         default_white;
+    const normal_handle = if (prepared_material.normal_texture) |texture_ref|
+        (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .linear, state) orelse default_flat_normal)
+    else
+        default_flat_normal;
 
     const material_handle = try build_ctx.createSceneMaterial(
         base_color_handle,
         metallic_roughness_handle,
         occlusion_handle,
+        normal_handle,
         null,
     );
     errdefer _ = build_ctx.destroyMaterial(material_handle);
@@ -938,6 +990,19 @@ fn ensurePreparedDefaultWhiteTexture(
     errdefer _ = build_ctx.destroyTexture(handle);
     try state.texture_handles.append(state.allocator, handle);
     state.default_white_texture = handle;
+    return handle;
+}
+
+fn ensurePreparedDefaultFlatNormalTexture(
+    build_ctx: *const render.BuildContext,
+    state: *PreparedImportedScene.ApplyState,
+) !render.TextureHandle {
+    if (state.default_flat_normal_texture) |handle| return handle;
+    const flat_normal = [_]u8{ 128, 128, 255, 255 };
+    const handle = try build_ctx.createTextureRgba8Linear(1, 1, &flat_normal);
+    errdefer _ = build_ctx.destroyTexture(handle);
+    try state.texture_handles.append(state.allocator, handle);
+    state.default_flat_normal_texture = handle;
     return handle;
 }
 
@@ -1098,6 +1163,16 @@ fn readVec2(bytes: []const u8, stride: usize, index: usize) common.Vec2 {
     return .{
         .x = readF32(bytes, base + 0),
         .y = readF32(bytes, base + 4),
+    };
+}
+
+fn readVec4(bytes: []const u8, stride: usize, index: usize) [4]f32 {
+    const base = index * stride;
+    return .{
+        readF32(bytes, base + 0),
+        readF32(bytes, base + 4),
+        readF32(bytes, base + 8),
+        readF32(bytes, base + 12),
     };
 }
 

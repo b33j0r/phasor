@@ -34,6 +34,10 @@ pub const BuildContext = struct {
         return self.mesh_library.addMeshPos3NormUv(self.renderer, vertices, indices);
     }
 
+    pub fn addMeshPos3NormTangentUv(self: *const BuildContext, vertices: []const backend.VertexPos3NormTangentUv, indices: []const u16) !mesh.MeshHandle {
+        return self.mesh_library.addMeshPos3NormTangentUv(self.renderer, vertices, indices);
+    }
+
     pub fn addMeshPos3Color(self: *const BuildContext, vertices: []const backend.VertexPos3Color, indices: []const u16) !mesh.MeshHandle {
         return self.mesh_library.addMeshPos3Color(self.renderer, vertices, indices);
     }
@@ -48,6 +52,10 @@ pub const BuildContext = struct {
 
     pub fn updateMeshPos3NormUv(self: *const BuildContext, handle: mesh.MeshHandle, vertices: []const backend.VertexPos3NormUv, indices: []const u16) !bool {
         return self.mesh_library.updateMeshPos3NormUv(self.renderer, handle, vertices, indices);
+    }
+
+    pub fn updateMeshPos3NormTangentUv(self: *const BuildContext, handle: mesh.MeshHandle, vertices: []const backend.VertexPos3NormTangentUv, indices: []const u16) !bool {
+        return self.mesh_library.updateMeshPos3NormTangentUv(self.renderer, handle, vertices, indices);
     }
 
     pub fn updateMeshPos3Color(self: *const BuildContext, handle: mesh.MeshHandle, vertices: []const backend.VertexPos3Color, indices: []const u16) !bool {
@@ -132,15 +140,18 @@ pub const BuildContext = struct {
         base_color_texture_handle: mesh.TextureHandle,
         metallic_roughness_texture_handle: mesh.TextureHandle,
         occlusion_texture_handle: mesh.TextureHandle,
+        normal_texture_handle: mesh.TextureHandle,
         sampler: ?backend.Sampler,
     ) !mesh.MaterialHandle {
         const base_color_texture = self.texture_library.get(base_color_texture_handle) orelse return error.MissingTexture;
         const metallic_roughness_texture = self.texture_library.get(metallic_roughness_texture_handle) orelse return error.MissingTexture;
         const occlusion_texture = self.texture_library.get(occlusion_texture_handle) orelse return error.MissingTexture;
+        const normal_texture = self.texture_library.get(normal_texture_handle) orelse return error.MissingTexture;
         const material = try self.renderer.createSceneMaterial(.{
             .base_color_texture = base_color_texture.*,
             .metallic_roughness_texture = metallic_roughness_texture.*,
             .occlusion_texture = occlusion_texture.*,
+            .normal_texture = normal_texture.*,
         }, sampler orelse self.default_sampler.*);
         errdefer {
             var cleanup = material;

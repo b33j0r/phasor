@@ -71,36 +71,7 @@ const App = struct {
             },
             .extra_lines = &sponza_metric_lines,
         });
-
-        try app.addSystemTo("Startup", loading.ensureSceneLoader);
-        try app.addSystemTo("BeforeFrame", loading.ensureSceneLoader);
-        try app.addSystemTo("BeforeFrame", loading.ensureLoadingScreenVisuals);
-        try app.addSystemTo("BeforeFrame", loading.drainSceneLoader);
-        try app.addSystemTo("BeforeFrame", loading.advanceSceneFinalize);
-        try app.addSystemTo("Startup", lighting.setupColorGrading);
-        try app.addSystemTo("BeforeFrame", lighting.setupColorGrading);
-        try app.addSystemTo("Startup", lighting.setupLighting);
-        try app.addSystemTo("BeforeFrame", lighting.setupLighting);
-        try app.addSystemTo("Startup", lighting.setupSkyCycle);
-        try app.addSystemTo("BeforeFrame", lighting.setupSkyCycle);
-        try app.addSystemTo("Startup", particles.setupLionFire);
-        try app.addSystemTo("BeforeFrame", particles.setupLionFire);
-        try app.addSystemTo("Update", gameplay.spawnPlayerFromCollision);
-        try app.addSystemTo("Update", gameplay.handlePhaseInput);
-        try app.addSystemTo("Update", gameplay.cycleColorGradeInput);
-        try app.addSystemTo("Update", gameplay.cycleDebugViewInput);
-        try app.addSystemTo("Update", gameplay.toggleEnvironmentSpecularInput);
-        try app.addSystemTo("Update", lighting.toggleSkyModeInput);
-        try app.addSystemTo("Update", lighting.updateDayNightWeather);
-        try app.addSystemTo("Update", lighting.updateProceduralSkyMeshParams);
-        try app.addSystemTo("Update", gameplay.updatePlayerCamera);
-        try app.addSystemTo("Update", particles.updateLionFire);
-        try app.addSystemTo("Update", gameplay.emitSponzaHudMetrics);
-        try app.addSystemTo("Update", gameplay.logPlayerBookmark);
-        try app.addSystemTo("Update", gameplay.captureScreenshotInput);
-        try app.addSystemTo("Update", lighting.animateLights);
-        try app.addSystemTo("Update", loading.updateLoadingScreen);
-        try app.addSystemTo("Shutdown", loading.unloadImportedScene);
+        try app.addSystemTo(ecs.schedule.DefaultSchedule.Shutdown, loading.unloadImportedScene);
     }
 };
 
@@ -108,9 +79,9 @@ pub const main = platform.main(App);
 
 // Imports
 const phasor = @import("phasor");
-const gameplay = @import("gameplay.zig");
-const loading = @import("loading.zig");
 const phases = @import("phases.zig");
+const loading = @import("loading.zig");
+const gameplay = @import("gameplay.zig");
 const Assets = @import("shared.zig").Assets;
 const FpsPhysics = @import("shared.zig").FpsPhysics;
 

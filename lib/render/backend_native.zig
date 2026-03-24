@@ -110,6 +110,7 @@ pub const SceneMaterialBinding = struct {
     base_color_texture: Texture,
     metallic_roughness_texture: Texture,
     occlusion_texture: Texture,
+    normal_texture: Texture,
 };
 
 pub const ShaderSource = struct {
@@ -125,6 +126,7 @@ pub const ShaderVertexLayout = enum(u8) {
     pos3_color4,
     pos3_uv2,
     pos3_norm_uv2,
+    pos3_norm_tangent_uv2,
 };
 
 pub const ShaderBindingMode = enum(u8) {
@@ -138,6 +140,7 @@ pub const MeshVertexLayout = enum(u8) {
     pos3_uv2,
     pos3_color4,
     pos3_norm_uv2,
+    pos3_norm_tangent_uv2,
 };
 
 pub const Mesh = struct {
@@ -186,6 +189,13 @@ pub const VertexPos3Uv = extern struct {
 pub const VertexPos3NormUv = extern struct {
     position: [3]f32,
     normal: [3]f32,
+    uv: [2]f32,
+};
+
+pub const VertexPos3NormTangentUv = extern struct {
+    position: [3]f32,
+    normal: [3]f32,
+    tangent: [4]f32,
     uv: [2]f32,
 };
 
@@ -795,6 +805,7 @@ pub const Renderer = struct {
             texture.view,
             texture.view,
             texture.view,
+            texture.view,
             self.scene_uniform_buffer.buffer,
         );
         return Material{ .bind_group = bind_group, .scene_bind_group = scene_bind_group };
@@ -817,6 +828,7 @@ pub const Renderer = struct {
             binding.base_color_texture.view,
             binding.metallic_roughness_texture.view,
             binding.occlusion_texture.view,
+            binding.normal_texture.view,
             self.scene_uniform_buffer.buffer,
         );
         return Material{ .bind_group = bind_group, .scene_bind_group = scene_bind_group };
@@ -954,6 +966,57 @@ pub const Renderer = struct {
 
     pub fn updateMeshPos3NormUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3NormUv, indices: []const u16) !void {
         if (mesh.vertex_layout != .pos3_norm_uv2) return error.InvalidMeshLayout;
+        const vertex_bytes = std.mem.sliceAsBytes(vertices);
+        const index_bytes = std.mem.sliceAsBytes(indices);
+        if (vertex_bytes.len > mesh.vertex_buffer.size or index_bytes.len > mesh.index_buffer.size) {
+            mesh.vertex_buffer.buffer.release();
+            mesh.index_buffer.buffer.release();
+            mesh.vertex_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+                vertex_bytes,
+            );
+            mesh.index_buffer = try createBufferWithData(
+                self.allocator,
+                self.device,
+                self.queue,
+                wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+                index_bytes,
+            );
+        } else {
+            self.queue.writeBuffer(mesh.vertex_buffer.buffer, 0, vertex_bytes.ptr, vertex_bytes.len);
+            self.queue.writeBuffer(mesh.index_buffer.buffer, 0, index_bytes.ptr, index_bytes.len);
+        }
+        mesh.index_count = @intCast(indices.len);
+    }
+
+    pub fn createMeshPos3NormTangentUv(self: *Renderer, vertices: []const VertexPos3NormTangentUv, indices: []const u16) !Mesh {
+        const vertex_buf = try createBufferWithData(
+            self.allocator,
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(vertices),
+        );
+        const index_buf = try createBufferWithData(
+            self.allocator,
+            self.device,
+            self.queue,
+            wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+            std.mem.sliceAsBytes(indices),
+        );
+        return Mesh{
+            .vertex_buffer = vertex_buf,
+            .index_buffer = index_buf,
+            .index_count = @intCast(indices.len),
+            .vertex_layout = .pos3_norm_tangent_uv2,
+        };
+    }
+
+    pub fn updateMeshPos3NormTangentUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3NormTangentUv, indices: []const u16) !void {
+        if (mesh.vertex_layout != .pos3_norm_tangent_uv2) return error.InvalidMeshLayout;
         const vertex_bytes = std.mem.sliceAsBytes(vertices);
         const index_bytes = std.mem.sliceAsBytes(indices);
         if (vertex_bytes.len > mesh.vertex_buffer.size or index_bytes.len > mesh.index_buffer.size) {
@@ -1967,7 +2030,7 @@ fn createQuadBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
 
 fn createSceneBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
     return device.createBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
-        .entry_count = 5,
+        .entry_count = 6,
         .entries = &[_]wgpu.BindGroupLayoutEntry{
             .{
                 .binding = 0,
@@ -2002,6 +2065,15 @@ fn createSceneBindGroupLayout(device: *wgpu.Device) !*wgpu.BindGroupLayout {
             },
             .{
                 .binding = 4,
+                .visibility = wgpu.ShaderStages.fragment,
+                .texture = .{
+                    .sample_type = .float,
+                    .view_dimension = .@"2d",
+                    .multisampled = @intFromBool(false),
+                },
+            },
+            .{
+                .binding = 5,
                 .visibility = wgpu.ShaderStages.fragment,
                 .texture = .{
                     .sample_type = .float,
@@ -2050,6 +2122,7 @@ fn createSceneBindGroup(
     base_color_view: *wgpu.TextureView,
     metallic_roughness_view: *wgpu.TextureView,
     occlusion_view: *wgpu.TextureView,
+    normal_view: *wgpu.TextureView,
     uniform_buffer: *wgpu.Buffer,
 ) !*wgpu.BindGroup {
     const entries = [_]wgpu.BindGroupEntry{
@@ -2063,6 +2136,7 @@ fn createSceneBindGroup(
         },
         .{ .binding = 3, .texture_view = metallic_roughness_view },
         .{ .binding = 4, .texture_view = occlusion_view },
+        .{ .binding = 5, .texture_view = normal_view },
     };
     return device.createBindGroup(&wgpu.BindGroupDescriptor{
         .layout = layout,
@@ -2256,6 +2330,7 @@ fn shaderMatchesMesh(shader: Shader, layout: MeshVertexLayout) bool {
         .pos3_color4 => layout == .pos3_color4,
         .pos3_uv2 => layout == .pos3_uv2,
         .pos3_norm_uv2 => layout == .pos3_norm_uv2,
+        .pos3_norm_tangent_uv2 => layout == .pos3_norm_tangent_uv2,
     };
 }
 
@@ -2265,6 +2340,7 @@ fn shadowShaderMatchesMesh(shader: ShadowShader, layout: MeshVertexLayout) bool 
         .pos3_color4 => layout == .pos3_color4,
         .pos3_uv2 => layout == .pos3_uv2,
         .pos3_norm_uv2 => layout == .pos3_norm_uv2,
+        .pos3_norm_tangent_uv2 => layout == .pos3_norm_tangent_uv2,
     };
 }
 
@@ -2300,6 +2376,12 @@ fn createShadowPipeline(
         .{ .format = .float32x3, .offset = @sizeOf([3]f32), .shader_location = 1 },
         .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
     };
+    const pos3_norm_tangent_uv2_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x3, .offset = @sizeOf([3]f32), .shader_location = 1 },
+        .{ .format = .float32x4, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
+        .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2 + @sizeOf([4]f32), .shader_location = 3 },
+    };
     const pos3_color4_attributes = [_]wgpu.VertexAttribute{
         .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
         .{ .format = .float32x4, .offset = @sizeOf([3]f32), .shader_location = 1 },
@@ -2315,6 +2397,12 @@ fn createShadowPipeline(
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 4 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 5 },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 6 },
+    };
+    const clip_rows_4 = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x4, .offset = 0, .shader_location = 4 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = 5 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = 6 },
+        .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = 7 },
     };
 
     const vertex_buffers = switch (vertex_layout_kind) {
@@ -2357,6 +2445,20 @@ fn createShadowPipeline(
                 .array_stride = @sizeOf(InstanceData),
                 .attribute_count = clip_rows_3.len,
                 .attributes = clip_rows_3[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+        .pos3_norm_tangent_uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3NormTangentUv),
+                .attribute_count = pos3_norm_tangent_uv2_attributes.len,
+                .attributes = pos3_norm_tangent_uv2_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = clip_rows_4.len,
+                .attributes = clip_rows_4[0..].ptr,
                 .step_mode = .instance,
             },
         },
@@ -2433,35 +2535,46 @@ fn createCustomMaterialPipeline(
         .{ .format = .float32x3, .offset = @sizeOf([3]f32), .shader_location = 1 },
         .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
     };
+    const pos3_norm_tangent_uv_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x3, .offset = @sizeOf([3]f32), .shader_location = 1 },
+        .{ .format = .float32x4, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
+        .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2 + @sizeOf([4]f32), .shader_location = 3 },
+    };
     const instance_attributes_default = [_]wgpu.VertexAttribute{
         .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 2,
             .pos3_uv2 => 2,
             .pos3_norm_uv2 => 3,
+            .pos3_norm_tangent_uv2 => 4,
             else => 2,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 3,
             .pos3_uv2 => 3,
             .pos3_norm_uv2 => 4,
+            .pos3_norm_tangent_uv2 => 5,
             else => 3,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 4,
             .pos3_uv2 => 4,
             .pos3_norm_uv2 => 5,
+            .pos3_norm_tangent_uv2 => 6,
             else => 4,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 5,
             .pos3_uv2 => 5,
             .pos3_norm_uv2 => 6,
+            .pos3_norm_tangent_uv2 => 7,
             else => 5,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 6,
             .pos3_uv2 => 6,
             .pos3_norm_uv2 => 7,
+            .pos3_norm_tangent_uv2 => 8,
             else => 6,
         } },
     };
@@ -2470,60 +2583,70 @@ fn createCustomMaterialPipeline(
             .uv2 => 2,
             .pos3_uv2 => 2,
             .pos3_norm_uv2 => 3,
+            .pos3_norm_tangent_uv2 => 4,
             else => 2,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 1, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 3,
             .pos3_uv2 => 3,
             .pos3_norm_uv2 => 4,
+            .pos3_norm_tangent_uv2 => 5,
             else => 3,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 2, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 4,
             .pos3_uv2 => 4,
             .pos3_norm_uv2 => 5,
+            .pos3_norm_tangent_uv2 => 6,
             else => 4,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 3, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 5,
             .pos3_uv2 => 5,
             .pos3_norm_uv2 => 6,
+            .pos3_norm_tangent_uv2 => 7,
             else => 5,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 4, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 6,
             .pos3_uv2 => 6,
             .pos3_norm_uv2 => 7,
+            .pos3_norm_tangent_uv2 => 8,
             else => 6,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 5, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 7,
             .pos3_uv2 => 7,
             .pos3_norm_uv2 => 8,
+            .pos3_norm_tangent_uv2 => 9,
             else => 7,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 6, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 8,
             .pos3_uv2 => 8,
             .pos3_norm_uv2 => 9,
+            .pos3_norm_tangent_uv2 => 10,
             else => 8,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 7, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 9,
             .pos3_uv2 => 9,
             .pos3_norm_uv2 => 10,
+            .pos3_norm_tangent_uv2 => 11,
             else => 9,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 8, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 10,
             .pos3_uv2 => 10,
             .pos3_norm_uv2 => 11,
+            .pos3_norm_tangent_uv2 => 12,
             else => 10,
         } },
         .{ .format = .float32x4, .offset = @sizeOf([4]f32) * 9, .shader_location = switch (vertex_layout_kind) {
             .uv2 => 11,
             .pos3_uv2 => 11,
             .pos3_norm_uv2 => 12,
+            .pos3_norm_tangent_uv2 => 13,
             else => 11,
         } },
     };
@@ -2562,6 +2685,20 @@ fn createCustomMaterialPipeline(
                 .array_stride = @sizeOf(VertexPos3NormUv),
                 .attribute_count = pos3_norm_uv_attributes.len,
                 .attributes = pos3_norm_uv_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = instance_attributes.len,
+                .attributes = instance_attributes[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
+        .pos3_norm_tangent_uv2 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3NormTangentUv),
+                .attribute_count = pos3_norm_tangent_uv_attributes.len,
+                .attributes = pos3_norm_tangent_uv_attributes[0..].ptr,
                 .step_mode = .vertex,
             },
             .{

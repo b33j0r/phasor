@@ -127,6 +127,7 @@ fn buildPrimitive(data: *const c.cgltf_data, primitive: *allowzero const c.cgltf
         switch (attr.type) {
             c.cgltf_attribute_type_position => out.position_accessor = ref,
             c.cgltf_attribute_type_normal => out.normal_accessor = ref,
+            c.cgltf_attribute_type_tangent => out.tangent_accessor = ref,
             c.cgltf_attribute_type_texcoord => {
                 if (attr.index == 0) out.uv0_accessor = ref;
             },

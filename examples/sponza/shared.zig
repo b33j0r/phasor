@@ -228,7 +228,7 @@ pub const Assets = struct {
     sky_moon_overlay: assets.Texture = assets.Texture.embedded(sponza_moon_overlay_bytes).asBlended(),
     scene_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/scene_pbr_lit.wgsl"),
-        .vertex_layout = .pos3_norm_uv2,
+        .vertex_layout = .pos3_norm_tangent_uv2,
         .binding_mode = .material_scene,
     },
     color_shader: assets.Shader = .{

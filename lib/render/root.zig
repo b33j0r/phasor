@@ -82,6 +82,7 @@ pub const VertexColor = backend.VertexColor;
 pub const VertexUv = backend.VertexUv;
 pub const VertexPos3Uv = backend.VertexPos3Uv;
 pub const VertexPos3NormUv = backend.VertexPos3NormUv;
+pub const VertexPos3NormTangentUv = backend.VertexPos3NormTangentUv;
 pub const VertexPos3Color = backend.VertexPos3Color;
 pub const Triangle = backend.Triangle;
 pub const TexturedQuad = backend.TexturedQuad;

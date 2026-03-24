@@ -87,6 +87,8 @@ pub const InGame = union(enum) {
 
         try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.handlePhaseInput);
         try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.cycleColorGradeInput);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.cycleDebugViewInput);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.toggleEnvironmentSpecularInput);
         try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.toggleSkyModeInput);
         try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.updateDayNightWeather);
         try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.updateProceduralSkyMeshParams);

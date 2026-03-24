@@ -110,6 +110,7 @@ pub fn renderSystem(
             state.shadow_shader_uv2,
             state.shadow_shader_pos3_uv2,
             state.shadow_shader_pos3_norm_uv2,
+            state.shadow_shader_pos3_norm_tangent_uv2,
             state.shadow_shader_pos3_color4,
             shadow_frame.light_view_proj,
         );
@@ -217,6 +218,7 @@ fn drawShadowCasters(
     shader_uv2: render.ShadowShader,
     shader_pos3_uv2: render.ShadowShader,
     shader_pos3_norm_uv2: render.ShadowShader,
+    shader_pos3_norm_tangent_uv2: render.ShadowShader,
     shader_pos3_color4: render.ShadowShader,
     light_view_proj: common.Mat4,
 ) void {
@@ -237,6 +239,7 @@ fn drawShadowCasters(
                     .uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
                     .pos3_uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_pos3_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
                     .pos3_norm_uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_pos3_norm_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
+                    .pos3_norm_tangent_uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_pos3_norm_tangent_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
                     .pos3_color4 => frame.drawShadowColoredMeshes(mesh.*, shader_pos3_color4, &[_]render.BackendMeshInstance{gpu_instance}),
                 }
             },

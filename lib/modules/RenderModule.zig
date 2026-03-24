@@ -132,6 +132,12 @@ fn initRenderer(commands: *Commands) !void {
         .binding_mode = .material,
     });
     errdefer renderer.destroyShadowShader(&shadow_shader_pos3_norm_uv2);
+    var shadow_shader_pos3_norm_tangent_uv2 = try renderer.createShadowShader(.{
+        .wgsl = @embedFile("render/shaders/shadow_caster_pos3_norm_tangent_uv2.wgsl"),
+        .vertex_layout = .pos3_norm_tangent_uv2,
+        .binding_mode = .material,
+    });
+    errdefer renderer.destroyShadowShader(&shadow_shader_pos3_norm_tangent_uv2);
     var shadow_shader_pos3_color4 = try renderer.createShadowShader(.{
         .wgsl = @embedFile("render/shaders/shadow_caster_pos3_color4.wgsl"),
         .vertex_layout = .pos3_color4,
@@ -152,6 +158,7 @@ fn initRenderer(commands: *Commands) !void {
         .shadow_shader_uv2 = shadow_shader_uv2,
         .shadow_shader_pos3_uv2 = shadow_shader_pos3_uv2,
         .shadow_shader_pos3_norm_uv2 = shadow_shader_pos3_norm_uv2,
+        .shadow_shader_pos3_norm_tangent_uv2 = shadow_shader_pos3_norm_tangent_uv2,
         .shadow_shader_pos3_color4 = shadow_shader_pos3_color4,
         .submit_scratch = render_types.SubmitScratch.init(commands.allocator),
     });

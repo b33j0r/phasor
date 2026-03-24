@@ -137,6 +137,7 @@ pub const PrimitiveData = struct {
     indices_accessor: ?AccessorRef = null,
     position_accessor: ?AccessorRef = null,
     normal_accessor: ?AccessorRef = null,
+    tangent_accessor: ?AccessorRef = null,
     uv0_accessor: ?AccessorRef = null,
 };
 
