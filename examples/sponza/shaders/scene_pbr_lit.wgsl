@@ -14,6 +14,8 @@ struct SceneUniforms {
     environment_dominant_direction: vec4<f32>,
     environment_dominant_color: vec4<f32>,
     light_counts: vec4<u32>,
+    debug_view: vec4<u32>,
+    environment_flags: vec4<u32>,
     environment_irradiance_sh: array<vec4<f32>, 9>,
     lights: array<SceneLight, 32>,
 };
@@ -21,33 +23,38 @@ struct SceneUniforms {
 struct VertexIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
-    @location(2) uv: vec2<f32>,
-    @location(3) clip0: vec4<f32>,
-    @location(4) clip1: vec4<f32>,
-    @location(5) clip2: vec4<f32>,
-    @location(6) clip3: vec4<f32>,
-    @location(7) model0: vec4<f32>,
-    @location(8) model1: vec4<f32>,
-    @location(9) model2: vec4<f32>,
-    @location(10) model3: vec4<f32>,
-    @location(11) color: vec4<f32>,
-    @location(12) pbr_params: vec4<f32>,
+    @location(2) tangent: vec4<f32>,
+    @location(3) uv: vec2<f32>,
+    @location(4) clip0: vec4<f32>,
+    @location(5) clip1: vec4<f32>,
+    @location(6) clip2: vec4<f32>,
+    @location(7) clip3: vec4<f32>,
+    @location(8) model0: vec4<f32>,
+    @location(9) model1: vec4<f32>,
+    @location(10) model2: vec4<f32>,
+    @location(11) model3: vec4<f32>,
+    @location(12) color: vec4<f32>,
+    @location(13) pbr_params: vec4<f32>,
 };
 
 struct VertexOut {
     @builtin(position) position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
-    @location(2) uv: vec2<f32>,
-    @location(3) color: vec4<f32>,
-    @location(4) pbr_params: vec4<f32>,
+    @location(2) world_tangent: vec4<f32>,
+    @location(3) uv: vec2<f32>,
+    @location(4) color: vec4<f32>,
+    @location(5) pbr_params: vec4<f32>,
 };
 
 @group(0) @binding(0) var mesh_sampler: sampler;
 @group(0) @binding(1) var mesh_texture: texture_2d<f32>;
-@group(0) @binding(2) var<uniform> scene: SceneUniforms;
-@group(0) @binding(3) var metallic_roughness_texture: texture_2d<f32>;
-@group(0) @binding(4) var occlusion_texture: texture_2d<f32>;
+@group(0) @binding(2) var metallic_roughness_texture: texture_2d<f32>;
+@group(0) @binding(3) var occlusion_texture: texture_2d<f32>;
+@group(0) @binding(4) var normal_texture: texture_2d<f32>;
+@group(1) @binding(0) var<uniform> scene: SceneUniforms;
+@group(1) @binding(1) var environment_sampler: sampler;
+@group(1) @binding(2) var environment_texture: texture_2d<f32>;
 
 fn saturate(value: f32) -> f32 {
     return clamp(value, 0.0, 1.0);
@@ -217,6 +224,20 @@ fn environmentBrdfApprox(roughness: f32, ndotv: f32) -> vec2<f32> {
     return vec2<f32>(-1.04, 1.04) * a004 + r.zw;
 }
 
+fn environmentUv(direction: vec3<f32>) -> vec2<f32> {
+    let dir = normalize(direction);
+    let u = atan2(dir.x, dir.z) * (0.5 / PI) + 0.5;
+    let v = 0.5 - asin(clamp(dir.y, -1.0, 1.0)) / PI;
+    return vec2<f32>(u, v);
+}
+
+fn samplePrefilteredEnvironment(reflection: vec3<f32>, roughness: f32) -> vec3<f32> {
+    let level_count = textureNumLevels(environment_texture);
+    let max_lod = max(f32(level_count) - 1.0, 0.0);
+    let lod = roughness * max_lod;
+    return textureSampleLevel(environment_texture, environment_sampler, environmentUv(reflection), lod).rgb;
+}
+
 fn distributionGGX(n: vec3<f32>, h: vec3<f32>, roughness: f32) -> f32 {
     let a = roughness * roughness;
     let a2 = a * a;
@@ -259,23 +280,46 @@ fn inverseMat3(m: mat3x3<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(r0 * inv_det, r1 * inv_det, r2 * inv_det);
 }
 
+fn determinantMat3(m: mat3x3<f32>) -> f32 {
+    return dot(m[0], cross(m[1], m[2]));
+}
+
+fn sampleSceneNormal(
+    geometric_normal: vec3<f32>,
+    world_tangent: vec4<f32>,
+    uv: vec2<f32>,
+    normal_scale: f32,
+) -> vec3<f32> {
+    let mapped = textureSample(normal_texture, mesh_sampler, uv).xyz * 2.0 - vec3<f32>(1.0, 1.0, 1.0);
+    let tangent_space = normalize(vec3<f32>(mapped.xy * normal_scale, mapped.z));
+    let normal = normalize(geometric_normal);
+    let tangent = normalize(world_tangent.xyz - normal * dot(normal, world_tangent.xyz));
+    let bitangent = normalize(cross(normal, tangent)) * world_tangent.w;
+    let tbn = mat3x3<f32>(tangent, bitangent, normal);
+    return normalize(tbn * tangent_space);
+}
+
 @vertex
 fn vs_main(input: VertexIn) -> VertexOut {
     let clip_model = mat4x4<f32>(input.clip0, input.clip1, input.clip2, input.clip3);
     let model = mat4x4<f32>(input.model0, input.model1, input.model2, input.model3);
-    let normal_matrix = transpose(inverseMat3(mat3x3<f32>(
+    let model3 = mat3x3<f32>(
         model[0].xyz,
         model[1].xyz,
         model[2].xyz,
-    )));
+    );
+    let normal_matrix = transpose(inverseMat3(model3));
+    let model_handedness = select(-1.0, 1.0, determinantMat3(model3) >= 0.0);
     let clip_position = clip_model * vec4<f32>(input.position, 1.0);
     let world_position = model * vec4<f32>(input.position, 1.0);
     let world_normal = normalize(normal_matrix * input.normal);
+    let world_tangent = vec4<f32>(normalize(normal_matrix * input.tangent.xyz), input.tangent.w * model_handedness);
 
     var out: VertexOut;
     out.position = clip_position;
     out.world_position = world_position.xyz;
     out.world_normal = world_normal;
+    out.world_tangent = world_tangent;
     out.uv = input.uv;
     out.color = input.color;
     out.pbr_params = input.pbr_params;
@@ -289,19 +333,23 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let normal = normalize(input.world_normal);
-    let view_dir = normalize(scene.camera_position.xyz - input.world_position);
     let metallic_roughness_sample = textureSample(metallic_roughness_texture, mesh_sampler, input.uv);
     let occlusion_sample = textureSample(occlusion_texture, mesh_sampler, input.uv);
     let metallic = clamp(input.pbr_params.x * metallic_roughness_sample.b, 0.0, 1.0);
     let roughness = clamp(input.pbr_params.y * metallic_roughness_sample.g, 0.045, 1.0);
     let ao = clamp(mix(1.0, occlusion_sample.r, input.pbr_params.z), 0.0, 1.0);
+    let normal = sampleSceneNormal(normalize(input.world_normal), input.world_tangent, input.uv, input.pbr_params.w);
+    let view_dir = normalize(scene.camera_position.xyz - input.world_position);
     let f0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
     let ndotv = saturate(dot(normal, view_dir));
+    let env_fresnel = fresnelSchlickRoughness(ndotv, f0, roughness);
+    let kd_ibl = (vec3<f32>(1.0) - env_fresnel) * (1.0 - metallic);
 
     let irradiance = evaluateIrradiance(normal) * scene.exposure_settings.z;
-    let ambient = (scene.ambient_color.rgb + irradiance) * albedo.rgb * (1.0 - metallic) * ao;
+    let ambient = (scene.ambient_color.rgb + irradiance) * albedo.rgb * kd_ibl * ao;
     var lighting = vec3<f32>(0.0);
+    var direct_specular = vec3<f32>(0.0);
+    var debug_ndotl = 0.0;
     let light_count = min(scene.light_counts.x, 32u);
     var i: u32 = 0u;
     loop {
@@ -343,6 +391,7 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
             }
         }
         let ndotl = saturate(dot(normal, light_dir));
+        debug_ndotl = max(debug_ndotl, ndotl);
         if (ndotl <= 0.0) {
             i += 1u;
             continue;
@@ -357,17 +406,42 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
         let ks = f;
         let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallic);
         let radiance = light.color_intensity.rgb * light.color_intensity.w * attenuation;
+        direct_specular += specular * radiance * ndotl;
         lighting += (kd * albedo.rgb / PI + specular) * radiance * ndotl;
         i += 1u;
     }
 
     let reflection = reflect(-view_dir, normal);
-    let env_alignment = saturate(dot(reflection, normalize(scene.environment_dominant_direction.xyz)));
-    let prefiltered_env = scene.environment_dominant_color.rgb * pow(env_alignment, mix(96.0, 12.0, roughness));
+    let prefiltered_env = samplePrefilteredEnvironment(reflection, roughness);
     let env_brdf = environmentBrdfApprox(roughness, ndotv);
-    let env_fresnel = fresnelSchlickRoughness(ndotv, f0, roughness);
-    // Damped because we currently use dominant-direction proxy instead of prefiltered env cubemap mip chain.
-    let env_specular = prefiltered_env * (env_fresnel * env_brdf.x + vec3<f32>(env_brdf.y)) * scene.exposure_settings.w * 0.10;
+    let env_specular_enabled = f32(scene.environment_flags.x);
+    let env_specular = prefiltered_env * (env_fresnel * env_brdf.x + vec3<f32>(env_brdf.y)) * scene.exposure_settings.w * env_specular_enabled;
+    let specular_only = direct_specular + env_specular;
+    let debug_view = scene.debug_view.x;
+    if (debug_view == 1u) {
+        return vec4<f32>(albedo.rgb, 1.0);
+    }
+    if (debug_view == 2u) {
+        return vec4<f32>(normal * 0.5 + vec3<f32>(0.5), 1.0);
+    }
+    if (debug_view == 3u) {
+        return vec4<f32>(vec3<f32>(metallic), 1.0);
+    }
+    if (debug_view == 4u) {
+        return vec4<f32>(vec3<f32>(roughness), 1.0);
+    }
+    if (debug_view == 5u) {
+        return vec4<f32>(vec3<f32>(ao), 1.0);
+    }
+    if (debug_view == 6u) {
+        return vec4<f32>(vec3<f32>(debug_ndotl), 1.0);
+    }
+    if (debug_view == 7u) {
+        return vec4<f32>(vec3<f32>(ndotv), 1.0);
+    }
+    if (debug_view == 8u) {
+        return vec4<f32>(specular_only, 1.0);
+    }
     var lit_rgb = ambient + lighting + env_specular;
     if (scene.exposure_settings.y > 0.5) {
         lit_rgb *= scene.exposure_settings.x;

@@ -25,10 +25,16 @@ const App = struct {
 
 pub const main = platform.main(App);
 
-fn setupScene(commands: *ecs.Commands, cube_assets: Res(Assets)) !void {
+fn setupScene(
+    commands: *ecs.Commands,
+    build_ctx: ResMut(render.BuildContext),
+    cube_assets: Res(Assets),
+    core_shaders: ResMut(render.CoreShaders),
+) !void {
     const assets_ptr = cube_assets.ptr;
+    try build_ctx.ptr.ensureCoreColorPos3Color4Shader(&core_shaders.ptr.color_pos3_color4);
     if (!assets_ptr.cube_mesh.handle.isValid()) return error.CubeMeshMissing;
-    if (!assets_ptr.cube_shader.handle.isValid()) return error.CubeShaderMissing;
+    if (!core_shaders.ptr.color_pos3_color4.isValid()) return error.CoreColorShaderMissing;
 
     _ = try commands.createEntity(.{
         Transform{ .translation = .{ .x = 0.0, .y = 0.0, .z = -4.0 } },
@@ -36,7 +42,7 @@ fn setupScene(commands: *ecs.Commands, cube_assets: Res(Assets)) !void {
         render.MeshInstance{
             .mesh_handle = assets_ptr.cube_mesh.handle,
             .color = Color.WHITE,
-            .material = render.Material.withShader(assets_ptr.cube_shader.handle),
+            .material = render.Material.withShader(core_shaders.ptr.color_pos3_color4),
         },
         render.Layer(0){},
     });
@@ -74,12 +80,7 @@ const Assets = struct {
         .pos3_color_vertices = cube_vertices[0..],
         .indices = cube_indices[0..],
     },
-    cube_shader: assets.Shader = .{
-        .wgsl_source = cube_shader_wgsl,
-    },
 };
-
-const cube_shader_wgsl = @embedFile("shaders/cube_color.wgsl");
 
 const cube_vertices = [_]render.VertexPos3Color{
     .{ .position = .{ -1.0, -1.0, 1.0 }, .color = .{ 1.0, 0.0, 0.0, 1.0 } },
@@ -136,6 +137,7 @@ const assets = phasor.assets;
 const ElapsedTime = modules.TimeModule.ElapsedTime;
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
+const ResMut = ecs.system_params.ResMut;
 
 const Quat = common.Quat;
 const Color = common.Color;

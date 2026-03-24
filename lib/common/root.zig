@@ -44,6 +44,7 @@ pub const Parent = parent.Parent;
 pub const LocalTransform = parent.LocalTransform;
 pub const Deinit = traits.Deinit;
 pub const Group = traits.Group;
+pub const Paused = struct {};
 
 pub const ClearColor = struct {
     color: Color = Color.BSOD,

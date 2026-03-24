@@ -114,6 +114,32 @@ pub const Quat = extern struct {
             .z = -self.z * inv_len_sq,
         };
     }
+
+    pub const YawPitch = struct {
+        yaw: f32 = 0.0,
+        pitch: f32 = 0.0,
+    };
+
+    pub fn lookAt(eye: Vec3, target: Vec3, up_hint: Vec3) Quat {
+        return lookRotation(target.sub(eye), up_hint);
+    }
+
+    pub fn lookRotation(forward_hint: Vec3, up_hint: Vec3) Quat {
+        _ = up_hint;
+        const angles = yawPitchFromForward(forward_hint);
+        const qx = Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, angles.pitch);
+        const qy = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, angles.yaw);
+        return qy.mul(qx).normalize();
+    }
+
+    pub fn yawPitchFromForward(forward_hint: Vec3) YawPitch {
+        if (forward_hint.length_squared() <= 0.000001) return .{};
+        const forward = forward_hint.normalize();
+        return .{
+            .yaw = std.math.atan2(-forward.x, -forward.z),
+            .pitch = std.math.asin(std.math.clamp(forward.y, -1.0, 1.0)),
+        };
+    }
 };
 
 test "Quat identity" {
@@ -151,4 +177,23 @@ test "Quat mul" {
     const vr = q3.rotateVec3(v);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), vr.x, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), vr.y, 1e-6);
+}
+
+test "Quat lookAt identity forward" {
+    const q = Quat.lookAt(.{ .x = 0.0, .y = 0.0, .z = 0.0 }, .{ .x = 0.0, .y = 0.0, .z = -1.0 }, .{ .x = 0.0, .y = 1.0, .z = 0.0 });
+    const forward = q.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 });
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), forward.x, 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), forward.y, 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), forward.z, 1e-5);
+}
+
+test "Quat yawPitchFromForward matches engine forward convention" {
+    const forward = (Vec3{ .x = 1.0, .y = 0.25, .z = -2.0 }).normalize();
+    const angles = Quat.yawPitchFromForward(forward);
+    const qx = Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, angles.pitch);
+    const qy = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, angles.yaw);
+    const reconstructed = qy.mul(qx).normalize().rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 });
+    try std.testing.expectApproxEqAbs(forward.x, reconstructed.x, 1e-5);
+    try std.testing.expectApproxEqAbs(forward.y, reconstructed.y, 1e-5);
+    try std.testing.expectApproxEqAbs(forward.z, reconstructed.z, 1e-5);
 }

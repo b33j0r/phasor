@@ -169,6 +169,53 @@ pub fn cycleColorGradeInput(
     try commands.insertResource(settings);
 }
 
+pub fn cycleDebugViewInput(
+    keyboard_opt: ResOpt(Keyboard),
+    commands: *ecs.Commands,
+    debug_view_opt: ResOpt(render.SceneDebugView),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+) !void {
+    if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
+    const keyboard = keyboard_opt.ptr orelse return;
+    if (!keyboard.isKeyPressed(.v)) return;
+
+    const current = if (debug_view_opt.ptr) |view| view.* else render.SceneDebugView.off;
+    try commands.insertResource(nextDebugView(current));
+}
+
+pub fn toggleEnvironmentSpecularInput(
+    keyboard_opt: ResOpt(Keyboard),
+    commands: *ecs.Commands,
+    environment_specular_mode_opt: ResOpt(render.EnvironmentSpecularMode),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+) !void {
+    if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
+    const keyboard = keyboard_opt.ptr orelse return;
+    if (!keyboard.isKeyPressed(.b)) return;
+
+    const current = if (environment_specular_mode_opt.ptr) |mode| mode.* else render.EnvironmentSpecularMode.on;
+    const next: render.EnvironmentSpecularMode = switch (current) {
+        .on => .off,
+        .off => .on,
+    };
+    try commands.insertResource(next);
+}
+
+pub fn cycleNormalMapScaleInput(
+    keyboard_opt: ResOpt(Keyboard),
+    commands: *ecs.Commands,
+    normal_map_scale_opt: ResOpt(render.NormalMapScale),
+    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+) !void {
+    if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
+    const keyboard = keyboard_opt.ptr orelse return;
+    if (!keyboard.isKeyPressed(.n)) return;
+
+    var settings = if (normal_map_scale_opt.ptr) |scale| scale.* else render.NormalMapScale{};
+    settings.multiplier = nextNormalMapScale(settings.multiplier);
+    try commands.insertResource(settings);
+}
+
 pub fn updatePlayerCamera(
     players: Query(.{ Transform, FpsController, Player }),
     cameras: Query(.{ Transform, PlayerCamera }),
@@ -233,10 +280,10 @@ pub fn emitSponzaHudMetrics(
     bus: ResMut(metrics.Bus),
     capture_opt: ResOpt(MouseCapture),
     mouse_opt: ResOpt(Mouse),
-    scene_metrics: ResOpt(SceneMetrics),
-    imported: ResOpt(assets.ImportedScene),
-    lighting_stats: ResOpt(lighting.AuthoringStats),
     color_grading_opt: ResOpt(render.ColorGradingSettings),
+    environment_specular_mode_opt: ResOpt(render.EnvironmentSpecularMode),
+    normal_map_scale_opt: ResOpt(render.NormalMapScale),
+    debug_view_opt: ResOpt(render.SceneDebugView),
     players: Query(.{ Transform, FpsController, Player }),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) void {
@@ -245,19 +292,13 @@ pub fn emitSponzaHudMetrics(
     const row = it.next() orelse return;
     const transform = row.get(Transform) orelse return;
     const controller = row.get(FpsController) orelse return;
-    const imported_scene = imported.ptr;
-    const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
-        scene_metrics_res.scene_size
-    else if (imported_scene) |scene|
-        scene.bounds.size()
-    else
-        Vec3{};
-    const light_stats = if (lighting_stats.ptr) |stats| stats.* else lighting.AuthoringStats{};
     const mouse_captured = if (mouse_opt.ptr) |mouse| mouse.captured else false;
     const mouse_capture_enabled = if (capture_opt.ptr) |capture| capture.enabled else false;
     const mouse_available = mouse_opt.ptr != null;
-    const mesh_count: usize = if (imported_scene) |scene| scene.mesh_handles.len else 0;
     const color_grade: render.ColorGrade = if (color_grading_opt.ptr) |settings| settings.grade else .none;
+    const environment_specular_mode = if (environment_specular_mode_opt.ptr) |mode| mode.* else render.EnvironmentSpecularMode.on;
+    const normal_map_scale = if (normal_map_scale_opt.ptr) |scale| scale.multiplier else 1.0;
+    const debug_view = if (debug_view_opt.ptr) |view| view.* else render.SceneDebugView.off;
     const fly_mode_enabled = controller.fly_enabled;
 
     metrics.emitBus(true, bus.ptr, .{
@@ -267,17 +308,31 @@ pub fn emitSponzaHudMetrics(
         .mouse_look_available = metrics.gauge(mouse_available),
         .mouse_look_captured = metrics.gauge(mouse_captured),
         .mouse_look_capture_enabled = metrics.gauge(mouse_capture_enabled),
-        .scene_mesh_count = metrics.gauge(mesh_count),
-        .scene_size_x = metrics.gauge(scene_size.x),
-        .scene_size_y = metrics.gauge(scene_size.y),
-        .scene_size_z = metrics.gauge(scene_size.z),
-        .lights_total = metrics.gauge(light_stats.total_lights),
-        .lights_dynamic = metrics.gauge(light_stats.dynamic_lights),
-        .lights_point = metrics.gauge(light_stats.point_lights),
-        .lights_spot = metrics.gauge(light_stats.spot_lights),
         .color_grade = metrics.gauge(@intFromEnum(color_grade)),
+        .environment_specular_mode = metrics.gauge(@as(u32, switch (environment_specular_mode) {
+            .on => 1,
+            .off => 0,
+        })),
+        .normal_map_scale = metrics.gauge(normal_map_scale),
+        .scene_debug_view = metrics.gauge(@intFromEnum(debug_view)),
         .fly_mode = metrics.gauge(fly_mode_enabled),
     });
+}
+
+pub fn formatNormalMapScaleLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
+    const scale = if (ctx.store.get("normal_map_scale")) |sample| sample.value.asF64() else 1.0;
+    return std.fmt.bufPrint(out, "Normal Scale: {d:.1}x", .{scale}) catch "Normal Scale";
+}
+
+pub fn formatEnvironmentSpecularLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
+    const enabled = if (ctx.store.get("environment_specular_mode")) |sample| sample.value.asF64() >= 0.5 else true;
+    return std.fmt.bufPrint(out, "Env Specular: {s}", .{if (enabled) "On" else "Off"}) catch "Env Specular";
+}
+
+pub fn formatDebugViewLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
+    const value = if (ctx.store.get("scene_debug_view")) |sample| @as(u32, @intFromFloat(sample.value.asF64())) else @intFromEnum(render.SceneDebugView.off);
+    const debug_view: render.SceneDebugView = @enumFromInt(value);
+    return std.fmt.bufPrint(out, "Debug View: {s}", .{debugViewLabel(debug_view)}) catch "Debug View";
 }
 
 pub fn formatPlayerPositionLine(ctx: *const modules.MetricContext, out: []u8) []const u8 {
@@ -490,6 +545,41 @@ fn nextColorGrade(grade: render.ColorGrade) render.ColorGrade {
     };
 }
 
+fn nextNormalMapScale(current: f32) f32 {
+    if (current < 0.5) return 1.0;
+    if (current < 1.5) return 2.0;
+    if (current < 3.0) return 4.0;
+    return 0.0;
+}
+
+fn nextDebugView(view: render.SceneDebugView) render.SceneDebugView {
+    return switch (view) {
+        .off => .base_color,
+        .base_color => .normal,
+        .normal => .metallic,
+        .metallic => .roughness,
+        .roughness => .ao,
+        .ao => .ndotl,
+        .ndotl => .ndotv,
+        .ndotv => .specular,
+        .specular => .off,
+    };
+}
+
+fn debugViewLabel(view: render.SceneDebugView) []const u8 {
+    return switch (view) {
+        .off => "Off",
+        .base_color => "BaseColor",
+        .normal => "Normal",
+        .metallic => "Metallic",
+        .roughness => "Roughness",
+        .ao => "AO",
+        .ndotl => "NdotL",
+        .ndotv => "NdotV",
+        .specular => "Specular",
+    };
+}
+
 // Imports
 const std = @import("std");
 const phasor = @import("phasor");
@@ -519,7 +609,6 @@ const Mouse = modules.InputModule.Mouse;
 const MouseCapture = modules.InputModule.MouseCapture;
 const Player = shared.Player;
 const PlayerCamera = shared.PlayerCamera;
-const SceneMetrics = shared.SceneMetrics;
 const SceneSpawnPlan = shared.SceneSpawnPlan;
 const SpawnChoice = shared.SpawnChoice;
 const Transform = common.Transform;

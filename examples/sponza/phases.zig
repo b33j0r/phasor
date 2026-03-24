@@ -11,6 +11,7 @@ pub const Loading = struct {
         defer commands.deinit();
         try loading.ensureSceneLoader(&commands);
         try lighting.setupColorGrading(&commands);
+        try modules.TimeModule.setPaused(&commands, false);
         if (!commands.isEmpty()) {
             try commands.apply();
         }
@@ -87,6 +88,9 @@ pub const InGame = union(enum) {
 
         try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.handlePhaseInput);
         try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.cycleColorGradeInput);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.cycleDebugViewInput);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.toggleEnvironmentSpecularInput);
+        try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.cycleNormalMapScaleInput);
         try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.toggleSkyModeInput);
         try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.updateDayNightWeather);
         try ctx.addSystem(schedule.DefaultSchedule.Update, lighting.updateProceduralSkyMeshParams);
@@ -108,6 +112,7 @@ pub const Playing = struct {
         var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
         defer commands.deinit();
         try commands.insertResource(MouseCapture{ .enabled = true });
+        try modules.TimeModule.setPaused(&commands, false);
         if (!commands.isEmpty()) {
             try commands.apply();
         }
@@ -124,6 +129,7 @@ pub const Paused = struct {
         var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
         defer commands.deinit();
         try commands.insertResource(MouseCapture{ .enabled = false });
+        try modules.TimeModule.setPaused(&commands, true);
         if (!commands.isEmpty()) {
             try commands.apply();
         }

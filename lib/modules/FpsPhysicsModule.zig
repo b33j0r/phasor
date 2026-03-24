@@ -70,7 +70,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
         max_intent_dt: f32 = 1.0 / 30.0,
 
         pub fn install(self: *const @This(), app: *AppCommands, cmds: *Commands) !void {
-            if (!cmds.hasResource(TimeModule.DeltaTime)) return error.MissingTimeModule;
+            if (!cmds.hasResource(TimeModule.SimulationDeltaTime)) return error.MissingTimeModule;
             if (!cmds.hasResource(physics.Config)) return error.MissingPhysicsModule;
             if (!cmds.hasResource(physics.BackendWorld)) return error.MissingPhysicsModule;
 
@@ -131,7 +131,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
 
         fn updateFpsControllerIntent(
             commands: *Commands,
-            dt: Res(TimeModule.DeltaTime),
+            dt: Res(TimeModule.SimulationDeltaTime),
             physics_config: Res(physics.Config),
             world: ResMut(physics.BackendWorld),
             control_input: ResMut(FpsControlInput),

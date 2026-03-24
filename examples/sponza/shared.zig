@@ -33,16 +33,11 @@ pub const SkyCycleState = struct {
     mode: SkyMode = .procedural,
     day_night: DayNightSettings = .{},
     weather: WeatherSettings = .{},
-    simulation_seconds: f32 = 0.0,
     panorama_environment: ?lighting.EnvironmentLight = null,
     panorama_ambient: ?lighting.AmbientLight = null,
 };
 
 pub const SceneSpawnPlan = struct {
-    scene_size: Vec3,
-};
-
-pub const SceneMetrics = struct {
     scene_size: Vec3,
 };
 
@@ -228,21 +223,8 @@ pub const Assets = struct {
     sky_moon_overlay: assets.Texture = assets.Texture.embedded(sponza_moon_overlay_bytes).asBlended(),
     scene_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/scene_pbr_lit.wgsl"),
-        .vertex_layout = .pos3_norm_uv2,
-        .binding_mode = .material_scene,
-    },
-    color_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/ui_color.wgsl"),
-    },
-    sky_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/sky_panorama_hdr.wgsl"),
-        .vertex_layout = .pos3_uv2,
-        .binding_mode = .material_scene,
-    },
-    sky_procedural_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/sky_procedural.wgsl"),
-        .vertex_layout = .pos3_uv2,
-        .binding_mode = .material_scene,
+        .vertex_layout = .pos3_norm_tangent_uv2,
+        .binding_mode = .material_scene_env,
     },
     lion_fire_shader: assets.Shader = .{
         .wgsl_source = @embedFile("shaders/lion_fire_particles.wgsl"),

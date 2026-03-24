@@ -45,20 +45,20 @@ fn updateCrashDump(
     settings: Res(CrashDumpSettings),
     state: ResMut(CrashDumpState),
     store_opt: ResOpt(metrics.Store),
-    elapsed_opt: ResOpt(time_mod.ElapsedTime),
+    run_time_opt: ResOpt(time_mod.RunTime),
     render_state_opt: ResOpt(render_mod.RenderState),
     request_opt: ResOpt(CrashDumpRequest),
 ) void {
     if (!settings.ptr.enabled) return;
     const device_lost = detectDeviceLost();
     if (request_opt.ptr) |request| {
-        writeCrashDump(commands, settings.ptr.*, store_opt.ptr, elapsed_opt.ptr, render_state_opt.ptr, request.reason) catch |err| {
+        writeCrashDump(commands, settings.ptr.*, store_opt.ptr, run_time_opt.ptr, render_state_opt.ptr, request.reason) catch |err| {
             std.log.err("CrashDump: failed to write ({s})", .{@errorName(err)});
         };
         _ = commands.removeResource(CrashDumpRequest);
         state.ptr.dumped = true;
     } else if (device_lost and !state.ptr.dumped) {
-        writeCrashDump(commands, settings.ptr.*, store_opt.ptr, elapsed_opt.ptr, render_state_opt.ptr, "webgpu_device_lost") catch |err| {
+        writeCrashDump(commands, settings.ptr.*, store_opt.ptr, run_time_opt.ptr, render_state_opt.ptr, "webgpu_device_lost") catch |err| {
             std.log.err("CrashDump: failed to write ({s})", .{@errorName(err)});
         };
         state.ptr.dumped = true;
@@ -79,7 +79,7 @@ fn writeCrashDump(
     commands: *Commands,
     settings: CrashDumpSettings,
     store: ?*const metrics.Store,
-    elapsed: ?*const time_mod.ElapsedTime,
+    run_time: ?*const time_mod.RunTime,
     render_state_opt: ?*const render_mod.RenderState,
     reason: []const u8,
 ) !void {
@@ -98,8 +98,8 @@ fn writeCrashDump(
         "phasor crash dump\n  time_ms={d}\n  target={s}\n  reason={s}\n",
         .{ now_ms, if (builtin.target.cpu.arch.isWasm()) "wasm" else "native", reason },
     );
-    if (elapsed) |elapsed_res| {
-        try appendFmt(&buffer, commands.allocator, "  elapsed_seconds={d:.3}\n", .{elapsed_res.seconds});
+    if (run_time) |run_time_res| {
+        try appendFmt(&buffer, commands.allocator, "  run_time_seconds={d:.3}\n", .{run_time_res.seconds});
     }
 
     if (render_state_opt) |state| {

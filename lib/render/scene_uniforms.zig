@@ -24,6 +24,8 @@ pub const SceneUniforms = extern struct {
     environment_dominant_direction: [4]f32 = .{ 0.0, 1.0, 0.0, 0.0 },
     environment_dominant_color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
     light_counts: [4]u32 = .{ 0, 0, 0, 0 },
+    debug_view: [4]u32 = .{ 0, 0, 0, 0 },
+    environment_flags: [4]u32 = .{ 0, 0, 0, 0 },
     environment_irradiance_sh: [9][4]f32 = [_][4]f32{[_]f32{ 0.0, 0.0, 0.0, 0.0 }} ** 9,
     lights: [max_scene_lights]SceneLight = [_]SceneLight{SceneLight{}} ** max_scene_lights,
 };

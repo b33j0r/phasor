@@ -538,6 +538,7 @@ function createPipelines(ctx) {
       },
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     ],
   });
   ctx.scenePipelineLayout = ctx.device.createPipelineLayout({
@@ -760,6 +761,42 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
                 ],
           },
         ]
+      : vertexLayout === 4
+      ? [
+          {
+            arrayStride: 48,
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "float32x3" },
+              { shaderLocation: 2, offset: 24, format: "float32x4" },
+              { shaderLocation: 3, offset: 40, format: "float32x2" },
+            ],
+          },
+          {
+            arrayStride: instanceStrideBytes,
+            stepMode: "instance",
+            attributes: bindingMode === 2
+              ? [
+                  { shaderLocation: 4, offset: 0, format: "float32x4" },
+                  { shaderLocation: 5, offset: 16, format: "float32x4" },
+                  { shaderLocation: 6, offset: 32, format: "float32x4" },
+                  { shaderLocation: 7, offset: 48, format: "float32x4" },
+                  { shaderLocation: 8, offset: 64, format: "float32x4" },
+                  { shaderLocation: 9, offset: 80, format: "float32x4" },
+                  { shaderLocation: 10, offset: 96, format: "float32x4" },
+                  { shaderLocation: 11, offset: 112, format: "float32x4" },
+                  { shaderLocation: 12, offset: 128, format: "float32x4" },
+                  { shaderLocation: 13, offset: 144, format: "float32x4" },
+                ]
+              : [
+                  { shaderLocation: 4, offset: 0, format: "float32x4" },
+                  { shaderLocation: 5, offset: 16, format: "float32x4" },
+                  { shaderLocation: 6, offset: 32, format: "float32x4" },
+                  { shaderLocation: 7, offset: 48, format: "float32x4" },
+                  { shaderLocation: 8, offset: 128, format: "float32x4" },
+                ],
+          },
+        ]
       : null;
   if (!vertexBuffers) return null;
 
@@ -861,7 +898,7 @@ function createShadowPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMod
             ],
           },
         ]
-      : vertexLayout === 3
+        : vertexLayout === 3
         ? [
             {
               arrayStride: 32,
@@ -879,6 +916,28 @@ function createShadowPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMod
                 { shaderLocation: 4, offset: 16, format: "float32x4" },
                 { shaderLocation: 5, offset: 32, format: "float32x4" },
                 { shaderLocation: 6, offset: 48, format: "float32x4" },
+              ],
+            },
+          ]
+        : vertexLayout === 4
+        ? [
+            {
+              arrayStride: 48,
+              attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x3" },
+                { shaderLocation: 1, offset: 12, format: "float32x3" },
+                { shaderLocation: 2, offset: 24, format: "float32x4" },
+                { shaderLocation: 3, offset: 40, format: "float32x2" },
+              ],
+            },
+            {
+              arrayStride: instanceStrideBytes,
+              stepMode: "instance",
+              attributes: [
+                { shaderLocation: 4, offset: 0, format: "float32x4" },
+                { shaderLocation: 5, offset: 16, format: "float32x4" },
+                { shaderLocation: 6, offset: 32, format: "float32x4" },
+                { shaderLocation: 7, offset: 48, format: "float32x4" },
               ],
             },
           ]
@@ -2256,6 +2315,7 @@ const imports = {
           },
           { binding: 3, resource: texture.view },
           { binding: 4, resource: texture.view },
+          { binding: 5, resource: texture.view },
         ],
       });
       webgpuCreates.bindGroups += 2;
@@ -2263,14 +2323,15 @@ const imports = {
       ctx.materials.push({ bindGroup, sceneBindGroup });
       return handle;
     },
-    webgpu_create_scene_material(ctxId, baseColorTextureHandle, metallicRoughnessTextureHandle, occlusionTextureHandle, samplerHandle) {
+    webgpu_create_scene_material(ctxId, baseColorTextureHandle, metallicRoughnessTextureHandle, occlusionTextureHandle, normalTextureHandle, samplerHandle) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return 0;
       const baseColor = ctx.textures[baseColorTextureHandle];
       const metallicRoughness = ctx.textures[metallicRoughnessTextureHandle];
       const occlusion = ctx.textures[occlusionTextureHandle];
+      const normal = ctx.textures[normalTextureHandle];
       const sampler = ctx.samplers[samplerHandle];
-      if (!baseColor || !metallicRoughness || !occlusion || !sampler) return 0;
+      if (!baseColor || !metallicRoughness || !occlusion || !normal || !sampler) return 0;
       const bindGroup = ctx.device.createBindGroup({
         layout: ctx.quadBindGroupLayout,
         entries: [
@@ -2293,6 +2354,7 @@ const imports = {
           },
           { binding: 3, resource: metallicRoughness.view },
           { binding: 4, resource: occlusion.view },
+          { binding: 5, resource: normal.view },
         ],
       });
       webgpuCreates.bindGroups += 2;

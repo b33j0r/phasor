@@ -51,12 +51,12 @@ fn updateSoakMonitor(
     commands: *Commands,
     settings: Res(SoakMonitorSettings),
     state: ResMut(SoakMonitorState),
-    elapsed: Res(time_mod.ElapsedTime),
+    run_time: Res(time_mod.RunTime),
     store_opt: ResOpt(metrics.Store),
     render_state_opt: ResOpt(render_mod.RenderState),
 ) void {
     if (!settings.ptr.enabled) return;
-    const elapsed_seconds = elapsed.ptr.seconds;
+    const elapsed_seconds = run_time.ptr.seconds;
     if (state.ptr.next_snapshot == 0.0) {
         state.ptr.next_snapshot = settings.ptr.warmup_seconds;
     }

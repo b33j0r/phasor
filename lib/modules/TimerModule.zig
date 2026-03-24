@@ -10,7 +10,7 @@ pub const StopwatchTimer = struct {
 };
 
 pub fn install(app: *AppCommands, cmds: *Commands) !void {
-    if (!cmds.hasResource(TimeModule.DeltaTime) or !cmds.hasResource(TimeModule.ElapsedTime)) {
+    if (!cmds.hasResource(TimeModule.SimulationDeltaTime)) {
         return error.MissingTimeModule;
     }
     try app.addSystem("BeforeFrame", updateTimers);
@@ -20,7 +20,7 @@ pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(updateTimers);
 }
 
-fn updateTimers(dt_res: Res(TimeModule.DeltaTime), countdowns: Query(.{CountdownTimer}), stopwatches: Query(.{StopwatchTimer})) void {
+fn updateTimers(dt_res: Res(TimeModule.SimulationDeltaTime), countdowns: Query(.{CountdownTimer}), stopwatches: Query(.{StopwatchTimer})) void {
     const dt = dt_res.deref().seconds;
 
     var countdown_it = countdowns.iterator();

@@ -58,15 +58,68 @@ pub const RenderQueue = queue.RenderQueue;
 pub const VSync = struct {
     enabled: bool = true,
 };
+pub const ShadowMode = enum {
+    inherit,
+    off,
+    directional,
+};
+pub const EnvironmentSpecularMode = enum {
+    on,
+    off,
+};
+pub const SceneStatsMode = struct {
+    enabled: bool = false,
+    max_scene_layer: i32 = 999,
+};
+pub const SceneStatsSnapshot = struct {
+    mesh_count: usize = 0,
+    min: common.Vec3 = .{},
+    max: common.Vec3 = .{},
+    valid: bool = false,
+
+    pub fn size(self: SceneStatsSnapshot) common.Vec3 {
+        if (!self.valid) return .{};
+        return .{
+            .x = self.max.x - self.min.x,
+            .y = self.max.y - self.min.y,
+            .z = self.max.z - self.min.z,
+        };
+    }
+};
+pub const SceneEnvironmentMap = struct {
+    texture_handle: TextureHandle = TextureHandle.invalid(),
+};
+pub const NormalMapScale = struct {
+    multiplier: f32 = 1.0,
+};
+pub const SceneDebugView = enum(u32) {
+    off = 0,
+    base_color = 1,
+    normal = 2,
+    metallic = 3,
+    roughness = 4,
+    ao = 5,
+    ndotl = 6,
+    ndotv = 7,
+    specular = 8,
+};
+pub const CoreShaders = struct {
+    color_pos3_color4: ShaderHandle = ShaderHandle.invalid(),
+    simple_shadow_lit: ShaderHandle = ShaderHandle.invalid(),
+    sky_procedural: ShaderHandle = ShaderHandle.invalid(),
+    sky_panorama_hdr: ShaderHandle = ShaderHandle.invalid(),
+};
 pub const VertexColor = backend.VertexColor;
 pub const VertexUv = backend.VertexUv;
 pub const VertexPos3Uv = backend.VertexPos3Uv;
 pub const VertexPos3NormUv = backend.VertexPos3NormUv;
+pub const VertexPos3NormTangentUv = backend.VertexPos3NormTangentUv;
 pub const VertexPos3Color = backend.VertexPos3Color;
 pub const Triangle = backend.Triangle;
 pub const TexturedQuad = backend.TexturedQuad;
 pub const DrawCmd = backend.DrawCmd;
 pub const BuildContext = @import("build.zig").BuildContext;
+pub const CoreShaderSources = @import("core_shaders.zig");
 pub const ColorGrade = @import("color_grading.zig").ColorGrade;
 pub const ColorGradingSettings = @import("color_grading.zig").ColorGradingSettings;
 pub const PostProcessShaderHandle = @import("post_process.zig").PostProcessShaderHandle;

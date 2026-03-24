@@ -172,7 +172,6 @@ fn vs_main(input: VertexIn) -> VertexOut {
 fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     var color = textureSample(mesh_texture, mesh_sampler, input.uv).rgb * input.color.rgb;
     if (scene.exposure_settings.y > 0.5) {
-        // Keep sky from over-brightening when scene auto-exposure lifts interiors.
         color *= scene.exposure_settings.x * 0.55;
     }
     return vec4<f32>(applyColorGrade(color), input.color.a);

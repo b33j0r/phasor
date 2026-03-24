@@ -101,7 +101,15 @@ fn stepSystem(
     config: ecs.system_params.Res(resources.Config),
     step_state: ecs.system_params.ResMut(resources.StepState),
     stats: ecs.system_params.ResMut(resources.Stats),
+    pause: ecs.system_params.ResOpt(common.Paused),
 ) void {
+    if (pause.ptr != null) {
+        step_state.ptr.steps_last_frame = 0;
+        step_state.ptr.alpha = 0.0;
+        stats.ptr.step_ms = 0.0;
+        stats.ptr.last_substeps = 0;
+        return;
+    }
     world.ptr.step(config.ptr.*, step_state.ptr, stats.ptr);
 }
 

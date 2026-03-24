@@ -8,13 +8,15 @@ pub fn setupColorGrading(commands: *ecs.Commands) !void {
 pub fn setupLighting(
     commands: *ecs.Commands,
     scene_ready: ResOpt(SceneReady),
-    scene_metrics: ResOpt(SceneMetrics),
+    scene_assets: ResOpt(Assets),
 ) !void {
     if (commands.hasResource(LightingReady)) return;
     if (scene_ready.ptr == null) return;
+    const assets = scene_assets.ptr orelse return;
+    if (!assets.sky_panorama.texture_handle.isValid()) return;
 
-    const scene_size = if (scene_metrics.ptr) |scene_metrics_res|
-        scene_metrics_res.scene_size
+    const scene_size = if (commands.getResource(SceneSpawnPlan)) |spawn_plan|
+        spawn_plan.scene_size
     else
         Vec3{ .x = 40.0, .y = 20.0, .z = 40.0 };
 
@@ -38,6 +40,9 @@ pub fn setupLighting(
             .specular_strength = 0.03,
         },
     ));
+    try commands.insertResource(render.SceneEnvironmentMap{
+        .texture_handle = assets.sky_panorama.texture_handle,
+    });
 
     _ = try commands.createEntity(.{
         Transform{
@@ -66,8 +71,8 @@ pub fn setupLighting(
         range: f32,
         dynamic: bool,
     }{
-        // Soft neutral fill at scene origin to lift extreme center-corridor contrast.
-        .{ .pos = .{ .x = 0.0, .y = 1.9, .z = 0.0 }, .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 }, .intensity = 90.0, .range = 14.0, .dynamic = false },
+        // Soft white fill at scene origin to keep the center corridor readable.
+        .{ .pos = .{ .x = 0.0, .y = 1.9, .z = 0.0 }, .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 }, .intensity = 150.0, .range = 18.0, .dynamic = false },
         // Main corridor: static colored lights along Z (x = 0), leaving origin unlit.
         .{ .pos = .{ .x = 0.0, .y = 2.8, .z = scene_size.z * 0.30 }, .color = .{ .r = 1.0, .g = 0.42, .b = 0.28, .a = 1.0 }, .intensity = 120.0, .range = 9.0, .dynamic = false },
         .{ .pos = .{ .x = 0.0, .y = 2.8, .z = scene_size.z * 0.12 }, .color = .{ .r = 0.22, .g = 0.75, .b = 1.0, .a = 1.0 }, .intensity = 105.0, .range = 9.0, .dynamic = false },
@@ -115,6 +120,9 @@ pub fn setupLighting(
 pub fn setupSkyCycle(
     commands: *ecs.Commands,
     scene_ready: ResOpt(SceneReady),
+    scene_assets: ResOpt(Assets),
+    core_shaders: ResOpt(render.CoreShaders),
+    panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
 ) !void {
     if (scene_ready.ptr == null) return;
     if (commands.hasResource(SkyCycleReady)) return;
@@ -124,16 +132,19 @@ pub fn setupSkyCycle(
     const environment = commands.getResource(lighting.EnvironmentLight) orelse return;
 
     try commands.insertResource(SkyCycleState{
-        .mode = .procedural,
+        .mode = .panorama,
         .panorama_ambient = ambient.*,
         .panorama_environment = environment.*,
     });
+    const assets = scene_assets.ptr orelse return;
+    if (core_shaders.ptr) |shaders| applySkyVisualMode(panorama_faces, shaders, assets, .panorama);
     try commands.insertResource(SkyCycleReady{});
 }
 
 pub fn toggleSkyModeInput(
     keyboard_opt: ResOpt(Keyboard),
     commands: *ecs.Commands,
+    core_shaders: ResOpt(render.CoreShaders),
     scene_assets: ResOpt(Assets),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
@@ -142,6 +153,7 @@ pub fn toggleSkyModeInput(
     const keyboard = keyboard_opt.ptr orelse return;
     if (!keyboard.isKeyPressed(.h)) return;
 
+    const shaders = core_shaders.ptr orelse return;
     const assets = scene_assets.ptr orelse return;
     const state = commands.getResourceMut(SkyCycleState) orelse return;
     state.mode = switch (state.mode) {
@@ -150,9 +162,9 @@ pub fn toggleSkyModeInput(
     };
 
     switch (state.mode) {
-        .procedural => applySkyVisualMode(panorama_faces, assets, .procedural),
+        .procedural => applySkyVisualMode(panorama_faces, shaders, assets, .procedural),
         .panorama => {
-            applySkyVisualMode(panorama_faces, assets, .panorama);
+            applySkyVisualMode(panorama_faces, shaders, assets, .panorama);
             if (state.panorama_ambient) |ambient| try commands.insertResource(ambient);
             if (state.panorama_environment) |environment| try commands.insertResource(environment);
         },
@@ -160,7 +172,7 @@ pub fn toggleSkyModeInput(
 }
 
 pub fn updateDayNightWeather(
-    dt: Res(DeltaTime),
+    elapsed: Res(ElapsedTime),
     cycle_state: ResMut(SkyCycleState),
     ambient_opt: ResMut(lighting.AmbientLight),
     environment_opt: ResMut(lighting.EnvironmentLight),
@@ -168,15 +180,12 @@ pub fn updateDayNightWeather(
     directional_lights: Query(.{ Transform, lighting.Light, lighting.LightVisibility }),
 ) void {
     const state = cycle_state.ptr;
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
     if (state.mode != .procedural) return;
     const ambient = ambient_opt.ptr;
     const environment = environment_opt.ptr;
     const base_ambient = state.panorama_ambient orelse ambient.*;
     const base_environment = state.panorama_environment orelse environment.*;
-
-    const step: f32 = @floatCast(std.math.clamp(dt.ptr.seconds, 0.0, 0.1));
-    state.simulation_seconds += step;
-    const t = state.simulation_seconds;
     const day_length = @max(30.0, state.day_night.day_length_seconds);
     const start_phase = state.day_night.start_hour / 24.0;
     const day_phase = fract(start_phase + t / day_length);
@@ -264,12 +273,13 @@ pub fn updateDayNightWeather(
 }
 
 pub fn updateProceduralSkyMeshParams(
+    elapsed: Res(ElapsedTime),
     cycle_state: ResOpt(SkyCycleState),
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
 ) void {
     const state = cycle_state.ptr orelse return;
     var it = panorama_faces.iterator();
-    const t = state.simulation_seconds;
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
     const weather_phase = (t / @max(20.0, state.weather.weather_cycle_seconds)) * (2.0 * std.math.pi);
     const raw_coverage = state.weather.cloud_coverage +
         0.26 * std.math.sin(weather_phase * 0.43) +
@@ -298,11 +308,10 @@ pub fn updateProceduralSkyMeshParams(
 }
 
 pub fn animateLights(
-    cycle_state: ResOpt(SkyCycleState),
+    elapsed: Res(ElapsedTime),
     animated_lights: Query(.{ Transform, lighting.Light, AnimatedLight }),
 ) void {
-    const state = cycle_state.ptr orelse return;
-    const t = state.simulation_seconds;
+    const t: f32 = @floatCast(elapsed.ptr.seconds);
 
     var it = animated_lights.iterator();
     while (it.next()) |row| {
@@ -331,12 +340,13 @@ pub fn animateLights(
 
 fn applySkyVisualMode(
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
+    core_shaders: *const render.CoreShaders,
     scene_assets: *const Assets,
     mode: SkyMode,
 ) void {
     const shader = switch (mode) {
-        .procedural => scene_assets.sky_procedural_shader.handle,
-        .panorama => scene_assets.sky_shader.handle,
+        .procedural => core_shaders.sky_procedural,
+        .panorama => core_shaders.sky_panorama_hdr,
     };
     const material = switch (mode) {
         .procedural => scene_assets.sky_moon_overlay.material,
@@ -449,11 +459,11 @@ const ResOpt = ecs.system_params.ResOpt;
 const Assets = shared.Assets;
 const AnimatedLight = shared.AnimatedLight;
 const Color = common.Color;
-const DeltaTime = modules.TimeModule.DeltaTime;
+const ElapsedTime = modules.TimeModule.ElapsedTime;
 const Keyboard = modules.InputModule.Keyboard;
 const LightingReady = shared.LightingReady;
-const SceneMetrics = shared.SceneMetrics;
 const SceneReady = shared.SceneReady;
+const SceneSpawnPlan = shared.SceneSpawnPlan;
 const SkyCycleReady = shared.SkyCycleReady;
 const SkyCycleState = shared.SkyCycleState;
 const SkyMode = shared.SkyMode;

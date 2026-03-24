@@ -23,6 +23,26 @@ pub const BufferSource = enum {
     GlbBinary,
 };
 
+pub const SamplerFilter = enum {
+    nearest,
+    linear,
+};
+
+pub const SamplerAddressMode = enum {
+    clamp_to_edge,
+    repeat,
+    mirror_repeat,
+};
+
+pub const TextureSamplerData = struct {
+    mag_filter: SamplerFilter = .linear,
+    min_filter: SamplerFilter = .linear,
+    mipmap_filter: SamplerFilter = .linear,
+    address_mode_u: SamplerAddressMode = .repeat,
+    address_mode_v: SamplerAddressMode = .repeat,
+    address_mode_w: SamplerAddressMode = .repeat,
+};
+
 pub const SceneData = struct {
     allocator: std.mem.Allocator,
     scenes: []SceneDef = &.{},
@@ -137,6 +157,7 @@ pub const PrimitiveData = struct {
     indices_accessor: ?AccessorRef = null,
     position_accessor: ?AccessorRef = null,
     normal_accessor: ?AccessorRef = null,
+    tangent_accessor: ?AccessorRef = null,
     uv0_accessor: ?AccessorRef = null,
 };
 
@@ -194,6 +215,7 @@ pub const MaterialData = struct {
 pub const TextureData = struct {
     name: ?[]u8 = null,
     image_index: ?u32 = null,
+    sampler: TextureSamplerData = .{},
 
     fn deinit(self: *TextureData, allocator: std.mem.Allocator) void {
         if (self.name) |name| allocator.free(name);

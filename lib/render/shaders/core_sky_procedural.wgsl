@@ -165,7 +165,6 @@ fn renderMoon(
         return vec4<f32>(0.0);
     }
 
-    // Slightly enlarged angular radius for readability and drama.
     let moon_radius = 0.022;
     let local = vec2<f32>(dot(dir, moon_right), dot(dir, moon_up)) / max(forward, 1e-4);
     let uv = local / (moon_radius * 2.0) + vec2<f32>(0.5, 0.5);

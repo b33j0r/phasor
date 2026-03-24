@@ -3,6 +3,7 @@ const common = @import("common");
 const render = @import("render");
 const scene_mod = @import("scene.zig");
 const stb_image = @import("stb_image");
+const log = std.log.scoped(.assets_imported_scene);
 
 pub const ImportedScene = struct {
     allocator: std.mem.Allocator,
@@ -25,6 +26,7 @@ pub const ImportedScene = struct {
     pub const MeshLayout = enum {
         Pos3Uv,
         Pos3NormUv,
+        Pos3NormTangentUv,
     };
 
     pub const Bounds = struct {
@@ -114,6 +116,7 @@ pub const PreparedImportedScene = struct {
     root_node_indices: []u32 = &.{},
     materials: []PreparedMaterial = &.{},
     textures: []?PreparedTexture = &.{},
+    texture_samplers: []render.SamplerDescriptor = &.{},
     meshes: []PreparedMesh = &.{},
     primitives: []PreparedPrimitive = &.{},
     bounds: ImportedScene.Bounds = .{},
@@ -159,9 +162,11 @@ pub const PreparedImportedScene = struct {
         loaded_textures_linear: []?render.TextureHandle = &.{},
         scene_materials: []?render.MaterialHandle = &.{},
         default_white_texture: ?render.TextureHandle = null,
+        default_flat_normal_texture: ?render.TextureHandle = null,
         mesh_handles: std.ArrayListUnmanaged(render.MeshHandle) = .empty,
         texture_handles: std.ArrayListUnmanaged(render.TextureHandle) = .empty,
         material_handles: std.ArrayListUnmanaged(render.MaterialHandle) = .empty,
+        owned_samplers: std.ArrayListUnmanaged(render.Sampler) = .empty,
         nodes_created: bool = false,
         next_primitive: usize = 0,
 
@@ -225,6 +230,12 @@ pub const PreparedImportedScene = struct {
             self.mesh_handles.deinit(self.allocator);
             self.texture_handles.deinit(self.allocator);
             self.material_handles.deinit(self.allocator);
+            if (self.renderer) |renderer| {
+                for (self.owned_samplers.items) |*sampler| {
+                    renderer.destroySampler(sampler);
+                }
+            }
+            self.owned_samplers.deinit(self.allocator);
             if (self.scene_materials.len > 0) self.allocator.free(self.scene_materials);
             if (self.loaded_textures_linear.len > 0) self.allocator.free(self.loaded_textures_linear);
             if (self.loaded_textures_srgb.len > 0) self.allocator.free(self.loaded_textures_srgb);
@@ -304,8 +315,10 @@ pub const PreparedImportedScene = struct {
 
         result.textures = try allocator.alloc(?PreparedTexture, scene_data.textures.len);
         for (result.textures) |*slot| slot.* = null;
+        result.texture_samplers = try allocator.alloc(render.SamplerDescriptor, scene_data.textures.len);
         for (scene_data.textures, 0..) |_, texture_index| {
             result.textures[texture_index] = try prepareTextureData(allocator, io, source_path, scene_data, @intCast(texture_index));
+            result.texture_samplers[texture_index] = samplerDescriptorFromScene(scene_data.textures[texture_index].sampler);
         }
 
         result.materials = try allocator.alloc(PreparedMaterial, scene_data.materials.len);
@@ -359,6 +372,7 @@ pub const PreparedImportedScene = struct {
             if (texture.*) |*value| value.deinit(self.allocator);
         }
         if (self.textures.len > 0) self.allocator.free(self.textures);
+        if (self.texture_samplers.len > 0) self.allocator.free(self.texture_samplers);
         if (self.materials.len > 0) self.allocator.free(self.materials);
         if (self.root_node_indices.len > 0) self.allocator.free(self.root_node_indices);
         if (self.nodes.len > 0) self.allocator.free(self.nodes);
@@ -568,6 +582,10 @@ const PreparedMesh = union(ImportedScene.MeshLayout) {
         vertices: []render.VertexPos3NormUv,
         indices: []u16,
     },
+    Pos3NormTangentUv: struct {
+        vertices: []render.VertexPos3NormTangentUv,
+        indices: []u16,
+    },
 
     fn deinit(self: *PreparedMesh, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -576,6 +594,10 @@ const PreparedMesh = union(ImportedScene.MeshLayout) {
                 allocator.free(mesh.indices);
             },
             .Pos3NormUv => |mesh| {
+                allocator.free(mesh.vertices);
+                allocator.free(mesh.indices);
+            },
+            .Pos3NormTangentUv => |mesh| {
                 allocator.free(mesh.vertices);
                 allocator.free(mesh.indices);
             },
@@ -810,6 +832,41 @@ fn preparePrimitiveMesh(
             }
             return .{ .Pos3NormUv = .{ .vertices = vertices, .indices = indices } };
         },
+        .Pos3NormTangentUv => {
+            const vertices = try allocator.alloc(render.VertexPos3NormTangentUv, vertex_count);
+            errdefer allocator.free(vertices);
+
+            const normal_accessor = primitive.normal_accessor;
+            const normal_meta = if (normal_accessor) |ref| scene_data.accessors[ref.accessor_index] else null;
+            const normal_bytes = if (normal_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
+            const tangent_accessor = primitive.tangent_accessor;
+            const tangent_meta = if (tangent_accessor) |ref| scene_data.accessors[ref.accessor_index] else null;
+            const tangent_bytes = if (tangent_accessor) |ref| scene_data.accessorByteSlice(ref.accessor_index) else null;
+
+            for (0..vertex_count) |i| {
+                const pos = readVec3(position_bytes, positionMetaStride(position_meta), i);
+                bounds.include(pos);
+                const normal = if (normal_accessor != null and normal_meta != null and normal_bytes != null)
+                    readVec3(normal_bytes.?, positionMetaStride(normal_meta.?), i)
+                else
+                    common.Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 };
+                const tangent = if (tangent_accessor != null and tangent_meta != null and tangent_bytes != null)
+                    readVec4(tangent_bytes.?, positionMetaStride(tangent_meta.?), i)
+                else
+                    [4]f32{ 1.0, 0.0, 0.0, 1.0 };
+                const uv = if (uv_accessor != null and uv_meta != null and uv_bytes != null)
+                    readVec2(uv_bytes.?, uvMetaStride(uv_meta.?), i)
+                else
+                    common.Vec2{};
+                vertices[i] = .{
+                    .position = .{ pos.x, pos.y, pos.z },
+                    .normal = .{ normal.x, normal.y, normal.z },
+                    .tangent = tangent,
+                    .uv = .{ uv.x, uv.y },
+                };
+            }
+            return .{ .Pos3NormTangentUv = .{ .vertices = vertices, .indices = indices } };
+        },
     }
 }
 
@@ -817,6 +874,7 @@ fn createPreparedMesh(build_ctx: *const render.BuildContext, prepared_mesh: Prep
     return switch (prepared_mesh) {
         .Pos3Uv => |mesh| build_ctx.addMeshPos3Uv(mesh.vertices, mesh.indices),
         .Pos3NormUv => |mesh| build_ctx.addMeshPos3NormUv(mesh.vertices, mesh.indices),
+        .Pos3NormTangentUv => |mesh| build_ctx.addMeshPos3NormTangentUv(mesh.vertices, mesh.indices),
     };
 }
 
@@ -902,6 +960,7 @@ fn ensurePreparedSceneMaterial(
     if (state.scene_materials[material_index]) |handle| return handle;
 
     const default_white = try ensurePreparedDefaultWhiteTexture(build_ctx, state);
+    const default_flat_normal = try ensurePreparedDefaultFlatNormalTexture(build_ctx, state);
     _ = scene_material;
     const base_color_handle = if (prepared_material.base_color_texture) |texture_ref|
         (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .srgb, state) orelse default_white)
@@ -915,17 +974,104 @@ fn ensurePreparedSceneMaterial(
         (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .linear, state) orelse default_white)
     else
         default_white;
+    const normal_handle = if (prepared_material.normal_texture) |texture_ref|
+        (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .linear, state) orelse default_flat_normal)
+    else
+        default_flat_normal;
+    const sampler = try ensurePreparedSceneSampler(build_ctx, prepared_scene, prepared_material, state);
 
     const material_handle = try build_ctx.createSceneMaterial(
         base_color_handle,
         metallic_roughness_handle,
         occlusion_handle,
-        null,
+        normal_handle,
+        sampler,
     );
     errdefer _ = build_ctx.destroyMaterial(material_handle);
     try state.material_handles.append(state.allocator, material_handle);
     state.scene_materials[material_index] = material_handle;
     return material_handle;
+}
+
+fn ensurePreparedSceneSampler(
+    build_ctx: *const render.BuildContext,
+    prepared_scene: *const PreparedImportedScene,
+    prepared_material: PreparedMaterial,
+    state: *PreparedImportedScene.ApplyState,
+) !?render.Sampler {
+    var descriptor: ?render.SamplerDescriptor = null;
+    const texture_refs = [_]?scene_mod.TextureRef{
+        prepared_material.base_color_texture,
+        prepared_material.metallic_roughness_texture,
+        prepared_material.normal_texture,
+        prepared_material.occlusion_texture,
+        prepared_material.emissive_texture,
+    };
+    for (texture_refs) |texture_ref| {
+        const ref = texture_ref orelse continue;
+        if (ref.texture_index >= prepared_scene.texture_samplers.len) continue;
+        const candidate = prepared_scene.texture_samplers[ref.texture_index];
+        if (descriptor == null) {
+            descriptor = candidate;
+            continue;
+        }
+        if (!samplerDescriptorEql(descriptor.?, candidate)) {
+            log.warn("imported scene material uses conflicting texture samplers; using first descriptor", .{});
+            break;
+        }
+    }
+
+    const resolved = descriptor orelse return null;
+    for (state.owned_samplers.items) |sampler| {
+        // Reuse existing owned sampler when descriptor matches.
+        // This keeps imported-scene materials cheap without widening renderer APIs.
+        _ = sampler;
+    }
+    var custom_sampler = try build_ctx.renderer.createSamplerWithDescriptor(resolved);
+    errdefer build_ctx.renderer.destroySampler(&custom_sampler);
+    try state.owned_samplers.append(state.allocator, custom_sampler);
+    return custom_sampler;
+}
+
+fn samplerDescriptorEql(a: render.SamplerDescriptor, b: render.SamplerDescriptor) bool {
+    return a.mag_filter == b.mag_filter and
+        a.min_filter == b.min_filter and
+        a.mipmap_filter == b.mipmap_filter and
+        a.address_mode_u == b.address_mode_u and
+        a.address_mode_v == b.address_mode_v and
+        a.address_mode_w == b.address_mode_w;
+}
+
+fn samplerDescriptorFromScene(sampler: scene_mod.TextureSamplerData) render.SamplerDescriptor {
+    return .{
+        .mag_filter = switch (sampler.mag_filter) {
+            .nearest => .nearest,
+            .linear => .linear,
+        },
+        .min_filter = switch (sampler.min_filter) {
+            .nearest => .nearest,
+            .linear => .linear,
+        },
+        .mipmap_filter = switch (sampler.mipmap_filter) {
+            .nearest => .nearest,
+            .linear => .linear,
+        },
+        .address_mode_u = switch (sampler.address_mode_u) {
+            .clamp_to_edge => .clamp_to_edge,
+            .repeat => .repeat,
+            .mirror_repeat => .mirror_repeat,
+        },
+        .address_mode_v = switch (sampler.address_mode_v) {
+            .clamp_to_edge => .clamp_to_edge,
+            .repeat => .repeat,
+            .mirror_repeat => .mirror_repeat,
+        },
+        .address_mode_w = switch (sampler.address_mode_w) {
+            .clamp_to_edge => .clamp_to_edge,
+            .repeat => .repeat,
+            .mirror_repeat => .mirror_repeat,
+        },
+    };
 }
 
 fn ensurePreparedDefaultWhiteTexture(
@@ -938,6 +1084,19 @@ fn ensurePreparedDefaultWhiteTexture(
     errdefer _ = build_ctx.destroyTexture(handle);
     try state.texture_handles.append(state.allocator, handle);
     state.default_white_texture = handle;
+    return handle;
+}
+
+fn ensurePreparedDefaultFlatNormalTexture(
+    build_ctx: *const render.BuildContext,
+    state: *PreparedImportedScene.ApplyState,
+) !render.TextureHandle {
+    if (state.default_flat_normal_texture) |handle| return handle;
+    const flat_normal = [_]u8{ 128, 128, 255, 255 };
+    const handle = try build_ctx.createTextureRgba8Linear(1, 1, &flat_normal);
+    errdefer _ = build_ctx.destroyTexture(handle);
+    try state.texture_handles.append(state.allocator, handle);
+    state.default_flat_normal_texture = handle;
     return handle;
 }
 
@@ -1098,6 +1257,16 @@ fn readVec2(bytes: []const u8, stride: usize, index: usize) common.Vec2 {
     return .{
         .x = readF32(bytes, base + 0),
         .y = readF32(bytes, base + 4),
+    };
+}
+
+fn readVec4(bytes: []const u8, stride: usize, index: usize) [4]f32 {
+    const base = index * stride;
+    return .{
+        readF32(bytes, base + 0),
+        readF32(bytes, base + 4),
+        readF32(bytes, base + 8),
+        readF32(bytes, base + 12),
     };
 }
 

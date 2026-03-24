@@ -63,30 +63,39 @@ const App = struct {
 
 pub const main = platform.main(App);
 
-fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), assets_res: ResMut(Assets)) !void {
+fn setupScene(
+    commands: *ecs.Commands,
+    build_ctx: ResMut(render.BuildContext),
+    assets_res: ResMut(Assets),
+    core_shaders: ResMut(render.CoreShaders),
+) !void {
     const build = build_ctx.deref();
     const scene_assets = assets_res.deref();
+    try build_ctx.ptr.ensureCoreSimpleShadowLitShader(&core_shaders.ptr.simple_shadow_lit);
+    try build_ctx.ptr.ensureCoreSkyProceduralShader(&core_shaders.ptr.sky_procedural);
     const sun_direction = (Vec3{ .x = -0.72, .y = 0.46, .z = -0.52 }).normalize();
     const light_forward = sun_direction.scale(-1.0);
     const player_spawn = Vec3{ .x = 9.0, .y = 0.9, .z = 14.5 };
-    const camera_target = Vec3{ .x = 0.0, .y = 2.0, .z = 0.0 };
-    const look_direction = camera_target.sub(player_spawn).normalize();
-    const player_yaw = std.math.atan2(look_direction.x, -look_direction.z);
-    const player_pitch = std.math.asin(std.math.clamp(look_direction.y, -1.0, 1.0));
-    const player_controller = FpsController{
-        .yaw = player_yaw,
-        .pitch = player_pitch,
+    const pillar_center = Vec3{ .x = 0.0, .y = 4.0, .z = 0.0 };
+    var player_controller = FpsController{
         .fly_toggle_enabled = true,
         .fly_speed_multiplier = 1.0,
     };
+    const camera_spawn = player_spawn.add(FpsPhysics.cameraOffset(player_controller));
+    const look_angles = Quat.yawPitchFromForward(pillar_center.sub(camera_spawn));
+    player_controller.yaw = look_angles.yaw;
+    player_controller.pitch = look_angles.pitch;
+    const look_rotation = Quat.lookAt(camera_spawn, pillar_center, .{ .x = 0.0, .y = 1.0, .z = 0.0 });
 
     if (!scene_assets.floor_tex.material_handle.isValid()) return error.FloorTextureMissing;
     if (!scene_assets.pillar_tex.material_handle.isValid()) return error.PillarTextureMissing;
-    if (!scene_assets.shadow_lit_shader.handle.isValid()) return error.ShadowShaderMissing;
-    if (!scene_assets.sky_procedural_shader.handle.isValid()) return error.SkyShaderMissing;
     if (!scene_assets.sky_moon_overlay.material_handle.isValid()) return error.SkyTextureMissing;
+    if (!core_shaders.ptr.simple_shadow_lit.isValid()) return error.CoreShadowShaderMissing;
+    if (!core_shaders.ptr.sky_procedural.isValid()) return error.CoreSkyShaderMissing;
 
     try commands.insertResource(DayNightCycle{});
+    try commands.insertResource(render.SceneStatsMode{ .enabled = true });
+    try modules.TimeModule.setPaused(commands, false);
     try commands.insertResource(ClearColor{ .color = Color.rgb(145, 190, 235) });
     try commands.insertResource(MouseCapture{ .enabled = true });
     try commands.insertResource(lighting.AmbientLight{
@@ -111,10 +120,10 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
     });
     try commands.insertResource(modules.RenderModule.ShadowSettings{
         .technique = .directional_shadow_map,
-        .map_resolution = 1536,
+        .map_resolution = 2048,
         .strength = 1.0,
-        .depth_bias = 0.00006,
-        .normal_bias = 0.00055,
+        .depth_bias = 0.00010,
+        .normal_bias = 0.00120,
         .max_distance = 52.0,
         .frustum_padding = 6.0,
         .depth_padding = 40.0,
@@ -144,7 +153,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
         Transform{},
         MeshInstance{
             .mesh_handle = plane_mesh,
-            .shader_handle = scene_assets.shadow_lit_shader.handle,
+            .shader_handle = core_shaders.ptr.simple_shadow_lit,
             .material = scene_assets.floor_tex.material,
             .color = Color.rgb(165, 172, 180),
         },
@@ -155,17 +164,17 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
     const pillar_mesh = try createBoxMesh(build, .{ .x = 1.25, .y = 4.0, .z = 1.25 }, 1.0, 1.0);
     _ = try commands.createEntity(.{
         Transform{
-            .translation = .{ .x = 0.0, .y = 4.0, .z = 0.0 },
+            .translation = pillar_center,
         },
         MeshInstance{
             .mesh_handle = pillar_mesh,
-            .shader_handle = scene_assets.shadow_lit_shader.handle,
+            .shader_handle = core_shaders.ptr.simple_shadow_lit,
             .material = scene_assets.pillar_tex.material,
             .color = Color.WHITE,
         },
         render.Layer(0){},
     });
-    try addStaticCollider(commands, .{ .x = 0.0, .y = 4.0, .z = 0.0 }, .{ .x = 1.25, .y = 4.0, .z = 1.25 });
+    try addStaticCollider(commands, pillar_center, .{ .x = 1.25, .y = 4.0, .z = 1.25 });
 
     _ = try commands.createEntity(.{
         Transform{
@@ -173,7 +182,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
         },
         modules.SkyModule.PanoramaSky{
             .material = scene_assets.sky_moon_overlay.material,
-            .shader_handle = scene_assets.sky_procedural_shader.handle,
+            .shader_handle = core_shaders.ptr.sky_procedural,
             .size = 180.0,
             .follow_camera = true,
             .face_segments = 36,
@@ -186,7 +195,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
         player_controller,
         Transform{
             .translation = player_spawn,
-            .rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, player_yaw),
+            .rotation = Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, look_angles.yaw),
         },
         physics.Character{},
         physics.Collider{
@@ -207,7 +216,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext), a
         PlayerCamera{},
         Transform{
             .translation = player_spawn.add(FpsPhysics.cameraOffset(player_controller)),
-            .rotation = quatFromEuler(player_pitch, player_yaw, 0.0),
+            .rotation = look_rotation,
         },
         Camera3d{ .Perspective = .{
             .fov = std.math.pi / 3.0,
@@ -235,11 +244,13 @@ fn updateMouseCaptureToggle(
 
     if (keyboard.isKeyPressed(.escape)) {
         capture.enabled = false;
+        try modules.TimeModule.setPaused(commands, true);
         try commands.insertResource(capture);
         return;
     }
     if (keyboard.isKeyPressed(.enter)) {
         capture.enabled = true;
+        try modules.TimeModule.setPaused(commands, false);
         try commands.insertResource(capture);
     }
 }
@@ -529,16 +540,6 @@ const Assets = struct {
     floor_tex: assets.Texture = assets.Texture.embedded(@embedFile("assets/textures/Concrete011_Color.png")).asOpaque().tiledLinear(),
     pillar_tex: assets.Texture = assets.Texture.embedded(@embedFile("assets/textures/Wood049_Color.png")).asOpaque(),
     sky_moon_overlay: assets.Texture = assets.Texture.embedded(@embedFile("assets/textures/moon_overlay_cc0.png")).asBlended(),
-    shadow_lit_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/simple_shadow_lit.wgsl"),
-        .vertex_layout = .pos3_norm_uv2,
-        .binding_mode = .material_scene,
-    },
-    sky_procedural_shader: assets.Shader = .{
-        .wgsl_source = @embedFile("shaders/sky_procedural.wgsl"),
-        .vertex_layout = .pos3_uv2,
-        .binding_mode = .material_scene,
-    },
 };
 
 // Imports

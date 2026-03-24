@@ -97,6 +97,7 @@ pub const SceneMaterialBinding = struct {
     base_color_texture: Texture,
     metallic_roughness_texture: Texture,
     occlusion_texture: Texture,
+    normal_texture: Texture,
 };
 
 pub const ShaderSource = struct {
@@ -112,6 +113,7 @@ pub const ShaderVertexLayout = enum(u32) {
     pos3_color4 = 1,
     pos3_uv2 = 2,
     pos3_norm_uv2 = 3,
+    pos3_norm_tangent_uv2 = 4,
 };
 
 pub const ShaderBindingMode = enum(u32) {
@@ -125,11 +127,14 @@ pub const MeshVertexLayout = enum(u32) {
     pos3_uv2 = 2,
     pos3_color4 = 3,
     pos3_norm_uv2 = 4,
+    pos3_norm_tangent_uv2 = 5,
 };
 
 pub const Mesh = struct {
     handle: u32,
     vertex_layout: MeshVertexLayout,
+    local_bounds_min: common.Vec3 = .{},
+    local_bounds_max: common.Vec3 = .{},
 };
 
 pub const max_instances_per_draw: usize = 6000;
@@ -174,10 +179,89 @@ pub const VertexPos3NormUv = extern struct {
     uv: [2]f32,
 };
 
+pub const VertexPos3NormTangentUv = extern struct {
+    position: [3]f32,
+    normal: [3]f32,
+    tangent: [4]f32,
+    uv: [2]f32,
+};
+
 pub const VertexPos3Color = extern struct {
     position: [3]f32,
     color: [4]f32,
 };
+
+fn boundsFromVertexUv(vertices: []const VertexUv) [2]common.Vec3 {
+    return boundsFromPos2(vertices, struct {
+        fn position(vertex: VertexUv) [2]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromVertexPos3Uv(vertices: []const VertexPos3Uv) [2]common.Vec3 {
+    return boundsFromPos3(vertices, struct {
+        fn position(vertex: VertexPos3Uv) [3]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromVertexPos3NormUv(vertices: []const VertexPos3NormUv) [2]common.Vec3 {
+    return boundsFromPos3(vertices, struct {
+        fn position(vertex: VertexPos3NormUv) [3]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromVertexPos3NormTangentUv(vertices: []const VertexPos3NormTangentUv) [2]common.Vec3 {
+    return boundsFromPos3(vertices, struct {
+        fn position(vertex: VertexPos3NormTangentUv) [3]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromVertexPos3Color(vertices: []const VertexPos3Color) [2]common.Vec3 {
+    return boundsFromPos3(vertices, struct {
+        fn position(vertex: VertexPos3Color) [3]f32 {
+            return vertex.position;
+        }
+    }.position);
+}
+
+fn boundsFromPos2(vertices: anytype, comptime position_fn: fn (@typeInfo(@TypeOf(vertices)).pointer.child) [2]f32) [2]common.Vec3 {
+    if (vertices.len == 0) return .{ .{}, .{} };
+    const first = position_fn(vertices[0]);
+    var min = common.Vec3{ .x = first[0], .y = first[1], .z = 0.0 };
+    var max = min;
+    for (vertices[1..]) |vertex| {
+        const position = position_fn(vertex);
+        min.x = @min(min.x, position[0]);
+        min.y = @min(min.y, position[1]);
+        max.x = @max(max.x, position[0]);
+        max.y = @max(max.y, position[1]);
+    }
+    return .{ min, max };
+}
+
+fn boundsFromPos3(vertices: anytype, comptime position_fn: fn (@typeInfo(@TypeOf(vertices)).pointer.child) [3]f32) [2]common.Vec3 {
+    if (vertices.len == 0) return .{ .{}, .{} };
+    const first = position_fn(vertices[0]);
+    var min = common.Vec3{ .x = first[0], .y = first[1], .z = first[2] };
+    var max = min;
+    for (vertices[1..]) |vertex| {
+        const position = position_fn(vertex);
+        min.x = @min(min.x, position[0]);
+        min.y = @min(min.y, position[1]);
+        min.z = @min(min.z, position[2]);
+        max.x = @max(max.x, position[0]);
+        max.y = @max(max.y, position[1]);
+        max.z = @max(max.z, position[2]);
+    }
+    return .{ min, max };
+}
 
 pub const Triangle = struct {
     vertices: [3]VertexColor,
@@ -246,7 +330,7 @@ extern "env" fn webgpu_destroy_shadow_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_post_process_shader(ctx: u32, wgsl_ptr: [*]const u8, wgsl_len: usize) u32;
 extern "env" fn webgpu_destroy_post_process_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_material(ctx: u32, texture_handle: u32, sampler_handle: u32) u32;
-extern "env" fn webgpu_create_scene_material(ctx: u32, base_color_texture_handle: u32, metallic_roughness_texture_handle: u32, occlusion_texture_handle: u32, sampler_handle: u32) u32;
+extern "env" fn webgpu_create_scene_material(ctx: u32, base_color_texture_handle: u32, metallic_roughness_texture_handle: u32, occlusion_texture_handle: u32, normal_texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_destroy_material(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_stats(ctx: u32, out_ptr: *RendererStats) void;
 extern "env" fn webgpu_ensure_shadow_map_slot(ctx: u32, slot: u32, width: u32, height: u32) u32;
@@ -348,6 +432,7 @@ pub const Renderer = struct {
             binding.base_color_texture.handle,
             binding.metallic_roughness_texture.handle,
             binding.occlusion_texture.handle,
+            binding.normal_texture.handle,
             sampler.handle,
         );
         return Material{ .handle = handle };
@@ -363,7 +448,8 @@ pub const Renderer = struct {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
         const handle = webgpu_create_mesh(self.ctx, @intFromEnum(MeshVertexLayout.uv2), vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
-        return Mesh{ .handle = handle, .vertex_layout = .uv2 };
+        const bounds = boundsFromVertexUv(vertices);
+        return Mesh{ .handle = handle, .vertex_layout = .uv2, .local_bounds_min = bounds[0], .local_bounds_max = bounds[1] };
     }
 
     pub fn updateMeshUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexUv, indices: []const u16) !void {
@@ -372,13 +458,17 @@ pub const Renderer = struct {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
         webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        const bounds = boundsFromVertexUv(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
     }
 
     pub fn createMeshPos3Uv(self: *Renderer, vertices: []const VertexPos3Uv, indices: []const u16) !Mesh {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
         const handle = webgpu_create_mesh(self.ctx, @intFromEnum(MeshVertexLayout.pos3_uv2), vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
-        return Mesh{ .handle = handle, .vertex_layout = .pos3_uv2 };
+        const bounds = boundsFromVertexPos3Uv(vertices);
+        return Mesh{ .handle = handle, .vertex_layout = .pos3_uv2, .local_bounds_min = bounds[0], .local_bounds_max = bounds[1] };
     }
 
     pub fn updateMeshPos3Uv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3Uv, indices: []const u16) !void {
@@ -387,13 +477,17 @@ pub const Renderer = struct {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
         webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        const bounds = boundsFromVertexPos3Uv(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
     }
 
     pub fn createMeshPos3NormUv(self: *Renderer, vertices: []const VertexPos3NormUv, indices: []const u16) !Mesh {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
         const handle = webgpu_create_mesh(self.ctx, @intFromEnum(MeshVertexLayout.pos3_norm_uv2), vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
-        return Mesh{ .handle = handle, .vertex_layout = .pos3_norm_uv2 };
+        const bounds = boundsFromVertexPos3NormUv(vertices);
+        return Mesh{ .handle = handle, .vertex_layout = .pos3_norm_uv2, .local_bounds_min = bounds[0], .local_bounds_max = bounds[1] };
     }
 
     pub fn updateMeshPos3NormUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3NormUv, indices: []const u16) !void {
@@ -402,13 +496,36 @@ pub const Renderer = struct {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
         webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        const bounds = boundsFromVertexPos3NormUv(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
+    }
+
+    pub fn createMeshPos3NormTangentUv(self: *Renderer, vertices: []const VertexPos3NormTangentUv, indices: []const u16) !Mesh {
+        const vbytes = std.mem.sliceAsBytes(vertices);
+        const ibytes = std.mem.sliceAsBytes(indices);
+        const handle = webgpu_create_mesh(self.ctx, @intFromEnum(MeshVertexLayout.pos3_norm_tangent_uv2), vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        const bounds = boundsFromVertexPos3NormTangentUv(vertices);
+        return Mesh{ .handle = handle, .vertex_layout = .pos3_norm_tangent_uv2, .local_bounds_min = bounds[0], .local_bounds_max = bounds[1] };
+    }
+
+    pub fn updateMeshPos3NormTangentUv(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3NormTangentUv, indices: []const u16) !void {
+        if (mesh.vertex_layout != .pos3_norm_tangent_uv2) return error.InvalidMeshLayout;
+        if (mesh.handle == 0) return;
+        const vbytes = std.mem.sliceAsBytes(vertices);
+        const ibytes = std.mem.sliceAsBytes(indices);
+        webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        const bounds = boundsFromVertexPos3NormTangentUv(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
     }
 
     pub fn createMeshPos3Color(self: *Renderer, vertices: []const VertexPos3Color, indices: []const u16) !Mesh {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
         const handle = webgpu_create_mesh(self.ctx, @intFromEnum(MeshVertexLayout.pos3_color4), vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
-        return Mesh{ .handle = handle, .vertex_layout = .pos3_color4 };
+        const bounds = boundsFromVertexPos3Color(vertices);
+        return Mesh{ .handle = handle, .vertex_layout = .pos3_color4, .local_bounds_min = bounds[0], .local_bounds_max = bounds[1] };
     }
 
     pub fn updateMeshPos3Color(self: *Renderer, mesh: *Mesh, vertices: []const VertexPos3Color, indices: []const u16) !void {
@@ -417,6 +534,9 @@ pub const Renderer = struct {
         const vbytes = std.mem.sliceAsBytes(vertices);
         const ibytes = std.mem.sliceAsBytes(indices);
         webgpu_update_mesh(self.ctx, mesh.handle, vbytes.ptr, vbytes.len, ibytes.ptr, ibytes.len);
+        const bounds = boundsFromVertexPos3Color(vertices);
+        mesh.local_bounds_min = bounds[0];
+        mesh.local_bounds_max = bounds[1];
     }
 
     pub fn destroyMesh(self: *Renderer, mesh: *Mesh) void {

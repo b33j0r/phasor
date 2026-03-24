@@ -20,7 +20,7 @@ pub const FpsKeyBindingModule = struct {
     bindings: FpsKeyBindings = .{},
 
     pub fn install(self: *const FpsKeyBindingModule, app: *AppCommands, cmds: *Commands) !void {
-        if (!cmds.hasResource(TimeModule.DeltaTime)) return error.MissingTimeModule;
+        if (!cmds.hasResource(TimeModule.SimulationDeltaTime)) return error.MissingTimeModule;
         if (!cmds.hasResource(InputModule.Keyboard)) return error.MissingInputModule;
         if (!cmds.hasResource(FpsControlInput)) {
             try cmds.insertResource(FpsControlInput{});
@@ -47,7 +47,7 @@ const FpsKeyBindingSettings = struct {
 };
 
 fn updateFpsControlInputFromBindings(
-    dt: Res(TimeModule.DeltaTime),
+    dt: Res(TimeModule.SimulationDeltaTime),
     keyboard_opt: ResOpt(InputModule.Keyboard),
     mouse_opt: ResOpt(InputModule.Mouse),
     settings: Res(FpsKeyBindingSettings),

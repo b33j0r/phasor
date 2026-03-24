@@ -80,7 +80,7 @@ pub const Bus = struct {
     channel: common.Channel(Event),
     enabled: bool = true,
 
-    pub const max_entries: usize = 16;
+    pub const max_entries: usize = 32;
 
     pub const Config = struct {
         capacity: usize = 256,

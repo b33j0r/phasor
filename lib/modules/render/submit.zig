@@ -13,14 +13,31 @@ pub fn renderSystem(
     unordered_post_process: Query(.{ render.PostProcessPass, Without(render.PostProcessOrder) }),
     present_query: Query(.{render.PostProcessPresentSlot}),
     shadow_settings_opt: ResOpt(types.ShadowSettings),
+    shadow_mode_opt: ResOpt(render.ShadowMode),
+    environment_specular_mode_opt: ResOpt(render.EnvironmentSpecularMode),
+    scene_environment_map_opt: ResOpt(render.SceneEnvironmentMap),
+    debug_view_opt: ResOpt(render.SceneDebugView),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
     state.submit_scratch.clearFrame();
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
     const post_process_shader_library = commands.getResourceMut(render.PostProcessShaderLibrary) orelse return;
+    const texture_library = commands.getResourceMut(render.TextureLibrary) orelse return;
     const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
     const extracted_lighting = commands.getResource(types.ExtractedSceneLighting) orelse return;
+
+    const scene_environment_handle = if (scene_environment_map_opt.ptr) |map| map.texture_handle else render.TextureHandle.invalid();
+    if (!scene_environment_handle.isValid()) {
+        if (state.current_scene_environment.isValid()) {
+            try state.renderer.resetSceneEnvironment();
+            state.current_scene_environment = render.TextureHandle.invalid();
+        }
+    } else if (!textureHandleEqual(scene_environment_handle, state.current_scene_environment)) {
+        const environment_texture = texture_library.get(scene_environment_handle) orelse return error.MissingTexture;
+        try state.renderer.setSceneEnvironment(environment_texture.*);
+        state.current_scene_environment = scene_environment_handle;
+    }
 
     const surface_size = if (framebuffer_opt.ptr) |bounds|
         render.Size{
@@ -53,7 +70,13 @@ pub fn renderSystem(
         surface_size;
     const post_process_passes = try collectPostProcessPasses(&state.submit_scratch, ordered_post_process, unordered_post_process);
     const processed_max_layer = resolveProcessedMaxLayer(post_process_passes);
-    const shadow_settings = if (shadow_settings_opt.ptr) |settings| settings.* else types.ShadowSettings{};
+    const shadow_mode = if (shadow_mode_opt.ptr) |mode| mode.* else render.ShadowMode.inherit;
+    const environment_specular_mode = if (environment_specular_mode_opt.ptr) |mode| mode.* else render.EnvironmentSpecularMode.on;
+    const debug_view = if (debug_view_opt.ptr) |mode| mode.* else render.SceneDebugView.off;
+    const shadow_settings = resolveShadowSettings(
+        if (shadow_settings_opt.ptr) |settings| settings.* else types.ShadowSettings{},
+        shadow_mode,
+    );
     const shadow_camera = cameraForLayer(0, layer_cameras_opt.ptr, camera_opt.ptr);
     var shadow_frame = if (shadow_camera) |camera|
         shadows.evaluateShadowFrame(
@@ -101,6 +124,7 @@ pub fn renderSystem(
             state.shadow_shader_uv2,
             state.shadow_shader_pos3_uv2,
             state.shadow_shader_pos3_norm_uv2,
+            state.shadow_shader_pos3_norm_tangent_uv2,
             state.shadow_shader_pos3_color4,
             shadow_frame.light_view_proj,
         );
@@ -128,6 +152,8 @@ pub fn renderSystem(
         state.default_material,
         extracted_lighting,
         color_grading_opt.ptr,
+        environment_specular_mode,
+        debug_view,
         .{ .max_layer = processed_max_layer },
     );
 
@@ -178,9 +204,28 @@ pub fn renderSystem(
             state.default_material,
             extracted_lighting,
             color_grading_opt.ptr,
+            environment_specular_mode,
+            debug_view,
             .{ .min_layer = processed_max_layer + 1 },
         );
     }
+}
+
+fn textureHandleEqual(a: render.TextureHandle, b: render.TextureHandle) bool {
+    return a.index == b.index and a.generation == b.generation;
+}
+
+fn resolveShadowSettings(
+    base: types.ShadowSettings,
+    mode: render.ShadowMode,
+) types.ShadowSettings {
+    var settings = base;
+    switch (mode) {
+        .inherit => {},
+        .off => settings.technique = .none,
+        .directional => settings.technique = .directional_shadow_map,
+    }
+    return settings;
 }
 
 fn drawShadowCasters(
@@ -191,6 +236,7 @@ fn drawShadowCasters(
     shader_uv2: render.ShadowShader,
     shader_pos3_uv2: render.ShadowShader,
     shader_pos3_norm_uv2: render.ShadowShader,
+    shader_pos3_norm_tangent_uv2: render.ShadowShader,
     shader_pos3_color4: render.ShadowShader,
     light_view_proj: common.Mat4,
 ) void {
@@ -211,6 +257,7 @@ fn drawShadowCasters(
                     .uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
                     .pos3_uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_pos3_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
                     .pos3_norm_uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_pos3_norm_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
+                    .pos3_norm_tangent_uv2 => frame.drawShadowTexturedMeshesWithShader(mesh.*, default_material, shader_pos3_norm_tangent_uv2, &[_]render.BackendMeshInstance{gpu_instance}),
                     .pos3_color4 => frame.drawShadowColoredMeshes(mesh.*, shader_pos3_color4, &[_]render.BackendMeshInstance{gpu_instance}),
                 }
             },
@@ -376,6 +423,8 @@ fn drawSceneLayers(
     default_material: render.BackendMaterial,
     extracted_lighting: *const types.ExtractedSceneLighting,
     color_grading: ?*const render.ColorGradingSettings,
+    environment_specular_mode: render.EnvironmentSpecularMode,
+    debug_view: render.SceneDebugView,
     filter: LayerFilter,
 ) !void {
     for (layers) |layer| {
@@ -419,7 +468,14 @@ fn drawSceneLayers(
             common.Mat4.mul(proj, view)
         else
             null;
-        frame.setSceneUniforms(buildSceneUniforms(camera, view_proj, extracted_lighting, color_grading));
+        frame.setSceneUniforms(buildSceneUniforms(
+            camera,
+            view_proj,
+            extracted_lighting,
+            color_grading,
+            environment_specular_mode,
+            debug_view,
+        ));
 
         scratch.batch_items.clearRetainingCapacity();
         scratch.shader_batch_items.clearRetainingCapacity();
@@ -485,7 +541,7 @@ fn drawSceneLayers(
                                     .instance = gpu_instance,
                                 });
                             },
-                            .material_scene => {
+                            .material_scene, .material_scene_env => {
                                 const material = if (instance.material_handle) |handle|
                                     (material_library.get(handle) orelse continue).*
                                 else
@@ -621,7 +677,7 @@ fn drawSceneLayers(
                                     instance.material orelse default_material;
                                 frame.drawTexturedMeshesWithShader(mesh.*, material, shader.*, &[_]render.BackendMeshInstance{gpu_instance}, true);
                             },
-                            .material_scene => {
+                            .material_scene, .material_scene_env => {
                                 const material = if (instance.material_handle) |handle|
                                     (material_library.get(handle) orelse continue).*
                                 else
@@ -682,6 +738,8 @@ fn buildSceneUniforms(
     view_proj: ?common.Mat4,
     extracted_lighting: *const types.ExtractedSceneLighting,
     color_grading: ?*const render.ColorGradingSettings,
+    environment_specular_mode: render.EnvironmentSpecularMode,
+    debug_view: render.SceneDebugView,
 ) render.SceneUniforms {
     var uniforms = render.SceneUniforms{};
     uniforms.view_proj = view_proj orelse common.Mat4.identity();
@@ -724,6 +782,11 @@ fn buildSceneUniforms(
         1.0,
     };
     uniforms.light_counts[0] = extracted_lighting.light_count;
+    uniforms.debug_view[0] = @intFromEnum(debug_view);
+    uniforms.environment_flags[0] = switch (environment_specular_mode) {
+        .on => 1,
+        .off => 0,
+    };
     uniforms.environment_irradiance_sh = extracted_lighting.environment_irradiance_sh;
     var i: usize = 0;
     while (i < extracted_lighting.light_count and i < render.max_scene_lights) : (i += 1) {

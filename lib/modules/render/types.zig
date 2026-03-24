@@ -11,7 +11,9 @@ pub const RenderState = struct {
     shadow_shader_uv2: render.ShadowShader,
     shadow_shader_pos3_uv2: render.ShadowShader,
     shadow_shader_pos3_norm_uv2: render.ShadowShader,
+    shadow_shader_pos3_norm_tangent_uv2: render.ShadowShader,
     shadow_shader_pos3_color4: render.ShadowShader,
+    current_scene_environment: render.TextureHandle = render.TextureHandle.invalid(),
     submit_scratch: SubmitScratch,
 
     pub fn deinit(self: *RenderState) void {
@@ -19,6 +21,7 @@ pub const RenderState = struct {
         self.renderer.destroyShadowShader(&self.shadow_shader_uv2);
         self.renderer.destroyShadowShader(&self.shadow_shader_pos3_uv2);
         self.renderer.destroyShadowShader(&self.shadow_shader_pos3_norm_uv2);
+        self.renderer.destroyShadowShader(&self.shadow_shader_pos3_norm_tangent_uv2);
         self.renderer.destroyShadowShader(&self.shadow_shader_pos3_color4);
         self.renderer.destroyMaterial(&self.default_material);
         self.renderer.destroyTexture(&self.default_texture);
