@@ -101,9 +101,9 @@ fn stepSystem(
     config: ecs.system_params.Res(resources.Config),
     step_state: ecs.system_params.ResMut(resources.StepState),
     stats: ecs.system_params.ResMut(resources.Stats),
-    pause: ecs.system_params.ResOpt(common.Paused),
+    r_is_paused: ecs.system_params.HasResource(common.Paused),
 ) void {
-    if (pause.ptr != null) {
+    if (r_is_paused.value) {
         step_state.ptr.steps_last_frame = 0;
         step_state.ptr.alpha = 0.0;
         stats.ptr.step_ms = 0.0;

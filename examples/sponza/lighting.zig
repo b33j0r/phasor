@@ -7,11 +7,12 @@ pub fn setupColorGrading(commands: *ecs.Commands) !void {
 
 pub fn setupLighting(
     commands: *ecs.Commands,
-    scene_ready: ResOpt(SceneReady),
+    scene_ready: HasResource(SceneReady),
+    lighting_ready: HasResource(LightingReady),
     scene_assets: ResOpt(Assets),
 ) !void {
-    if (commands.hasResource(LightingReady)) return;
-    if (scene_ready.ptr == null) return;
+    if (lighting_ready.value) return;
+    if (!scene_ready.value) return;
     const assets = scene_assets.ptr orelse return;
     if (!assets.sky_panorama.texture_handle.isValid()) return;
 
@@ -119,22 +120,23 @@ pub fn setupLighting(
 
 pub fn setupSkyCycle(
     commands: *ecs.Commands,
-    scene_ready: ResOpt(SceneReady),
+    scene_ready: HasResource(SceneReady),
+    lighting_ready: HasResource(LightingReady),
+    sky_cycle_ready: HasResource(SkyCycleReady),
     scene_assets: ResOpt(Assets),
     core_shaders: ResOpt(render.CoreShaders),
+    ambient: Res(lighting.AmbientLight),
+    environment: Res(lighting.EnvironmentLight),
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
 ) !void {
-    if (scene_ready.ptr == null) return;
-    if (commands.hasResource(SkyCycleReady)) return;
-    if (!commands.hasResource(LightingReady)) return;
-
-    const ambient = commands.getResource(lighting.AmbientLight) orelse return;
-    const environment = commands.getResource(lighting.EnvironmentLight) orelse return;
+    if (!scene_ready.value) return;
+    if (sky_cycle_ready.value) return;
+    if (!lighting_ready.value) return;
 
     try commands.insertResource(SkyCycleState{
         .mode = .panorama,
-        .panorama_ambient = ambient.*,
-        .panorama_environment = environment.*,
+        .panorama_ambient = ambient.ptr.*,
+        .panorama_environment = environment.ptr.*,
     });
     const assets = scene_assets.ptr orelse return;
     if (core_shaders.ptr) |shaders| applySkyVisualMode(panorama_faces, shaders, assets, .panorama);
@@ -144,6 +146,7 @@ pub fn setupSkyCycle(
 pub fn toggleSkyModeInput(
     keyboard_opt: ResOpt(Keyboard),
     commands: *ecs.Commands,
+    cycle_state: ResMut(SkyCycleState),
     core_shaders: ResOpt(render.CoreShaders),
     scene_assets: ResOpt(Assets),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
@@ -155,7 +158,7 @@ pub fn toggleSkyModeInput(
 
     const shaders = core_shaders.ptr orelse return;
     const assets = scene_assets.ptr orelse return;
-    const state = commands.getResourceMut(SkyCycleState) orelse return;
+    const state = cycle_state.ptr;
     state.mode = switch (state.mode) {
         .procedural => .panorama,
         .panorama => .procedural,
@@ -452,6 +455,7 @@ const modules = phasor.modules;
 const render = phasor.renderer;
 
 const Query = ecs.system_params.Query;
+const HasResource = ecs.system_params.HasResource;
 const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
 const ResOpt = ecs.system_params.ResOpt;

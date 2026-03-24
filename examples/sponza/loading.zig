@@ -243,9 +243,9 @@ pub fn advanceSceneFinalize(
 }
 
 pub fn updateLoadingScreen(
-    commands: *ecs.Commands,
     elapsed: Res(ElapsedTime),
     loader: ResOpt(SceneLoaderState),
+    screen_state: ResMut(LoadingScreenState),
     scene_assets: ResOpt(Assets),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
     window_bounds_opt: ResOpt(common.WindowBounds),
@@ -253,7 +253,6 @@ pub fn updateLoadingScreen(
     bar_tracks: Query(.{ Transform, MeshInstance, LoadingScreenBarTrack }),
     bar_fills: Query(.{ Transform, MeshInstance, LoadingScreenBarFill }),
 ) void {
-    const screen_state = commands.getResourceMut(LoadingScreenState) orelse return;
     const loader_state = loader.ptr;
     const spinner = spinnerFrame(elapsed.ptr.seconds);
     var header_buffer: [64]u8 = undefined;
@@ -278,19 +277,19 @@ pub fn updateLoadingScreen(
     const message = if (loader_state) |state|
         if (state.failed) |err_name|
             std.fmt.bufPrint(
-                screen_state.overlay.buffer[0..],
+                screen_state.ptr.overlay.buffer[0..],
                 "{s}\n\nLoad failed\n{s}",
                 .{ header, err_name },
             ) catch "Sponza: load failed"
         else
             std.fmt.bufPrint(
-                screen_state.overlay.buffer[0..],
+                screen_state.ptr.overlay.buffer[0..],
                 "{s}\n\n{d}%\n{s}",
                 .{ header, percent, progress.label },
             ) catch "Sponza: loading..."
     else
         std.fmt.bufPrint(
-            screen_state.overlay.buffer[0..],
+            screen_state.ptr.overlay.buffer[0..],
             "{s}\n\nPreparing scene loader",
             .{header},
         ) catch "Sponza: booting...";

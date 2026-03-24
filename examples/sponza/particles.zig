@@ -1,11 +1,12 @@
 pub fn setupLionFire(
     commands: *ecs.Commands,
     build_ctx_opt: ResOpt(render.BuildContext),
-    scene_ready: ResOpt(SceneReady),
+    scene_ready: HasResource(SceneReady),
+    lion_fire_ready: HasResource(LionFireState),
     scene_assets: ResOpt(Assets),
 ) !void {
-    if (scene_ready.ptr == null) return;
-    if (commands.hasResource(LionFireState)) return;
+    if (!scene_ready.value) return;
+    if (lion_fire_ready.value) return;
 
     const build_ctx = build_ctx_opt.ptr orelse return;
     const assets = scene_assets.ptr orelse return;
@@ -44,12 +45,12 @@ pub fn setupLionFire(
 pub fn updateLionFire(
     dt: Res(SimulationDeltaTime),
     elapsed: Res(ElapsedTime),
-    commands: *ecs.Commands,
+    state_res: ResMut(LionFireState),
     cameras: Query(.{ Transform, PlayerCamera }),
     billboards: Query(.{ Transform, render.MeshInstance, LionFireBillboard }),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) void {
-    const state = commands.getResourceMut(LionFireState) orelse return;
+    const state = state_res.ptr;
     if (!phases.isPlayingPhase(current_phase.ptr)) return;
 
     var camera_rotation: ?Quat = null;
@@ -283,10 +284,12 @@ const render = phasor.renderer;
 
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
+const ResMut = ecs.system_params.ResMut;
 const ResOpt = ecs.system_params.ResOpt;
 
 const Assets = shared.Assets;
 const ElapsedTime = modules.TimeModule.ElapsedTime;
+const HasResource = ecs.system_params.HasResource;
 const SimulationDeltaTime = modules.TimeModule.SimulationDeltaTime;
 const PlayerCamera = shared.PlayerCamera;
 const Quat = common.Quat;
