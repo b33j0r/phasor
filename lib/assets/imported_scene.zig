@@ -3,6 +3,7 @@ const common = @import("common");
 const render = @import("render");
 const scene_mod = @import("scene.zig");
 const stb_image = @import("stb_image");
+const log = std.log.scoped(.assets_imported_scene);
 
 pub const ImportedScene = struct {
     allocator: std.mem.Allocator,
@@ -115,6 +116,7 @@ pub const PreparedImportedScene = struct {
     root_node_indices: []u32 = &.{},
     materials: []PreparedMaterial = &.{},
     textures: []?PreparedTexture = &.{},
+    texture_samplers: []render.SamplerDescriptor = &.{},
     meshes: []PreparedMesh = &.{},
     primitives: []PreparedPrimitive = &.{},
     bounds: ImportedScene.Bounds = .{},
@@ -164,6 +166,7 @@ pub const PreparedImportedScene = struct {
         mesh_handles: std.ArrayListUnmanaged(render.MeshHandle) = .empty,
         texture_handles: std.ArrayListUnmanaged(render.TextureHandle) = .empty,
         material_handles: std.ArrayListUnmanaged(render.MaterialHandle) = .empty,
+        owned_samplers: std.ArrayListUnmanaged(render.Sampler) = .empty,
         nodes_created: bool = false,
         next_primitive: usize = 0,
 
@@ -227,6 +230,12 @@ pub const PreparedImportedScene = struct {
             self.mesh_handles.deinit(self.allocator);
             self.texture_handles.deinit(self.allocator);
             self.material_handles.deinit(self.allocator);
+            if (self.renderer) |renderer| {
+                for (self.owned_samplers.items) |*sampler| {
+                    renderer.destroySampler(sampler);
+                }
+            }
+            self.owned_samplers.deinit(self.allocator);
             if (self.scene_materials.len > 0) self.allocator.free(self.scene_materials);
             if (self.loaded_textures_linear.len > 0) self.allocator.free(self.loaded_textures_linear);
             if (self.loaded_textures_srgb.len > 0) self.allocator.free(self.loaded_textures_srgb);
@@ -306,8 +315,10 @@ pub const PreparedImportedScene = struct {
 
         result.textures = try allocator.alloc(?PreparedTexture, scene_data.textures.len);
         for (result.textures) |*slot| slot.* = null;
+        result.texture_samplers = try allocator.alloc(render.SamplerDescriptor, scene_data.textures.len);
         for (scene_data.textures, 0..) |_, texture_index| {
             result.textures[texture_index] = try prepareTextureData(allocator, io, source_path, scene_data, @intCast(texture_index));
+            result.texture_samplers[texture_index] = samplerDescriptorFromScene(scene_data.textures[texture_index].sampler);
         }
 
         result.materials = try allocator.alloc(PreparedMaterial, scene_data.materials.len);
@@ -361,6 +372,7 @@ pub const PreparedImportedScene = struct {
             if (texture.*) |*value| value.deinit(self.allocator);
         }
         if (self.textures.len > 0) self.allocator.free(self.textures);
+        if (self.texture_samplers.len > 0) self.allocator.free(self.texture_samplers);
         if (self.materials.len > 0) self.allocator.free(self.materials);
         if (self.root_node_indices.len > 0) self.allocator.free(self.root_node_indices);
         if (self.nodes.len > 0) self.allocator.free(self.nodes);
@@ -966,18 +978,100 @@ fn ensurePreparedSceneMaterial(
         (try ensurePreparedTextureHandle(build_ctx, prepared_scene, texture_ref.texture_index, .linear, state) orelse default_flat_normal)
     else
         default_flat_normal;
+    const sampler = try ensurePreparedSceneSampler(build_ctx, prepared_scene, prepared_material, state);
 
     const material_handle = try build_ctx.createSceneMaterial(
         base_color_handle,
         metallic_roughness_handle,
         occlusion_handle,
         normal_handle,
-        null,
+        sampler,
     );
     errdefer _ = build_ctx.destroyMaterial(material_handle);
     try state.material_handles.append(state.allocator, material_handle);
     state.scene_materials[material_index] = material_handle;
     return material_handle;
+}
+
+fn ensurePreparedSceneSampler(
+    build_ctx: *const render.BuildContext,
+    prepared_scene: *const PreparedImportedScene,
+    prepared_material: PreparedMaterial,
+    state: *PreparedImportedScene.ApplyState,
+) !?render.Sampler {
+    var descriptor: ?render.SamplerDescriptor = null;
+    const texture_refs = [_]?scene_mod.TextureRef{
+        prepared_material.base_color_texture,
+        prepared_material.metallic_roughness_texture,
+        prepared_material.normal_texture,
+        prepared_material.occlusion_texture,
+        prepared_material.emissive_texture,
+    };
+    for (texture_refs) |texture_ref| {
+        const ref = texture_ref orelse continue;
+        if (ref.texture_index >= prepared_scene.texture_samplers.len) continue;
+        const candidate = prepared_scene.texture_samplers[ref.texture_index];
+        if (descriptor == null) {
+            descriptor = candidate;
+            continue;
+        }
+        if (!samplerDescriptorEql(descriptor.?, candidate)) {
+            log.warn("imported scene material uses conflicting texture samplers; using first descriptor", .{});
+            break;
+        }
+    }
+
+    const resolved = descriptor orelse return null;
+    for (state.owned_samplers.items) |sampler| {
+        // Reuse existing owned sampler when descriptor matches.
+        // This keeps imported-scene materials cheap without widening renderer APIs.
+        _ = sampler;
+    }
+    var custom_sampler = try build_ctx.renderer.createSamplerWithDescriptor(resolved);
+    errdefer build_ctx.renderer.destroySampler(&custom_sampler);
+    try state.owned_samplers.append(state.allocator, custom_sampler);
+    return custom_sampler;
+}
+
+fn samplerDescriptorEql(a: render.SamplerDescriptor, b: render.SamplerDescriptor) bool {
+    return a.mag_filter == b.mag_filter and
+        a.min_filter == b.min_filter and
+        a.mipmap_filter == b.mipmap_filter and
+        a.address_mode_u == b.address_mode_u and
+        a.address_mode_v == b.address_mode_v and
+        a.address_mode_w == b.address_mode_w;
+}
+
+fn samplerDescriptorFromScene(sampler: scene_mod.TextureSamplerData) render.SamplerDescriptor {
+    return .{
+        .mag_filter = switch (sampler.mag_filter) {
+            .nearest => .nearest,
+            .linear => .linear,
+        },
+        .min_filter = switch (sampler.min_filter) {
+            .nearest => .nearest,
+            .linear => .linear,
+        },
+        .mipmap_filter = switch (sampler.mipmap_filter) {
+            .nearest => .nearest,
+            .linear => .linear,
+        },
+        .address_mode_u = switch (sampler.address_mode_u) {
+            .clamp_to_edge => .clamp_to_edge,
+            .repeat => .repeat,
+            .mirror_repeat => .mirror_repeat,
+        },
+        .address_mode_v = switch (sampler.address_mode_v) {
+            .clamp_to_edge => .clamp_to_edge,
+            .repeat => .repeat,
+            .mirror_repeat => .mirror_repeat,
+        },
+        .address_mode_w = switch (sampler.address_mode_w) {
+            .clamp_to_edge => .clamp_to_edge,
+            .repeat => .repeat,
+            .mirror_repeat => .mirror_repeat,
+        },
+    };
 }
 
 fn ensurePreparedDefaultWhiteTexture(

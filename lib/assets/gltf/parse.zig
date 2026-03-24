@@ -192,6 +192,7 @@ fn buildTextures(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]sce
         dst.* = .{
             .name = try dupCString(allocator, src.name),
             .image_index = ptrIndex(c.cgltf_image, src.image, data.images, data.images_count),
+            .sampler = textureSampler(src.sampler),
         };
     }
     return out;
@@ -365,6 +366,51 @@ fn textureRef(data: *const c.cgltf_data, texture_view: c.cgltf_texture_view) ?sc
     return .{
         .texture_index = ptrIndex(c.cgltf_texture, texture, data.textures, data.textures_count) orelse return null,
         .texcoord_set = @intCast(texture_view.texcoord),
+    };
+}
+
+fn textureSampler(sampler: ?*const c.cgltf_sampler) scene.TextureSamplerData {
+    const value = sampler orelse return .{};
+    return .{
+        .mag_filter = gltfMagFilter(value.mag_filter),
+        .min_filter = gltfMinFilter(value.min_filter),
+        .mipmap_filter = gltfMipmapFilter(value.min_filter),
+        .address_mode_u = gltfWrapMode(value.wrap_s),
+        .address_mode_v = gltfWrapMode(value.wrap_t),
+        .address_mode_w = .repeat,
+    };
+}
+
+fn gltfMagFilter(filter: c.cgltf_uint) scene.SamplerFilter {
+    return switch (filter) {
+        9728 => .nearest,
+        9729 => .linear,
+        else => .linear,
+    };
+}
+
+fn gltfMinFilter(filter: c.cgltf_uint) scene.SamplerFilter {
+    return switch (filter) {
+        9728, 9984, 9986 => .nearest,
+        9729, 9985, 9987 => .linear,
+        else => .linear,
+    };
+}
+
+fn gltfMipmapFilter(filter: c.cgltf_uint) scene.SamplerFilter {
+    return switch (filter) {
+        9984, 9985 => .nearest,
+        9986, 9987 => .linear,
+        else => .linear,
+    };
+}
+
+fn gltfWrapMode(mode: c.cgltf_uint) scene.SamplerAddressMode {
+    return switch (mode) {
+        33071 => .clamp_to_edge,
+        33648 => .mirror_repeat,
+        10497 => .repeat,
+        else => .repeat,
     };
 }
 
