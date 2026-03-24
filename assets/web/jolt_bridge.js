@@ -1,6 +1,7 @@
 import initJolt from "./vendor/jolt/jolt-physics.wasm-compat.js";
 
 const kMaxLayers = 32;
+const kJoltGlobalStateKey = "__phasorJoltGlobalState";
 
 const pjMotionType = {
   static: 0,
@@ -20,12 +21,17 @@ const pjShapeKind = {
 const worldConfigSize = 36;
 const bodyDescSize = 168;
 const bodyStateSize = 64;
+const characterDescSize = 152;
+const characterStateSize = 88;
 const raycastHitSize = 48;
 const shapecastHitSize = 48;
 
 export function createJoltEnv(getMemoryView) {
-  let Jolt = null;
-  let initPromise = null;
+  const globalState = globalThis[kJoltGlobalStateKey] ??= {
+    Jolt: null,
+    initPromise: null,
+  };
+  let Jolt = globalState.Jolt;
   let nextWorldHandle = 1;
   const worlds = new Map();
 
@@ -36,14 +42,21 @@ export function createJoltEnv(getMemoryView) {
   }
 
   async function init() {
-    if (Jolt) return Jolt;
-    if (!initPromise) {
-      initPromise = initJolt().then((loaded) => {
+    if (globalState.Jolt) {
+      Jolt = globalState.Jolt;
+      return globalState.Jolt;
+    }
+    if (!globalState.initPromise) {
+      globalState.initPromise = initJolt().then((loaded) => {
+        globalState.Jolt = loaded;
         Jolt = loaded;
         return loaded;
+      }).catch((err) => {
+        globalState.initPromise = null;
+        throw err;
       });
     }
-    return initPromise;
+    return globalState.initPromise;
   }
 
   function view() {
@@ -133,27 +146,27 @@ export function createJoltEnv(getMemoryView) {
   }
 
   function joltVec3(value) {
-    return new Jolt.Vec3(value.x, value.y, value.z);
+    return new globalState.Jolt.Vec3(value.x, value.y, value.z);
   }
 
   function joltRVec3(value) {
-    return new Jolt.RVec3(value.x, value.y, value.z);
+    return new globalState.Jolt.RVec3(value.x, value.y, value.z);
   }
 
   function joltQuat(value) {
-    return new Jolt.Quat(value.x, value.y, value.z, value.w);
+    return new globalState.Jolt.Quat(value.x, value.y, value.z, value.w);
   }
 
   function vec3FromJolt(value) {
-    return {
-      x: value.GetX(),
+        return {
+          x: value.GetX(),
       y: value.GetY(),
       z: value.GetZ(),
     };
   }
 
   function quatFromJolt(value) {
-    return {
+        return {
       x: value.GetX(),
       y: value.GetY(),
       z: value.GetZ(),
@@ -174,24 +187,24 @@ export function createJoltEnv(getMemoryView) {
   function motionTypeFromDesc(motionType) {
     switch (motionType) {
       case pjMotionType.static:
-        return Jolt.EMotionType_Static;
+        return globalState.Jolt.EMotionType_Static;
       case pjMotionType.kinematic:
-        return Jolt.EMotionType_Kinematic;
+        return globalState.Jolt.EMotionType_Kinematic;
       case pjMotionType.dynamic:
       default:
-        return Jolt.EMotionType_Dynamic;
+        return globalState.Jolt.EMotionType_Dynamic;
     }
   }
 
   function allowedDofsFromMask(mask) {
     let out = 0;
-    if ((mask & (1 << 0)) !== 0) out |= Jolt.EAllowedDOFs_TranslationX;
-    if ((mask & (1 << 1)) !== 0) out |= Jolt.EAllowedDOFs_TranslationY;
-    if ((mask & (1 << 2)) !== 0) out |= Jolt.EAllowedDOFs_TranslationZ;
-    if ((mask & (1 << 3)) !== 0) out |= Jolt.EAllowedDOFs_RotationX;
-    if ((mask & (1 << 4)) !== 0) out |= Jolt.EAllowedDOFs_RotationY;
-    if ((mask & (1 << 5)) !== 0) out |= Jolt.EAllowedDOFs_RotationZ;
-    return out === 0 ? Jolt.EAllowedDOFs_All : out;
+    if ((mask & (1 << 0)) !== 0) out |= globalState.Jolt.EAllowedDOFs_TranslationX;
+    if ((mask & (1 << 1)) !== 0) out |= globalState.Jolt.EAllowedDOFs_TranslationY;
+    if ((mask & (1 << 2)) !== 0) out |= globalState.Jolt.EAllowedDOFs_TranslationZ;
+    if ((mask & (1 << 3)) !== 0) out |= globalState.Jolt.EAllowedDOFs_RotationX;
+    if ((mask & (1 << 4)) !== 0) out |= globalState.Jolt.EAllowedDOFs_RotationY;
+    if ((mask & (1 << 5)) !== 0) out |= globalState.Jolt.EAllowedDOFs_RotationZ;
+    return out === 0 ? globalState.Jolt.EAllowedDOFs_All : out;
   }
 
   function makeShape(desc, meshVerticesPtr, meshVertexCount, meshIndicesPtr, meshIndexCount, heightSamplesPtr, heightSampleCount) {
@@ -364,6 +377,68 @@ export function createJoltEnv(getMemoryView) {
     };
   }
 
+  function readCharacterDesc(ptr) {
+    if (!ptr) return null;
+    return {
+      user_data: readU64(ptr + 0),
+      shape_kind: readI32(ptr + 8),
+      object_layer: readU32(ptr + 12),
+      collision_mask: readU32(ptr + 16),
+      position: readVec3(ptr + 20),
+      rotation: readQuat(ptr + 32),
+      linear_velocity: readVec3(ptr + 48),
+      half_extents: readVec3(ptr + 60),
+      radius: readF32(ptr + 72),
+      half_height: readF32(ptr + 76),
+      mass: readF32(ptr + 80),
+      max_strength: readF32(ptr + 84),
+      max_slope_angle_radians: readF32(ptr + 88),
+      padding: readF32(ptr + 92),
+      penetration_recovery_speed: readF32(ptr + 96),
+      predictive_contact_distance: readF32(ptr + 100),
+      max_collision_iterations: readU32(ptr + 104),
+      max_constraint_iterations: readU32(ptr + 108),
+      min_time_remaining: readF32(ptr + 112),
+      collision_tolerance: readF32(ptr + 116),
+      max_hits: readU32(ptr + 120),
+      hit_reduction_cos_max_angle: readF32(ptr + 124),
+      enhanced_internal_edge_removal: readBool(ptr + 128),
+      stick_to_floor_distance: readF32(ptr + 132),
+      step_up_height: readF32(ptr + 136),
+      step_forward_min_distance: readF32(ptr + 140),
+      step_forward_test_distance: readF32(ptr + 144),
+      step_down_extra_distance: readF32(ptr + 148),
+    };
+  }
+
+  function writeCharacterState(ptr, character, world) {
+    const position = character.GetPosition();
+    const rotation = character.GetRotation();
+    const linearVelocity = character.GetLinearVelocity();
+    const groundNormal = character.GetGroundNormal();
+    const groundVelocity = character.GetGroundVelocity();
+    const groundBodyId = character.GetGroundBodyID();
+    try {
+      writeVec3(ptr + 0, vec3FromJolt(position));
+      writeQuat(ptr + 12, quatFromJolt(rotation));
+      writeVec3(ptr + 28, vec3FromJolt(linearVelocity));
+      writeU32(ptr + 40, character.GetGroundState());
+      writeVec3(ptr + 44, vec3FromJolt(groundNormal));
+      writeVec3(ptr + 56, vec3FromJolt(groundVelocity));
+      const groundBodyValue = groundBodyId.IsInvalid() ? 0 : groundBodyId.GetIndexAndSequenceNumber();
+      writeU32(ptr + 68, groundBodyValue);
+      writeU64(ptr + 72, groundBodyValue === 0 ? 0 : world.bodyInterface.GetUserData(groundBodyId));
+      writeBool(ptr + 80, character.GetMaxHitsExceeded());
+    } finally {
+      Jolt.destroy(position);
+      Jolt.destroy(rotation);
+      Jolt.destroy(linearVelocity);
+      Jolt.destroy(groundNormal);
+      Jolt.destroy(groundVelocity);
+      Jolt.destroy(groundBodyId);
+    }
+  }
+
   function getWorld(handle) {
     const world = worlds.get(handle >>> 0);
     if (!world) throw new Error(`invalid Jolt world handle ${handle}`);
@@ -377,6 +452,27 @@ export function createJoltEnv(getMemoryView) {
 
   function destroyWorld(world) {
     if (!world) return;
+    if (world.characters) {
+      for (const record of world.characters.values()) {
+        try {
+          world.characterVsCharacterCollision.Remove(record.character);
+        } catch (_) {}
+        try {
+          Jolt.destroy(record.character);
+        } catch (_) {}
+        try {
+          Jolt.destroy(record.updateSettings);
+        } catch (_) {}
+        if (record.updateVectors) {
+          for (const value of record.updateVectors) {
+            try {
+              Jolt.destroy(value);
+            } catch (_) {}
+          }
+        }
+      }
+      world.characters.clear();
+    }
     for (const value of world.bodies.values()) {
       try {
         const bodyId = new Jolt.BodyID(value);
@@ -399,6 +495,7 @@ export function createJoltEnv(getMemoryView) {
       }
       world.shapes.length = 0;
     }
+    Jolt.destroy(world.characterVsCharacterCollision);
     Jolt.destroy(world.joltInterface);
     Jolt.destroy(world.settings);
     Jolt.destroy(world.objectVsBroadPhaseLayerFilter);
@@ -456,7 +553,9 @@ export function createJoltEnv(getMemoryView) {
         broadPhaseLayerInterface,
         objectLayerPairFilter,
         objectVsBroadPhaseLayerFilter,
+        characterVsCharacterCollision: new Jolt.CharacterVsCharacterCollisionSimple(),
         bodies: new Map(),
+        characters: new Map(),
         shapes: [],
       });
       writeU32(outWorldPtr, handle);
@@ -684,6 +783,189 @@ export function createJoltEnv(getMemoryView) {
         if (linearVelocity) Jolt.destroy(linearVelocity);
         if (angularVelocity) Jolt.destroy(angularVelocity);
       }
+    },
+
+    pj_character_create(worldHandle, descPtr, outCharacterIdPtr) {
+      assertReady();
+      if (!descPtr || !outCharacterIdPtr) return 0;
+      if (descPtr + characterDescSize > view().byteLength) return 0;
+
+      const world = getWorld(worldHandle);
+      const desc = readCharacterDesc(descPtr);
+      const shape = makeShape(desc, 0, 0, 0, 0, 0, 0);
+      if (!shape) return 0;
+
+      const settings = new Jolt.CharacterVirtualSettings();
+      const position = joltRVec3(desc.position);
+      const rotation = joltQuat(desc.rotation);
+      const linearVelocity = joltVec3(desc.linear_velocity);
+      const stickToFloorStepDown = new Jolt.Vec3(0.0, -desc.stick_to_floor_distance, 0.0);
+      const walkStairsStepUp = new Jolt.Vec3(0.0, desc.step_up_height, 0.0);
+      const walkStairsStepDownExtra = new Jolt.Vec3(0.0, -desc.step_down_extra_distance, 0.0);
+
+      try {
+        settings.mShape = shape;
+        settings.mMass = desc.mass;
+        settings.mMaxStrength = desc.max_strength;
+        settings.mMaxSlopeAngle = desc.max_slope_angle_radians;
+        settings.mCharacterPadding = desc.padding;
+        settings.mPenetrationRecoverySpeed = desc.penetration_recovery_speed;
+        settings.mPredictiveContactDistance = desc.predictive_contact_distance;
+        settings.mMaxCollisionIterations = desc.max_collision_iterations;
+        settings.mMaxConstraintIterations = desc.max_constraint_iterations;
+        settings.mMinTimeRemaining = desc.min_time_remaining;
+        settings.mCollisionTolerance = desc.collision_tolerance;
+        settings.mMaxNumHits = desc.max_hits;
+        settings.mHitReductionCosMaxAngle = desc.hit_reduction_cos_max_angle;
+        settings.mEnhancedInternalEdgeRemoval = desc.enhanced_internal_edge_removal;
+
+        const character = new Jolt.CharacterVirtual(settings, position, rotation, world.physicsSystem);
+        try {
+          character.SetUserData(desc.user_data);
+          character.SetLinearVelocity(linearVelocity);
+          character.SetCharacterVsCharacterCollision(world.characterVsCharacterCollision);
+          world.characterVsCharacterCollision.Add(character);
+          world.shapes.push(shape);
+
+          const updateSettings = new Jolt.ExtendedUpdateSettings();
+          updateSettings.mStickToFloorStepDown = stickToFloorStepDown;
+          updateSettings.mWalkStairsStepUp = walkStairsStepUp;
+          updateSettings.mWalkStairsMinStepForward = desc.step_forward_min_distance;
+          updateSettings.mWalkStairsStepForwardTest = desc.step_forward_test_distance;
+          updateSettings.mWalkStairsStepDownExtra = walkStairsStepDownExtra;
+
+          let handle = 1;
+          while (world.characters.has(handle)) handle += 1;
+          world.characters.set(handle, {
+            character,
+            collisionMask: desc.collision_mask >>> 0,
+            updateSettings,
+            updateVectors: [stickToFloorStepDown, walkStairsStepUp, walkStairsStepDownExtra],
+          });
+          writeU32(outCharacterIdPtr, handle);
+          return 1;
+        } catch (err) {
+          try {
+            Jolt.destroy(character);
+          } catch (_) {}
+          throw err;
+        }
+      } finally {
+        Jolt.destroy(settings);
+        Jolt.destroy(position);
+        Jolt.destroy(rotation);
+        Jolt.destroy(linearVelocity);
+      }
+    },
+
+    pj_character_remove_destroy(worldHandle, characterIdValue) {
+      assertReady();
+      const world = getWorld(worldHandle);
+      const record = world.characters.get(characterIdValue >>> 0);
+      if (!record) return 0;
+      world.characters.delete(characterIdValue >>> 0);
+      try {
+        world.characterVsCharacterCollision.Remove(record.character);
+      } catch (_) {}
+      try {
+        Jolt.destroy(record.character);
+      } catch (_) {}
+      try {
+        Jolt.destroy(record.updateSettings);
+      } catch (_) {}
+      for (const value of record.updateVectors) {
+        try {
+          Jolt.destroy(value);
+        } catch (_) {}
+      }
+      return 1;
+    },
+
+    pj_character_set_transform(worldHandle, characterIdValue, positionPtr, rotationPtr) {
+      assertReady();
+      if (!positionPtr || !rotationPtr) return 0;
+      const world = getWorld(worldHandle);
+      const record = world.characters.get(characterIdValue >>> 0);
+      if (!record) return 0;
+      const position = joltRVec3(readVec3(positionPtr));
+      const rotation = joltQuat(readQuat(rotationPtr));
+      try {
+        record.character.SetPosition(position);
+        record.character.SetRotation(rotation);
+      } finally {
+        Jolt.destroy(position);
+        Jolt.destroy(rotation);
+      }
+      return 1;
+    },
+
+    pj_character_set_linear_velocity(worldHandle, characterIdValue, linearVelocityPtr) {
+      assertReady();
+      if (!linearVelocityPtr) return 0;
+      const world = getWorld(worldHandle);
+      const record = world.characters.get(characterIdValue >>> 0);
+      if (!record) return 0;
+      const linearVelocity = joltVec3(readVec3(linearVelocityPtr));
+      try {
+        record.character.SetLinearVelocity(linearVelocity);
+      } finally {
+        Jolt.destroy(linearVelocity);
+      }
+      return 1;
+    },
+
+    pj_character_extended_update(worldHandle, characterIdValue, dt, gravityPtr) {
+      assertReady();
+      if (!gravityPtr) return 0;
+      const world = getWorld(worldHandle);
+      const record = world.characters.get(characterIdValue >>> 0);
+      if (!record) return 0;
+
+      const gravity = joltVec3(readVec3(gravityPtr));
+      const sourceObjectLayer = world.objectLayerPairFilter.sGetObjectLayer(1, record.collisionMask);
+      const broadPhaseFilter = new Jolt.DefaultBroadPhaseLayerFilter(
+        world.objectVsBroadPhaseLayerFilter,
+        sourceObjectLayer,
+      );
+      const objectLayerFilter = new Jolt.DefaultObjectLayerFilter(
+        world.objectLayerPairFilter,
+        sourceObjectLayer,
+      );
+      const bodyFilter = new Jolt.BodyFilter();
+      const shapeFilter = new Jolt.ShapeFilter();
+      const velocity = record.character.CancelVelocityTowardsSteepSlopes(record.character.GetLinearVelocity());
+      try {
+        record.character.SetLinearVelocity(velocity);
+        record.character.ExtendedUpdate(
+          dt,
+          gravity,
+          record.updateSettings,
+          broadPhaseFilter,
+          objectLayerFilter,
+          bodyFilter,
+          shapeFilter,
+          world.joltInterface.GetTempAllocator(),
+        );
+      } finally {
+        Jolt.destroy(gravity);
+        Jolt.destroy(broadPhaseFilter);
+        Jolt.destroy(objectLayerFilter);
+        Jolt.destroy(bodyFilter);
+        Jolt.destroy(shapeFilter);
+        Jolt.destroy(velocity);
+      }
+      return 1;
+    },
+
+    pj_character_get_state(worldHandle, characterIdValue, outStatePtr) {
+      assertReady();
+      if (!outStatePtr) return 0;
+      if (outStatePtr + characterStateSize > view().byteLength) return 0;
+      const world = getWorld(worldHandle);
+      const record = world.characters.get(characterIdValue >>> 0);
+      if (!record) return 0;
+      writeCharacterState(outStatePtr, record.character, world);
+      return 1;
     },
 
     pj_world_cast_ray(worldHandle, originPtr, directionPtr, maxDistance, sourceLayer, collisionMask, outHitPtr) {
