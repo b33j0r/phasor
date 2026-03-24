@@ -544,6 +544,26 @@ function createPipelines(ctx) {
   ctx.scenePipelineLayout = ctx.device.createPipelineLayout({
     bindGroupLayouts: [ctx.sceneBindGroupLayout],
   });
+  ctx.sceneMaterialBindGroupLayout = ctx.device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+    ],
+  });
+  ctx.sceneEnvironmentBindGroupLayout = ctx.device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform", minBindingSize: sceneUniformsSize },
+      },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+    ],
+  });
   ctx.shadowBindGroupLayout = ctx.device.createBindGroupLayout({
     entries: [
       {
@@ -557,6 +577,9 @@ function createPipelines(ctx) {
   });
   ctx.sceneShadowPipelineLayout = ctx.device.createPipelineLayout({
     bindGroupLayouts: [ctx.sceneBindGroupLayout, ctx.shadowBindGroupLayout],
+  });
+  ctx.sceneEnvironmentPipelineLayout = ctx.device.createPipelineLayout({
+    bindGroupLayouts: [ctx.sceneMaterialBindGroupLayout, ctx.sceneEnvironmentBindGroupLayout, ctx.shadowBindGroupLayout],
   });
   ctx.sceneUniformBuffer = ctx.device.createBuffer({
     size: sceneUniformsSize,
@@ -575,8 +598,51 @@ function createPipelines(ctx) {
     addressModeW: "clamp-to-edge",
     compare: "less-equal",
   });
-  webgpuCreates.samplers += 2;
+  ctx.sceneEnvironmentSampler = ctx.device.createSampler({
+    magFilter: "linear",
+    minFilter: "linear",
+    mipmapFilter: "linear",
+    addressModeU: "clamp-to-edge",
+    addressModeV: "clamp-to-edge",
+    addressModeW: "clamp-to-edge",
+  });
+  webgpuCreates.samplers += 3;
   webgpuCreates.buffers += 3;
+
+  const defaultSceneEnvironmentTexture = ctx.device.createTexture({
+    size: { width: 1, height: 1 },
+    format: "rgba16float",
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+  webgpuCreates.textures += 1;
+  const defaultSceneEnvironmentView = defaultSceneEnvironmentTexture.createView();
+  webgpuCreates.textureViews += 1;
+  ctx.queue.writeTexture(
+    { texture: defaultSceneEnvironmentTexture },
+    new Uint16Array([0, 0, 0, float32ToFloat16(1.0)]),
+    { bytesPerRow: 8 },
+    { width: 1, height: 1 },
+  );
+  ctx.defaultSceneEnvironment = {
+    texture: defaultSceneEnvironmentTexture,
+    view: defaultSceneEnvironmentView,
+  };
+  ctx.sceneEnvironmentBindGroup = ctx.device.createBindGroup({
+    layout: ctx.sceneEnvironmentBindGroupLayout,
+    entries: [
+      {
+        binding: 0,
+        resource: {
+          buffer: ctx.sceneUniformBuffer,
+          offset: 0,
+          size: sceneUniformsSize,
+        },
+      },
+      { binding: 1, resource: ctx.sceneEnvironmentSampler },
+      { binding: 2, resource: defaultSceneEnvironmentView },
+    ],
+  });
+  webgpuCreates.bindGroups += 1;
 }
 
 function createColorPipelinesFromWgsl(ctx, wgslSource) {
@@ -667,9 +733,11 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
   };
   const materialPipelineLayout = bindingMode === 2
     ? ctx.sceneShadowPipelineLayout
-    : ctx.device.createPipelineLayout({
-        bindGroupLayouts: [ctx.quadBindGroupLayout],
-      });
+    : bindingMode === 3
+      ? ctx.sceneEnvironmentPipelineLayout
+      : ctx.device.createPipelineLayout({
+          bindGroupLayouts: [ctx.quadBindGroupLayout],
+        });
 
   const vertexBuffers = vertexLayout === 0
     ? [
@@ -683,7 +751,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
         {
           arrayStride: instanceStrideBytes,
           stepMode: "instance",
-          attributes: bindingMode === 2
+          attributes: bindingMode === 2 || bindingMode === 3
             ? [
                 { shaderLocation: 2, offset: 0, format: "float32x4" },
                 { shaderLocation: 3, offset: 16, format: "float32x4" },
@@ -739,7 +807,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
           {
             arrayStride: instanceStrideBytes,
             stepMode: "instance",
-            attributes: bindingMode === 2
+            attributes: bindingMode === 2 || bindingMode === 3
               ? [
                   { shaderLocation: 3, offset: 0, format: "float32x4" },
                   { shaderLocation: 4, offset: 16, format: "float32x4" },
@@ -775,7 +843,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
           {
             arrayStride: instanceStrideBytes,
             stepMode: "instance",
-            attributes: bindingMode === 2
+            attributes: bindingMode === 2 || bindingMode === 3
               ? [
                   { shaderLocation: 4, offset: 0, format: "float32x4" },
                   { shaderLocation: 5, offset: 16, format: "float32x4" },
@@ -1160,6 +1228,9 @@ function createContext(canvas, enableValidation) {
     enableValidation: Boolean(enableValidation),
     shadowBindGroup: null,
     shadowSlot: 0xffffffff,
+    sceneEnvironmentBindGroup: null,
+    sceneEnvironmentSampler: null,
+    defaultSceneEnvironment: null,
   };
 
   createPipelines(ctx);
@@ -1428,10 +1499,20 @@ function destroyContextResources(ctx) {
   ctx.shadowMapSlots.length = 0;
   ctx.shadowBindGroup = null;
   ctx.shadowSlot = 0xffffffff;
+  ctx.sceneEnvironmentBindGroup = null;
 
   if (ctx.postProcessSampler) {
     webgpuDestroys.samplers += 1;
     ctx.postProcessSampler = null;
+  }
+  if (ctx.sceneEnvironmentSampler) {
+    webgpuDestroys.samplers += 1;
+    ctx.sceneEnvironmentSampler = null;
+  }
+  if (ctx.defaultSceneEnvironment && ctx.defaultSceneEnvironment.texture) {
+    ctx.defaultSceneEnvironment.texture.destroy();
+    webgpuDestroys.textures += 1;
+    ctx.defaultSceneEnvironment = null;
   }
 }
 
@@ -1955,9 +2036,19 @@ const imports = {
 
       const pipeline = blend ? shader.blend : shader.opaque;
       ctx.pass.setPipeline(pipeline);
-      ctx.pass.setBindGroup(0, shader.bindingMode === 2 ? material.sceneBindGroup : material.bindGroup);
-      if (shader.bindingMode === 2 && ctx.shadowBindGroup) {
-        ctx.pass.setBindGroup(1, ctx.shadowBindGroup);
+      if (shader.bindingMode === 2) {
+        ctx.pass.setBindGroup(0, material.sceneBindGroup);
+        if (ctx.shadowBindGroup) {
+          ctx.pass.setBindGroup(1, ctx.shadowBindGroup);
+        }
+      } else if (shader.bindingMode === 3) {
+        ctx.pass.setBindGroup(0, material.sceneEnvironmentMaterialBindGroup);
+        ctx.pass.setBindGroup(1, ctx.sceneEnvironmentBindGroup);
+        if (ctx.shadowBindGroup) {
+          ctx.pass.setBindGroup(2, ctx.shadowBindGroup);
+        }
+      } else {
+        ctx.pass.setBindGroup(0, material.bindGroup);
       }
       ctx.pass.setVertexBuffer(0, mesh.vertexBuffer);
       ctx.pass.setVertexBuffer(1, ctx.instanceBuffer, offset, byteLength);
@@ -2318,9 +2409,19 @@ const imports = {
           { binding: 5, resource: texture.view },
         ],
       });
-      webgpuCreates.bindGroups += 2;
+      const sceneEnvironmentMaterialBindGroup = ctx.device.createBindGroup({
+        layout: ctx.sceneMaterialBindGroupLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: texture.view },
+          { binding: 2, resource: texture.view },
+          { binding: 3, resource: texture.view },
+          { binding: 4, resource: texture.view },
+        ],
+      });
+      webgpuCreates.bindGroups += 3;
       const handle = ctx.materials.length;
-      ctx.materials.push({ bindGroup, sceneBindGroup });
+      ctx.materials.push({ bindGroup, sceneBindGroup, sceneEnvironmentMaterialBindGroup });
       return handle;
     },
     webgpu_create_scene_material(ctxId, baseColorTextureHandle, metallicRoughnessTextureHandle, occlusionTextureHandle, normalTextureHandle, samplerHandle) {
@@ -2357,16 +2458,68 @@ const imports = {
           { binding: 5, resource: normal.view },
         ],
       });
-      webgpuCreates.bindGroups += 2;
+      const sceneEnvironmentMaterialBindGroup = ctx.device.createBindGroup({
+        layout: ctx.sceneMaterialBindGroupLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: baseColor.view },
+          { binding: 2, resource: metallicRoughness.view },
+          { binding: 3, resource: occlusion.view },
+          { binding: 4, resource: normal.view },
+        ],
+      });
+      webgpuCreates.bindGroups += 3;
       const handle = ctx.materials.length;
-      ctx.materials.push({ bindGroup, sceneBindGroup });
+      ctx.materials.push({ bindGroup, sceneBindGroup, sceneEnvironmentMaterialBindGroup });
       return handle;
     },
     webgpu_destroy_material(ctxId, handle) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
       ctx.materials[handle] = null;
-      webgpuDestroys.bindGroups += 2;
+      webgpuDestroys.bindGroups += 3;
+    },
+    webgpu_set_scene_environment(ctxId, textureHandle) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx) return;
+      const texture = ctx.textures[textureHandle];
+      if (!texture) return;
+      ctx.sceneEnvironmentBindGroup = ctx.device.createBindGroup({
+        layout: ctx.sceneEnvironmentBindGroupLayout,
+        entries: [
+          {
+            binding: 0,
+            resource: {
+              buffer: ctx.sceneUniformBuffer,
+              offset: 0,
+              size: sceneUniformsSize,
+            },
+          },
+          { binding: 1, resource: ctx.sceneEnvironmentSampler },
+          { binding: 2, resource: texture.view },
+        ],
+      });
+      webgpuCreates.bindGroups += 1;
+    },
+    webgpu_reset_scene_environment(ctxId) {
+      const ctx = ctxs.get(ctxId);
+      if (!ctx || !ctx.defaultSceneEnvironment) return;
+      ctx.sceneEnvironmentBindGroup = ctx.device.createBindGroup({
+        layout: ctx.sceneEnvironmentBindGroupLayout,
+        entries: [
+          {
+            binding: 0,
+            resource: {
+              buffer: ctx.sceneUniformBuffer,
+              offset: 0,
+              size: sceneUniformsSize,
+            },
+          },
+          { binding: 1, resource: ctx.sceneEnvironmentSampler },
+          { binding: 2, resource: ctx.defaultSceneEnvironment.view },
+        ],
+      });
+      webgpuCreates.bindGroups += 1;
     },
     webgpu_create_mesh(ctxId, vertexLayout, vPtr, vLen, iPtr, iLen) {
       const ctx = ctxs.get(ctxId);
@@ -2442,7 +2595,7 @@ const imports = {
       const wgsl = readString(wgslPtr, wgslLen);
       const shader = bindingMode === 0
         ? createColorPipelinesFromWgsl(ctx, wgsl)
-        : bindingMode === 1 || bindingMode === 2
+        : bindingMode === 1 || bindingMode === 2 || bindingMode === 3
           ? createMaterialPipelinesFromWgsl(ctx, wgsl, vertexLayout, bindingMode)
           : null;
       if (!shader) return 0;

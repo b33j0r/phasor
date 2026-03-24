@@ -120,6 +120,7 @@ pub const ShaderBindingMode = enum(u32) {
     none = 0,
     material = 1,
     material_scene = 2,
+    material_scene_env = 3,
 };
 
 pub const MeshVertexLayout = enum(u32) {
@@ -332,6 +333,8 @@ extern "env" fn webgpu_destroy_post_process_shader(ctx: u32, handle: u32) void;
 extern "env" fn webgpu_create_material(ctx: u32, texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_create_scene_material(ctx: u32, base_color_texture_handle: u32, metallic_roughness_texture_handle: u32, occlusion_texture_handle: u32, normal_texture_handle: u32, sampler_handle: u32) u32;
 extern "env" fn webgpu_destroy_material(ctx: u32, handle: u32) void;
+extern "env" fn webgpu_set_scene_environment(ctx: u32, texture_handle: u32) void;
+extern "env" fn webgpu_reset_scene_environment(ctx: u32) void;
 extern "env" fn webgpu_stats(ctx: u32, out_ptr: *RendererStats) void;
 extern "env" fn webgpu_ensure_shadow_map_slot(ctx: u32, slot: u32, width: u32, height: u32) u32;
 
@@ -442,6 +445,15 @@ pub const Renderer = struct {
         if (material.handle == 0) return;
         webgpu_destroy_material(self.ctx, material.handle);
         material.handle = 0;
+    }
+
+    pub fn setSceneEnvironment(self: *Renderer, texture: Texture) !void {
+        if (texture.handle == 0) return error.InvalidTexture;
+        webgpu_set_scene_environment(self.ctx, texture.handle);
+    }
+
+    pub fn resetSceneEnvironment(self: *Renderer) !void {
+        webgpu_reset_scene_environment(self.ctx);
     }
 
     pub fn createMeshUv(self: *Renderer, vertices: []const VertexUv, indices: []const u16) !Mesh {
