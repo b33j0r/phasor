@@ -18,6 +18,7 @@ const sceneUniformsSize = 2400;
 const shadowUniformsSize = 96;
 const instanceStrideBytes = 160;
 const instanceFloatCount = instanceStrideBytes / 4;
+const shadowMapFormat = "depth24plus";
 
 const ctxs = new Map();
 let nextCtxId = 1;
@@ -260,7 +261,7 @@ function createDepthTexture(ctx, width, height) {
 function createShadowMapSlot(ctx, width, height) {
   const texture = ctx.device.createTexture({
     size: { width, height },
-    format: "depth32float",
+    format: shadowMapFormat,
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
   });
   webgpuCreates.textures += 1;
@@ -542,8 +543,22 @@ function createPipelines(ctx) {
       { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     ],
   });
+  ctx.sceneBasicBindGroupLayout = ctx.device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform", minBindingSize: sceneUniformsSize },
+      },
+    ],
+  });
   ctx.scenePipelineLayout = ctx.device.createPipelineLayout({
     bindGroupLayouts: [ctx.sceneBindGroupLayout],
+  });
+  ctx.sceneBasicPipelineLayout = ctx.device.createPipelineLayout({
+    bindGroupLayouts: [ctx.sceneBasicBindGroupLayout],
   });
   ctx.sceneMaterialBindGroupLayout = ctx.device.createBindGroupLayout({
     entries: [
@@ -647,8 +662,10 @@ function createPipelines(ctx) {
 }
 
 function createSurfacePresentPipeline(ctx) {
-  const module = ctx.device.createShaderModule({
-    code: `
+  const module = createShaderModuleLabeled(
+    ctx,
+    "surface-present",
+    `
 struct PostProcessUniforms {
   params0: vec4<f32>,
   params1: vec4<f32>,
@@ -703,8 +720,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
   );
 }
 `,
-  });
-  const pipeline = ctx.device.createRenderPipeline({
+  );
+  const pipeline = createRenderPipelineLabeled(ctx, "surface-present", {
     layout: ctx.postProcessPipelineLayout,
     vertex: {
       module,
@@ -722,7 +739,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 }
 
 function createColorPipelinesFromWgsl(ctx, wgslSource) {
-  const module = ctx.device.createShaderModule({ code: wgslSource });
+  const label = inferShaderLabel("color", wgslSource);
+  const module = createShaderModuleLabeled(ctx, label, wgslSource);
   const depthState = {
     format: "depth24plus",
     depthWriteEnabled: true,
@@ -754,7 +772,7 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
     },
   ];
 
-  const opaque = ctx.device.createRenderPipeline({
+  const opaque = createRenderPipelineLabeled(ctx, `${label}:opaque`, {
     layout: "auto",
     vertex: {
       module,
@@ -770,7 +788,7 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
     primitive: { topology: "triangle-list" },
   });
 
-  const blend = ctx.device.createRenderPipeline({
+  const blend = createRenderPipelineLabeled(ctx, `${label}:blend`, {
     layout: "auto",
     vertex: {
       module,
@@ -796,7 +814,14 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
 }
 
 function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMode = 1) {
-  const module = ctx.device.createShaderModule({ code: wgslSource });
+  const label = inferShaderLabel(`material-v${vertexLayout}-b${bindingMode}`, wgslSource);
+  const module = createShaderModuleLabeled(ctx, label, wgslSource);
+  const usesShadowBindings = wgslSource.includes("shadow_sampler") || wgslSource.includes("shadow_map");
+  const usesSceneMaterialTextures =
+    wgslSource.includes("metallic_roughness_texture") ||
+    wgslSource.includes("occlusion_texture") ||
+    wgslSource.includes("normal_texture");
+  const usesSceneOnlyBindings = bindingMode === 2 && !usesShadowBindings && !usesSceneMaterialTextures;
   const depthState = {
     format: "depth24plus",
     depthWriteEnabled: true,
@@ -808,7 +833,11 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
     depthCompare: "less-equal",
   };
   const materialPipelineLayout = bindingMode === 2
-    ? ctx.sceneShadowPipelineLayout
+    ? usesShadowBindings
+      ? ctx.sceneShadowPipelineLayout
+      : usesSceneMaterialTextures
+        ? ctx.scenePipelineLayout
+        : ctx.sceneBasicPipelineLayout
     : bindingMode === 3
       ? ctx.sceneEnvironmentPipelineLayout
       : ctx.device.createPipelineLayout({
@@ -827,7 +856,19 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
         {
           arrayStride: instanceStrideBytes,
           stepMode: "instance",
-          attributes: bindingMode === 2 || bindingMode === 3
+          attributes: usesSceneOnlyBindings
+            ? [
+                { shaderLocation: 2, offset: 0, format: "float32x4" },
+                { shaderLocation: 3, offset: 16, format: "float32x4" },
+                { shaderLocation: 4, offset: 32, format: "float32x4" },
+                { shaderLocation: 5, offset: 48, format: "float32x4" },
+                { shaderLocation: 6, offset: 64, format: "float32x4" },
+                { shaderLocation: 7, offset: 80, format: "float32x4" },
+                { shaderLocation: 8, offset: 96, format: "float32x4" },
+                { shaderLocation: 9, offset: 112, format: "float32x4" },
+                { shaderLocation: 10, offset: 128, format: "float32x4" },
+              ]
+            : bindingMode === 2 || bindingMode === 3
             ? [
                 { shaderLocation: 2, offset: 0, format: "float32x4" },
                 { shaderLocation: 3, offset: 16, format: "float32x4" },
@@ -861,13 +902,26 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
         {
           arrayStride: instanceStrideBytes,
           stepMode: "instance",
-          attributes: [
-            { shaderLocation: 2, offset: 0, format: "float32x4" },
-            { shaderLocation: 3, offset: 16, format: "float32x4" },
-            { shaderLocation: 4, offset: 32, format: "float32x4" },
-            { shaderLocation: 5, offset: 48, format: "float32x4" },
-            { shaderLocation: 6, offset: 128, format: "float32x4" },
-          ],
+          attributes: bindingMode === 2 || bindingMode === 3
+            ? [
+                { shaderLocation: 2, offset: 0, format: "float32x4" },
+                { shaderLocation: 3, offset: 16, format: "float32x4" },
+                { shaderLocation: 4, offset: 32, format: "float32x4" },
+                { shaderLocation: 5, offset: 48, format: "float32x4" },
+                { shaderLocation: 6, offset: 64, format: "float32x4" },
+                { shaderLocation: 7, offset: 80, format: "float32x4" },
+                { shaderLocation: 8, offset: 96, format: "float32x4" },
+                { shaderLocation: 9, offset: 112, format: "float32x4" },
+                { shaderLocation: 10, offset: 128, format: "float32x4" },
+                { shaderLocation: 11, offset: 144, format: "float32x4" },
+              ]
+            : [
+                { shaderLocation: 2, offset: 0, format: "float32x4" },
+                { shaderLocation: 3, offset: 16, format: "float32x4" },
+                { shaderLocation: 4, offset: 32, format: "float32x4" },
+                { shaderLocation: 5, offset: 48, format: "float32x4" },
+                { shaderLocation: 6, offset: 128, format: "float32x4" },
+              ],
         },
       ]
     : vertexLayout === 3
@@ -944,7 +998,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
       : null;
   if (!vertexBuffers) return null;
 
-  const opaque = ctx.device.createRenderPipeline({
+  const opaque = createRenderPipelineLabeled(ctx, `${label}:opaque`, {
     layout: materialPipelineLayout,
     vertex: {
       module,
@@ -960,7 +1014,7 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
     primitive: { topology: "triangle-list" },
   });
 
-  const blend = ctx.device.createRenderPipeline({
+  const blend = createRenderPipelineLabeled(ctx, `${label}:blend`, {
     layout: materialPipelineLayout,
     vertex: {
       module,
@@ -982,16 +1036,17 @@ function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingM
     primitive: { topology: "triangle-list" },
   });
   webgpuCreates.pipelines += 2;
-  return { opaque, blend, vertexLayout, bindingMode };
+  return { opaque, blend, vertexLayout, bindingMode, usesShadowBindings, usesSceneMaterialTextures };
 }
 
 function createShadowPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMode = 1) {
   if (bindingMode === 2) {
     return null;
   }
-  const module = ctx.device.createShaderModule({ code: wgslSource });
+  const label = inferShaderLabel(`shadow-v${vertexLayout}-b${bindingMode}`, wgslSource);
+  const module = createShaderModuleLabeled(ctx, label, wgslSource);
   const depthState = {
-    format: "depth32float",
+    format: shadowMapFormat,
     depthWriteEnabled: true,
     depthCompare: "less-equal",
   };
@@ -1107,7 +1162,7 @@ function createShadowPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMod
             ]
           : null;
   if (!vertexBuffers) return null;
-  const pipeline = ctx.device.createRenderPipeline({
+  const pipeline = createRenderPipelineLabeled(ctx, `${label}:depth-only`, {
     layout: pipelineLayout,
     vertex: {
       module,
@@ -1122,8 +1177,9 @@ function createShadowPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMod
 }
 
 function createPostProcessPipelinesFromWgsl(ctx, wgslSource) {
-  const module = ctx.device.createShaderModule({ code: wgslSource });
-  const opaque = ctx.device.createRenderPipeline({
+  const label = inferShaderLabel("post-process", wgslSource);
+  const module = createShaderModuleLabeled(ctx, label, wgslSource);
+  const opaque = createRenderPipelineLabeled(ctx, `${label}:opaque`, {
     layout: ctx.postProcessPipelineLayout,
     vertex: {
       module,
@@ -1137,7 +1193,7 @@ function createPostProcessPipelinesFromWgsl(ctx, wgslSource) {
     primitive: { topology: "triangle-list" },
   });
 
-  const blend = ctx.device.createRenderPipeline({
+  const blend = createRenderPipelineLabeled(ctx, `${label}:blend`, {
     layout: ctx.postProcessPipelineLayout,
     vertex: {
       module,
@@ -1158,6 +1214,69 @@ function createPostProcessPipelinesFromWgsl(ctx, wgslSource) {
   });
   webgpuCreates.pipelines += 2;
   return { opaque, blend };
+}
+
+function inferShaderLabel(prefix, wgslSource) {
+  if (wgslSource.includes("textureSampleCompareLevel") && wgslSource.includes("shadow_sampler")) {
+    return `${prefix}:simple-shadow-lit`;
+  }
+  if (wgslSource.includes("cloudField(") && wgslSource.includes("renderMoon(")) {
+    return `${prefix}:sky-procedural`;
+  }
+  if (wgslSource.includes("toneMapAgX(") && wgslSource.includes("mesh_texture")) {
+    return `${prefix}:sky-panorama-hdr`;
+  }
+  if (!wgslSource.includes("@fragment") && wgslSource.includes("@builtin(position)")) {
+    return `${prefix}:depth-only`;
+  }
+  return prefix;
+}
+
+function createShaderModuleLabeled(ctx, label, code) {
+  const module = ctx.device.createShaderModule({
+    code,
+    label,
+  });
+  if (typeof module.getCompilationInfo === "function") {
+    module.getCompilationInfo().then((info) => {
+      if (!info || !info.messages) return;
+      for (const msg of info.messages) {
+        if (msg.type === "info") continue;
+        console.error(
+          `[phasor] shader ${label} ${msg.type} ${msg.lineNum}:${msg.linePos} ${msg.message}`,
+        );
+      }
+    }).catch((err) => {
+      console.error(`[phasor] shader compilation info failed for ${label}`, err);
+    });
+  }
+  return module;
+}
+
+function createRenderPipelineLabeled(ctx, label, descriptor) {
+  const labeledDescriptor = {
+    ...descriptor,
+    label,
+  };
+  if (typeof ctx.device.pushErrorScope === "function") {
+    ctx.device.pushErrorScope("validation");
+  }
+  const pipeline = ctx.device.createRenderPipeline(labeledDescriptor);
+  if (typeof ctx.device.popErrorScope === "function") {
+    ctx.device.popErrorScope().then((err) => {
+      if (err) {
+        console.error(`[phasor] pipeline validation failed for ${label}`, err.message || err);
+      }
+    }).catch((err) => {
+      console.error(`[phasor] pipeline validation scope failed for ${label}`, err);
+    });
+  }
+  if (typeof ctx.device.createRenderPipelineAsync === "function") {
+    ctx.device.createRenderPipelineAsync(labeledDescriptor).catch((err) => {
+      console.error(`[phasor] pipeline async validation failed for ${label}`, err && err.message ? err.message : err);
+    });
+  }
+  return pipeline;
 }
 
 function createPostProcessTexture(ctx, width, height) {
@@ -2176,8 +2295,8 @@ const imports = {
       const pipeline = blend ? shader.blend : shader.opaque;
       ctx.pass.setPipeline(pipeline);
       if (shader.bindingMode === 2) {
-        ctx.pass.setBindGroup(0, material.sceneBindGroup);
-        if (ctx.shadowBindGroup) {
+        ctx.pass.setBindGroup(0, shader.usesSceneMaterialTextures ? material.sceneBindGroup : material.sceneBasicBindGroup);
+        if (shader.usesShadowBindings && ctx.shadowBindGroup) {
           ctx.pass.setBindGroup(1, ctx.shadowBindGroup);
         }
       } else if (shader.bindingMode === 3) {
@@ -2262,13 +2381,13 @@ const imports = {
       const bytes = new Uint8Array(memory.buffer, uniformsPtr, uniformsLen);
       ctx.queue.writeBuffer(ctx.sceneUniformBuffer, 0, bytes);
     },
-    webgpu_set_shadow_state(ctxId, slot, uniformsPtr, uniformsLen) {
+    webgpu_set_shadow_state(ctxId, slot, width, height, uniformsPtr, uniformsLen) {
       const ctx = ctxs.get(ctxId);
       if (!ctx || !ctx.shadowUniformBuffer) return;
       const bytes = new Uint8Array(memory.buffer, uniformsPtr, uniformsLen);
       ctx.queue.writeBuffer(ctx.shadowUniformBuffer, 0, bytes);
       const slotIndex = Number(slot >>> 0);
-      const shadowSlot = ctx.shadowMapSlots[slotIndex];
+      const shadowSlot = ensureShadowMapSlot(ctx, slotIndex, width >>> 0, height >>> 0);
       if (!shadowSlot) return;
       if (!ctx.shadowBindGroup || ctx.shadowSlot !== slotIndex) {
         ctx.shadowBindGroup = ctx.device.createBindGroup({
@@ -2564,6 +2683,21 @@ const imports = {
           { binding: 5, resource: texture.view },
         ],
       });
+      const sceneBasicBindGroup = ctx.device.createBindGroup({
+        layout: ctx.sceneBasicBindGroupLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: texture.view },
+          {
+            binding: 2,
+            resource: {
+              buffer: ctx.sceneUniformBuffer,
+              offset: 0,
+              size: sceneUniformsSize,
+            },
+          },
+        ],
+      });
       const sceneEnvironmentMaterialBindGroup = ctx.device.createBindGroup({
         layout: ctx.sceneMaterialBindGroupLayout,
         entries: [
@@ -2574,9 +2708,9 @@ const imports = {
           { binding: 4, resource: texture.view },
         ],
       });
-      webgpuCreates.bindGroups += 3;
+      webgpuCreates.bindGroups += 4;
       const handle = ctx.materials.length;
-      ctx.materials.push({ bindGroup, sceneBindGroup, sceneEnvironmentMaterialBindGroup });
+      ctx.materials.push({ bindGroup, sceneBindGroup, sceneBasicBindGroup, sceneEnvironmentMaterialBindGroup });
       return handle;
     },
     webgpu_create_scene_material(ctxId, baseColorTextureHandle, metallicRoughnessTextureHandle, occlusionTextureHandle, normalTextureHandle, samplerHandle) {
@@ -2613,6 +2747,21 @@ const imports = {
           { binding: 5, resource: normal.view },
         ],
       });
+      const sceneBasicBindGroup = ctx.device.createBindGroup({
+        layout: ctx.sceneBasicBindGroupLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: baseColor.view },
+          {
+            binding: 2,
+            resource: {
+              buffer: ctx.sceneUniformBuffer,
+              offset: 0,
+              size: sceneUniformsSize,
+            },
+          },
+        ],
+      });
       const sceneEnvironmentMaterialBindGroup = ctx.device.createBindGroup({
         layout: ctx.sceneMaterialBindGroupLayout,
         entries: [
@@ -2623,16 +2772,16 @@ const imports = {
           { binding: 4, resource: normal.view },
         ],
       });
-      webgpuCreates.bindGroups += 3;
+      webgpuCreates.bindGroups += 4;
       const handle = ctx.materials.length;
-      ctx.materials.push({ bindGroup, sceneBindGroup, sceneEnvironmentMaterialBindGroup });
+      ctx.materials.push({ bindGroup, sceneBindGroup, sceneBasicBindGroup, sceneEnvironmentMaterialBindGroup });
       return handle;
     },
     webgpu_destroy_material(ctxId, handle) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return;
       ctx.materials[handle] = null;
-      webgpuDestroys.bindGroups += 3;
+      webgpuDestroys.bindGroups += 4;
     },
     webgpu_set_scene_environment(ctxId, textureHandle) {
       const ctx = ctxs.get(ctxId);

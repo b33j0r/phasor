@@ -425,7 +425,7 @@ export function createJoltEnv(getMemoryView) {
       writeU32(ptr + 40, character.GetGroundState());
       writeVec3(ptr + 44, vec3FromJolt(groundNormal));
       writeVec3(ptr + 56, vec3FromJolt(groundVelocity));
-      const groundBodyValue = groundBodyId.IsInvalid() ? 0 : groundBodyId.GetIndexAndSequenceNumber();
+      const groundBodyValue = bodyIdValueOrZero(groundBodyId);
       writeU32(ptr + 68, groundBodyValue);
       writeU64(ptr + 72, groundBodyValue === 0 ? 0 : world.bodyInterface.GetUserData(groundBodyId));
       writeBool(ptr + 80, character.GetMaxHitsExceeded());
@@ -437,6 +437,22 @@ export function createJoltEnv(getMemoryView) {
       Jolt.destroy(groundVelocity);
       Jolt.destroy(groundBodyId);
     }
+  }
+
+  function bodyIdValueOrZero(bodyId) {
+    if (!bodyId) return 0;
+    if (typeof bodyId.IsInvalid === "function") {
+      return bodyId.IsInvalid() ? 0 : bodyId.GetIndexAndSequenceNumber();
+    }
+    if (typeof bodyId.isInvalid === "function") {
+      return bodyId.isInvalid() ? 0 : bodyId.GetIndexAndSequenceNumber();
+    }
+    if (typeof bodyId.GetIndexAndSequenceNumber === "function") {
+      const value = bodyId.GetIndexAndSequenceNumber() >>> 0;
+      if (value === 0 || value === 0xffffffff) return 0;
+      return value;
+    }
+    return 0;
   }
 
   function getWorld(handle) {

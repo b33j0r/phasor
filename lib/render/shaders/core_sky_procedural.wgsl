@@ -172,7 +172,7 @@ fn renderMoon(
         return vec4<f32>(0.0);
     }
 
-    var moon_sample = textureSample(mesh_texture, mesh_sampler, uv);
+    var moon_sample = textureSampleLevel(mesh_texture, mesh_sampler, uv, 0.0);
     let edge_soften = smoothstep(1.0, 0.84, length(local) / moon_radius);
     moon_sample.a *= edge_soften * night_visibility;
     return moon_sample;
@@ -321,25 +321,27 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     var color = mix(zenith_base, horizon_base, horizon);
 
     let sun_dot = saturate(dot(dir, sun_dir));
-    let sun_disc = smoothstep(0.9982, 0.9997, sun_dot);
-    color += mix(vec3<f32>(0.62, 0.70, 0.90), scene.environment_dominant_color.rgb, day_amount) * sun_disc * (3.7 + twilight * 2.2);
+    let sun_disc = smoothstep(0.9993, 0.99988, sun_dot);
+    let sun_halo = pow(sun_dot, 96.0);
+    color += mix(vec3<f32>(1.0, 0.62, 0.32), scene.environment_dominant_color.rgb, day_amount) * sun_halo * 0.85;
+    color += scene.environment_dominant_color.rgb * sun_disc * 12.0;
 
-    let coverage = saturate(input.color.r);
-    let density = saturate(input.color.g);
-    let haze = saturate(input.color.b);
-    let wind_phase = input.color.a;
+    let cloud_amount = clamp(input.color.x, 0.0, 1.0);
+    let cloud_density = clamp(input.color.y, 0.0, 1.0);
+    let haze = clamp(input.color.z, 0.0, 1.0);
+    let wind_phase = fract(input.color.w);
 
-    let clouds = renderClouds(dir, sun_dir, day_amount, coverage, density, wind_phase);
+    let clouds = renderClouds(dir, sun_dir, day_amount, cloud_amount, cloud_density, wind_phase);
     color = mix(color, clouds.rgb, clouds.a);
 
     let moon = renderMoon(dir, sun_dir, day_amount);
-    color = mix(color, moon.rgb * vec3<f32>(0.95, 0.98, 1.05), moon.a);
+    color = mix(color, moon.rgb, moon.a);
 
-    let haze_col = mix(vec3<f32>(0.24, 0.29, 0.38), vec3<f32>(0.68, 0.74, 0.82), day_amount);
-    color = mix(color, haze_col, haze * horizon * 0.10);
+    let haze_amount = haze * smoothstep(-0.04, 0.12, 1.0 - abs(dir.y));
+    color = mix(color, vec3<f32>(0.84, 0.89, 0.97), haze_amount * 0.18);
 
-    if (scene.exposure_settings.y > 0.5) {
-        color *= scene.exposure_settings.x * 0.55;
-    }
+    let exposure = max(scene.exposure_settings.z, 0.02);
+    color *= exposure * 1.7;
+
     return vec4<f32>(applyColorGrade(color), 1.0);
 }

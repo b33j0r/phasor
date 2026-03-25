@@ -309,7 +309,14 @@ extern "env" fn webgpu_draw_textured_meshes_with_shader(ctx: u32, mesh_handle: u
 extern "env" fn webgpu_draw_shadow_colored_meshes(ctx: u32, mesh_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32) void;
 extern "env" fn webgpu_draw_shadow_textured_meshes_with_shader(ctx: u32, mesh_handle: u32, material_handle: u32, shader_handle: u32, instance_ptr: [*]const MeshInstance, instance_count: u32) void;
 extern "env" fn webgpu_set_scene_uniforms(ctx: u32, uniforms_ptr: [*]const u8, uniforms_len: usize) void;
-extern "env" fn webgpu_set_shadow_state(ctx: u32, slot: u32, uniforms_ptr: [*]const u8, uniforms_len: usize) void;
+extern "env" fn webgpu_set_shadow_state(
+    ctx: u32,
+    slot: u32,
+    width: u32,
+    height: u32,
+    uniforms_ptr: [*]const u8,
+    uniforms_len: usize,
+) void;
 extern "env" fn webgpu_draw_post_process(ctx: u32, shader_handle: u32, source_slot: u32, uniforms_ptr: [*]const f32, blend: u32) void;
 extern "env" fn webgpu_end_frame(ctx: u32) void;
 extern "env" fn webgpu_set_viewport_scissor(ctx: u32, x: f32, y: f32, width: f32, height: f32) void;
@@ -674,9 +681,16 @@ pub const Frame = struct {
         webgpu_set_scene_uniforms(self.renderer.ctx, bytes.ptr, bytes.len);
     }
 
-    pub fn setShadowUniforms(self: *Frame, uniforms: shadow_uniforms.ShadowUniforms, slot_index: u32, _: Size) void {
+    pub fn setShadowUniforms(self: *Frame, uniforms: shadow_uniforms.ShadowUniforms, slot_index: u32, slot_size: Size) void {
         const bytes = std.mem.asBytes(&uniforms);
-        webgpu_set_shadow_state(self.renderer.ctx, slot_index, bytes.ptr, bytes.len);
+        webgpu_set_shadow_state(
+            self.renderer.ctx,
+            slot_index,
+            slot_size.width,
+            slot_size.height,
+            bytes.ptr,
+            bytes.len,
+        );
     }
 
     pub fn drawShadowTexturedMeshesWithShader(self: *Frame, mesh: Mesh, material: Material, shader: ShadowShader, instances: []const MeshInstance) void {

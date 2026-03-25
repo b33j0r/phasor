@@ -5,6 +5,6 @@ pub fn build(b: *std.Build) void {
     support.buildExample(b, .{
         .name = "shadows",
         .root_source = "main.zig",
-        .enable_wasm = false,
+        .enable_wasm = true,
     });
 }

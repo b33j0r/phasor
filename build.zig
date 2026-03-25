@@ -68,7 +68,7 @@ pub fn build(b: *std.Build) void {
         .{
             .name = "shadows",
             .dir = "examples/shadows",
-            .enable_wasm = false,
+            .enable_wasm = true,
         },
         .{
             .name = "sponza",
