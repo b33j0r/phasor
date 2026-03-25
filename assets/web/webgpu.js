@@ -150,6 +150,99 @@ function float32ToFloat16(value) {
   return sign | (exponent << 10) | ((mantissa + 0x1000) >>> 13);
 }
 
+function mipLevelCount(width, height) {
+  let levels = 1;
+  let w = width;
+  let h = height;
+  while (w > 1 || h > 1) {
+    w = Math.max(w >> 1, 1);
+    h = Math.max(h >> 1, 1);
+    levels += 1;
+  }
+  return levels;
+}
+
+function srgbChannelToLinear(channel) {
+  const v = channel / 255;
+  if (v <= 0.04045) return v / 12.92;
+  return Math.pow((v + 0.055) / 1.055, 2.4);
+}
+
+function linearToSrgbChannel(value) {
+  const clamped = Math.min(Math.max(value, 0), 1);
+  const srgb = clamped <= 0.0031308
+    ? clamped * 12.92
+    : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
+  return Math.min(255, Math.max(0, Math.round(srgb * 255)));
+}
+
+function downsampleRgba8(src, srcWidth, srcHeight, srgb) {
+  const dstWidth = Math.max(srcWidth >> 1, 1);
+  const dstHeight = Math.max(srcHeight >> 1, 1);
+  const dst = new Uint8Array(dstWidth * dstHeight * 4);
+  for (let y = 0; y < dstHeight; y += 1) {
+    for (let x = 0; x < dstWidth; x += 1) {
+      let accumR = 0;
+      let accumG = 0;
+      let accumB = 0;
+      let accumA = 0;
+      let samples = 0;
+      for (let oy = 0; oy < 2; oy += 1) {
+        for (let ox = 0; ox < 2; ox += 1) {
+          const sx = Math.min(x * 2 + ox, srcWidth - 1);
+          const sy = Math.min(y * 2 + oy, srcHeight - 1);
+          const srcBase = (sy * srcWidth + sx) * 4;
+          if (srgb) {
+            accumR += srgbChannelToLinear(src[srcBase + 0]);
+            accumG += srgbChannelToLinear(src[srcBase + 1]);
+            accumB += srgbChannelToLinear(src[srcBase + 2]);
+          } else {
+            accumR += src[srcBase + 0] / 255;
+            accumG += src[srcBase + 1] / 255;
+            accumB += src[srcBase + 2] / 255;
+          }
+          accumA += src[srcBase + 3] / 255;
+          samples += 1;
+        }
+      }
+      const dstBase = (y * dstWidth + x) * 4;
+      const invSamples = 1 / samples;
+      if (srgb) {
+        dst[dstBase + 0] = linearToSrgbChannel(accumR * invSamples);
+        dst[dstBase + 1] = linearToSrgbChannel(accumG * invSamples);
+        dst[dstBase + 2] = linearToSrgbChannel(accumB * invSamples);
+      } else {
+        dst[dstBase + 0] = Math.min(255, Math.max(0, Math.round(accumR * invSamples * 255)));
+        dst[dstBase + 1] = Math.min(255, Math.max(0, Math.round(accumG * invSamples * 255)));
+        dst[dstBase + 2] = Math.min(255, Math.max(0, Math.round(accumB * invSamples * 255)));
+      }
+      dst[dstBase + 3] = Math.min(255, Math.max(0, Math.round(accumA * invSamples * 255)));
+    }
+  }
+  return { data: dst, width: dstWidth, height: dstHeight };
+}
+
+function writeRgba8TextureLevel(queue, texture, mipLevel, data, width, height) {
+  const bytesPerRow = width * 4;
+  const alignedBpr = Math.ceil(bytesPerRow / 256) * 256;
+  let upload = data;
+  if (alignedBpr !== bytesPerRow) {
+    const padded = new Uint8Array(alignedBpr * height);
+    for (let row = 0; row < height; row += 1) {
+      const srcOff = row * bytesPerRow;
+      const dstOff = row * alignedBpr;
+      padded.set(data.subarray(srcOff, srcOff + bytesPerRow), dstOff);
+    }
+    upload = padded;
+  }
+  queue.writeTexture(
+    { texture, mipLevel },
+    upload,
+    { bytesPerRow: alignedBpr },
+    { width, height },
+  );
+}
+
 function ensureAudioContext() {
   if (!audioCtx) {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -2541,32 +2634,27 @@ const imports = {
     webgpu_create_texture_rgba8(ctxId, _samplerHandle, dataPtr, dataLen, width, height) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return 0;
+      const levels = mipLevelCount(width, height);
       const texture = ctx.device.createTexture({
         size: { width, height },
         format: "rgba8unorm-srgb",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        mipLevelCount: levels,
       });
       webgpuCreates.textures += 1;
       const view = texture.createView();
       webgpuCreates.textureViews += 1;
-      const bytesPerRow = width * 4;
-      const alignedBpr = Math.ceil(bytesPerRow / 256) * 256;
-      let data = new Uint8Array(memory.buffer, dataPtr, dataLen);
-      if (alignedBpr !== bytesPerRow) {
-        const padded = new Uint8Array(alignedBpr * height);
-        for (let row = 0; row < height; row++) {
-          const srcOff = row * bytesPerRow;
-          const dstOff = row * alignedBpr;
-          padded.set(data.subarray(srcOff, srcOff + bytesPerRow), dstOff);
-        }
-        data = padded;
+      let levelData = new Uint8Array(memory.buffer, dataPtr, dataLen);
+      let levelWidth = width;
+      let levelHeight = height;
+      for (let level = 0; level < levels; level += 1) {
+        writeRgba8TextureLevel(ctx.queue, texture, level, levelData, levelWidth, levelHeight);
+        if (level + 1 >= levels) break;
+        const nextLevel = downsampleRgba8(levelData, levelWidth, levelHeight, true);
+        levelData = nextLevel.data;
+        levelWidth = nextLevel.width;
+        levelHeight = nextLevel.height;
       }
-      ctx.queue.writeTexture(
-        { texture },
-        data,
-        { bytesPerRow: alignedBpr },
-        { width, height }
-      );
       const handle = ctx.textures.length;
       ctx.textures.push({ texture, view });
       return handle;
@@ -2574,32 +2662,27 @@ const imports = {
     webgpu_create_texture_rgba8_linear(ctxId, _samplerHandle, dataPtr, dataLen, width, height) {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return 0;
+      const levels = mipLevelCount(width, height);
       const texture = ctx.device.createTexture({
         size: { width, height },
         format: "rgba8unorm",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        mipLevelCount: levels,
       });
       webgpuCreates.textures += 1;
       const view = texture.createView();
       webgpuCreates.textureViews += 1;
-      const bytesPerRow = width * 4;
-      const alignedBpr = Math.ceil(bytesPerRow / 256) * 256;
-      let data = new Uint8Array(memory.buffer, dataPtr, dataLen);
-      if (alignedBpr !== bytesPerRow) {
-        const padded = new Uint8Array(alignedBpr * height);
-        for (let row = 0; row < height; row++) {
-          const srcOff = row * bytesPerRow;
-          const dstOff = row * alignedBpr;
-          padded.set(data.subarray(srcOff, srcOff + bytesPerRow), dstOff);
-        }
-        data = padded;
+      let levelData = new Uint8Array(memory.buffer, dataPtr, dataLen);
+      let levelWidth = width;
+      let levelHeight = height;
+      for (let level = 0; level < levels; level += 1) {
+        writeRgba8TextureLevel(ctx.queue, texture, level, levelData, levelWidth, levelHeight);
+        if (level + 1 >= levels) break;
+        const nextLevel = downsampleRgba8(levelData, levelWidth, levelHeight, false);
+        levelData = nextLevel.data;
+        levelWidth = nextLevel.width;
+        levelHeight = nextLevel.height;
       }
-      ctx.queue.writeTexture(
-        { texture },
-        data,
-        { bytesPerRow: alignedBpr },
-        { width, height }
-      );
       const handle = ctx.textures.length;
       ctx.textures.push({ texture, view });
       return handle;

@@ -726,69 +726,26 @@ pub const Renderer = struct {
     }
 
     pub fn createTextureRgba8(self: *Renderer, width: u32, height: u32, data: []const u8) !Texture {
-        const texture = self.device.createTexture(&wgpu.TextureDescriptor{
-            .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
-            .format = .rgba8_unorm_srgb,
-            .usage = wgpu.TextureUsages.texture_binding | wgpu.TextureUsages.copy_dst,
-            .mip_level_count = 1,
-            .sample_count = 1,
-            .dimension = .@"2d",
-        }) orelse return error.TextureCreationFailed;
-        errdefer texture.release();
-
-        const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.TextureViewFailed;
-        errdefer view.release();
-
-        const bytes_per_row = width * 4;
-        const aligned_bpr = std.mem.alignForward(u32, bytes_per_row, 256);
-        var upload = data;
-        var scratch: ?[]u8 = null;
-        if (aligned_bpr != bytes_per_row) {
-            const total = aligned_bpr * height;
-            const padded = try self.allocator.alloc(u8, total);
-            @memset(padded, 0);
-            for (0..height) |row| {
-                const src_off = row * bytes_per_row;
-                const dst_off = row * aligned_bpr;
-                std.mem.copyForwards(u8, padded[dst_off..][0..bytes_per_row], data[src_off..][0..bytes_per_row]);
-            }
-            scratch = padded;
-            upload = padded;
-        }
-        defer if (scratch) |padded| self.allocator.free(padded);
-
-        const layout = wgpu.TexelCopyBufferLayout{
-            .bytes_per_row = aligned_bpr,
-            .rows_per_image = height,
-        };
-        const dst = wgpu.TexelCopyTextureInfo{
-            .texture = texture,
-            .origin = .{},
-            .mip_level = 0,
-            .aspect = .all,
-        };
-        const copy_size = wgpu.Extent3D{
-            .width = width,
-            .height = height,
-            .depth_or_array_layers = 1,
-        };
-        self.queue.writeTexture(&dst, upload.ptr, upload.len, &layout, &copy_size);
-
-        return Texture{
-            .texture = texture,
-            .view = view,
-            .width = width,
-            .height = height,
-            .format = .rgba8_unorm_srgb,
-        };
+        return self.createTextureRgba8Mipmapped(width, height, data, .rgba8_unorm_srgb, true);
     }
 
     pub fn createTextureRgba8Linear(self: *Renderer, width: u32, height: u32, data: []const u8) !Texture {
+        return self.createTextureRgba8Mipmapped(width, height, data, .rgba8_unorm, false);
+    }
+
+    fn createTextureRgba8Mipmapped(
+        self: *Renderer,
+        width: u32,
+        height: u32,
+        data: []const u8,
+        format: wgpu.TextureFormat,
+        srgb: bool,
+    ) !Texture {
         const texture = self.device.createTexture(&wgpu.TextureDescriptor{
             .size = .{ .width = width, .height = height, .depth_or_array_layers = 1 },
-            .format = .rgba8_unorm,
+            .format = format,
             .usage = wgpu.TextureUsages.texture_binding | wgpu.TextureUsages.copy_dst,
-            .mip_level_count = 1,
+            .mip_level_count = mipLevelCount(width, height),
             .sample_count = 1,
             .dimension = .@"2d",
         }) orelse return error.TextureCreationFailed;
@@ -797,47 +754,34 @@ pub const Renderer = struct {
         const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.TextureViewFailed;
         errdefer view.release();
 
-        const bytes_per_row = width * 4;
-        const aligned_bpr = std.mem.alignForward(u32, bytes_per_row, 256);
-        var upload = data;
-        var scratch: ?[]u8 = null;
-        if (aligned_bpr != bytes_per_row) {
-            const total = aligned_bpr * height;
-            const padded = try self.allocator.alloc(u8, total);
-            @memset(padded, 0);
-            for (0..height) |row| {
-                const src_off = row * bytes_per_row;
-                const dst_off = row * aligned_bpr;
-                std.mem.copyForwards(u8, padded[dst_off..][0..bytes_per_row], data[src_off..][0..bytes_per_row]);
-            }
-            scratch = padded;
-            upload = padded;
-        }
-        defer if (scratch) |padded| self.allocator.free(padded);
+        const pixel_count: usize = @intCast(width * height);
+        if (data.len != pixel_count * 4) return error.InvalidTextureData;
+        const level_count = mipLevelCount(width, height);
+        var level_width = width;
+        var level_height = height;
+        var level_data: []const u8 = data;
+        var owned_level_data: ?[]u8 = null;
+        defer if (owned_level_data) |owned| self.allocator.free(owned);
 
-        const layout = wgpu.TexelCopyBufferLayout{
-            .bytes_per_row = aligned_bpr,
-            .rows_per_image = height,
-        };
-        const dst = wgpu.TexelCopyTextureInfo{
-            .texture = texture,
-            .origin = .{},
-            .mip_level = 0,
-            .aspect = .all,
-        };
-        const copy_size = wgpu.Extent3D{
-            .width = width,
-            .height = height,
-            .depth_or_array_layers = 1,
-        };
-        self.queue.writeTexture(&dst, upload.ptr, upload.len, &layout, &copy_size);
+        var level: u32 = 0;
+        while (level < level_count) : (level += 1) {
+            try uploadRgba8Level(self, texture, level, level_width, level_height, level_data);
+            if (level + 1 >= level_count) break;
+            const next_level = try downsampleRgba8(self.allocator, level_data, level_width, level_height, srgb);
+            if (owned_level_data) |owned| self.allocator.free(owned);
+            owned_level_data = next_level;
+            level_data = next_level;
+            level_width = @max(level_width / 2, 1);
+            level_height = @max(level_height / 2, 1);
+        }
 
         return Texture{
             .texture = texture,
             .view = view,
             .width = width,
             .height = height,
-            .format = .rgba8_unorm,
+            .format = format,
+            .mip_level_count = level_count,
         };
     }
 
@@ -2107,6 +2051,75 @@ fn mipLevelCount(width: u32, height: u32) u32 {
     return levels;
 }
 
+fn srgbChannelToLinear(channel: u8) f32 {
+    const v = @as(f32, @floatFromInt(channel)) / 255.0;
+    if (v <= 0.04045) return v / 12.92;
+    return std.math.pow(f32, (v + 0.055) / 1.055, 2.4);
+}
+
+fn linearToSrgbChannel(value: f32) u8 {
+    const clamped = std.math.clamp(value, 0.0, 1.0);
+    const srgb = if (clamped <= 0.0031308)
+        clamped * 12.92
+    else
+        1.055 * std.math.pow(f32, clamped, 1.0 / 2.4) - 0.055;
+    return @intFromFloat(std.math.clamp(std.math.round(srgb * 255.0), 0.0, 255.0));
+}
+
+fn downsampleRgba8(
+    allocator: std.mem.Allocator,
+    src: []const u8,
+    src_width: u32,
+    src_height: u32,
+    srgb: bool,
+) ![]u8 {
+    const dst_width = @max(src_width / 2, 1);
+    const dst_height = @max(src_height / 2, 1);
+    const dst = try allocator.alloc(u8, @as(usize, dst_width) * @as(usize, dst_height) * 4);
+
+    var y: u32 = 0;
+    while (y < dst_height) : (y += 1) {
+        var x: u32 = 0;
+        while (x < dst_width) : (x += 1) {
+            var accum = [4]f32{ 0.0, 0.0, 0.0, 0.0 };
+            var samples: f32 = 0.0;
+            var oy: u32 = 0;
+            while (oy < 2) : (oy += 1) {
+                var ox: u32 = 0;
+                while (ox < 2) : (ox += 1) {
+                    const sx = @min(x * 2 + ox, src_width - 1);
+                    const sy = @min(y * 2 + oy, src_height - 1);
+                    const src_base = (@as(usize, sy) * @as(usize, src_width) + @as(usize, sx)) * 4;
+                    if (srgb) {
+                        accum[0] += srgbChannelToLinear(src[src_base + 0]);
+                        accum[1] += srgbChannelToLinear(src[src_base + 1]);
+                        accum[2] += srgbChannelToLinear(src[src_base + 2]);
+                    } else {
+                        accum[0] += @as(f32, @floatFromInt(src[src_base + 0])) / 255.0;
+                        accum[1] += @as(f32, @floatFromInt(src[src_base + 1])) / 255.0;
+                        accum[2] += @as(f32, @floatFromInt(src[src_base + 2])) / 255.0;
+                    }
+                    accum[3] += @as(f32, @floatFromInt(src[src_base + 3])) / 255.0;
+                    samples += 1.0;
+                }
+            }
+            const dst_base = (@as(usize, y) * @as(usize, dst_width) + @as(usize, x)) * 4;
+            const inv_samples = 1.0 / samples;
+            if (srgb) {
+                dst[dst_base + 0] = linearToSrgbChannel(accum[0] * inv_samples);
+                dst[dst_base + 1] = linearToSrgbChannel(accum[1] * inv_samples);
+                dst[dst_base + 2] = linearToSrgbChannel(accum[2] * inv_samples);
+            } else {
+                dst[dst_base + 0] = @intFromFloat(std.math.clamp(std.math.round(accum[0] * inv_samples * 255.0), 0.0, 255.0));
+                dst[dst_base + 1] = @intFromFloat(std.math.clamp(std.math.round(accum[1] * inv_samples * 255.0), 0.0, 255.0));
+                dst[dst_base + 2] = @intFromFloat(std.math.clamp(std.math.round(accum[2] * inv_samples * 255.0), 0.0, 255.0));
+            }
+            dst[dst_base + 3] = @intFromFloat(std.math.clamp(std.math.round(accum[3] * inv_samples * 255.0), 0.0, 255.0));
+        }
+    }
+    return dst;
+}
+
 fn downsampleRgba32f(allocator: std.mem.Allocator, src: []const f32, src_width: u32, src_height: u32) ![]f32 {
     const dst_width = @max(src_width / 2, 1);
     const dst_height = @max(src_height / 2, 1);
@@ -2140,6 +2153,50 @@ fn downsampleRgba32f(allocator: std.mem.Allocator, src: []const f32, src_width: 
         }
     }
     return dst;
+}
+
+fn uploadRgba8Level(
+    self: *Renderer,
+    texture: *wgpu.Texture,
+    mip_level: u32,
+    width: u32,
+    height: u32,
+    data: []const u8,
+) !void {
+    const bytes_per_row = width * 4;
+    const aligned_bpr = std.mem.alignForward(u32, bytes_per_row, 256);
+    var upload = data;
+    var scratch: ?[]u8 = null;
+    if (aligned_bpr != bytes_per_row) {
+        const total = aligned_bpr * height;
+        const padded = try self.allocator.alloc(u8, total);
+        @memset(padded, 0);
+        for (0..height) |row| {
+            const src_off = row * bytes_per_row;
+            const dst_off = row * aligned_bpr;
+            std.mem.copyForwards(u8, padded[dst_off..][0..bytes_per_row], data[src_off..][0..bytes_per_row]);
+        }
+        scratch = padded;
+        upload = padded;
+    }
+    defer if (scratch) |padded| self.allocator.free(padded);
+
+    const layout = wgpu.TexelCopyBufferLayout{
+        .bytes_per_row = aligned_bpr,
+        .rows_per_image = height,
+    };
+    const dst = wgpu.TexelCopyTextureInfo{
+        .texture = texture,
+        .origin = .{},
+        .mip_level = mip_level,
+        .aspect = .all,
+    };
+    const copy_size = wgpu.Extent3D{
+        .width = width,
+        .height = height,
+        .depth_or_array_layers = 1,
+    };
+    self.queue.writeTexture(&dst, upload.ptr, upload.len, &layout, &copy_size);
 }
 
 fn uploadRgba16FloatLevel(
