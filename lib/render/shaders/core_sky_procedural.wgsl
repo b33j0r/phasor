@@ -116,8 +116,8 @@ fn renderClouds(
     var accum = vec3<f32>(0.0);
     let light_wrap = saturate(dot(dir, sun_dir) * 0.5 + 0.5);
     let silver = pow(saturate(dot(dir, sun_dir)), 18.0) * 0.65;
-    let dark_col = mix(vec3<f32>(0.42, 0.47, 0.55), vec3<f32>(0.58, 0.63, 0.70), day_amount);
-    let bright_col = mix(vec3<f32>(0.72, 0.77, 0.84), vec3<f32>(0.97, 0.99, 1.0), day_amount);
+    let dark_col = mix(vec3<f32>(0.18, 0.21, 0.28), vec3<f32>(0.58, 0.63, 0.70), day_amount);
+    let bright_col = mix(vec3<f32>(0.28, 0.31, 0.39), vec3<f32>(0.97, 0.99, 1.0), day_amount);
     let cloud_col = mix(dark_col, bright_col, saturate(light_wrap * 0.72 + silver));
 
     let uv0 = dome * 0.62 + wind_vec * (0.011 + jitter * 0.0015);
@@ -165,7 +165,7 @@ fn renderMoon(
         return vec4<f32>(0.0);
     }
 
-    let moon_radius = 0.022;
+    let moon_radius = 0.044;
     let local = vec2<f32>(dot(dir, moon_right), dot(dir, moon_up)) / max(forward, 1e-4);
     let uv = local / (moon_radius * 2.0) + vec2<f32>(0.5, 0.5);
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
@@ -314,33 +314,38 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     let horizon_day = vec3<f32>(0.64, 0.76, 0.89);
     let zenith_twilight = vec3<f32>(0.24, 0.12, 0.30);
     let horizon_twilight = vec3<f32>(0.99, 0.46, 0.20);
-    let zenith_night = vec3<f32>(0.015, 0.03, 0.09);
-    let horizon_night = vec3<f32>(0.03, 0.05, 0.12);
+    let zenith_night = vec3<f32>(0.010, 0.016, 0.040);
+    let horizon_night = vec3<f32>(0.020, 0.028, 0.060);
     let zenith_base = mix(mix(zenith_night, zenith_twilight, twilight), zenith_day, day_amount);
     let horizon_base = mix(mix(horizon_night, horizon_twilight, twilight), horizon_day, day_amount);
     var color = mix(zenith_base, horizon_base, horizon);
 
     let sun_dot = saturate(dot(dir, sun_dir));
-    let sun_disc = smoothstep(0.9982, 0.9997, sun_dot);
-    color += mix(vec3<f32>(0.62, 0.70, 0.90), scene.environment_dominant_color.rgb, day_amount) * sun_disc * (3.7 + twilight * 2.2);
+    let sun_disc = smoothstep(0.9993, 0.99988, sun_dot);
+    let sun_halo = pow(sun_dot, 96.0);
+    color += mix(vec3<f32>(1.0, 0.62, 0.32), scene.environment_dominant_color.rgb, day_amount) * sun_halo * 0.85;
+    color += scene.environment_dominant_color.rgb * sun_disc * 12.0;
 
-    let coverage = saturate(input.color.r);
-    let density = saturate(input.color.g);
-    let haze = saturate(input.color.b);
-    let wind_phase = input.color.a;
+    let cloud_amount = clamp(input.color.x, 0.0, 1.0);
+    let cloud_density = clamp(input.color.y, 0.0, 1.0);
+    let haze = clamp(input.color.z, 0.0, 1.0);
+    let wind_phase = fract(input.color.w);
 
-    let clouds = renderClouds(dir, sun_dir, day_amount, coverage, density, wind_phase);
+    let clouds = renderClouds(dir, sun_dir, day_amount, cloud_amount, cloud_density, wind_phase);
     color = mix(color, clouds.rgb, clouds.a);
 
     let moon = renderMoon(dir, sun_dir, day_amount);
-    color = mix(color, moon.rgb * vec3<f32>(0.95, 0.98, 1.05), moon.a);
+    color = mix(color, moon.rgb, moon.a);
 
-    let haze_col = mix(vec3<f32>(0.24, 0.29, 0.38), vec3<f32>(0.68, 0.74, 0.82), day_amount);
-    color = mix(color, haze_col, haze * horizon * 0.10);
+    let haze_amount = haze * smoothstep(-0.04, 0.12, 1.0 - abs(dir.y));
+    let haze_col = mix(vec3<f32>(0.10, 0.12, 0.18), vec3<f32>(0.84, 0.89, 0.97), day_amount);
+    color = mix(color, haze_col, haze_amount * mix(0.05, 0.18, day_amount));
 
-    if (scene.exposure_settings.y > 0.5) {
-        color *= scene.exposure_settings.x * 0.55;
-    }
+    let environment_sky_exposure = max(scene.exposure_settings.z * 1.7, 0.02);
+    let camera_sky_floor = max(scene.exposure_settings.x * mix(0.40, 0.18, day_amount), 0.02);
+    color *= max(environment_sky_exposure, camera_sky_floor);
+    let dither = (hash21(input.uv * vec2<f32>(1536.0, 864.0)) - 0.5) / 255.0;
+    color += vec3<f32>(dither) * mix(0.75, 0.20, day_amount);
 
     return vec4<f32>(applyColorGrade(color), 1.0);
 }
