@@ -20,8 +20,16 @@ pub fn spawnPlayerFromCollision(
         .pitch = -0.18,
         .fly_toggle_enabled = true,
     };
+    if (debug_start_bookmark) |bookmark| {
+        controller.pitch = bookmark.camera_pitch;
+    }
     const real_spawn_choice = findSpawnPoint(world.ptr, plan.scene_size, controller) orelse return;
-    const spawn_choice = if (debug_spawn_outside_enabled)
+    const spawn_choice = if (debug_start_bookmark) |bookmark|
+        SpawnChoice{
+            .position = bookmark.player_transform.translation,
+            .yaw = bookmark.player_yaw,
+        }
+    else if (debug_spawn_outside_enabled)
         outsideSkySpawnPoint(plan.scene_size, controller)
     else
         real_spawn_choice;
@@ -78,11 +86,20 @@ pub fn spawnPlayerFromCollision(
         try commands.addComponent(player_entity, physics.PhysicsDisabled{});
     }
 
+    const camera_translation = if (debug_start_bookmark) |bookmark|
+        bookmark.camera_transform.translation
+    else
+        spawn.add(FpsPhysics.cameraOffset(controller));
+    const camera_rotation = if (debug_start_bookmark) |bookmark|
+        bookmark.camera_transform.rotation
+    else
+        camera_facing;
+
     _ = try commands.createEntity(.{
         PlayerCamera{},
         Transform{
-            .translation = spawn.add(FpsPhysics.cameraOffset(controller)),
-            .rotation = camera_facing,
+            .translation = camera_translation,
+            .rotation = camera_rotation,
         },
         Camera3d{ .Perspective = .{
             .fov = std.math.pi / 3.0,
@@ -618,6 +635,26 @@ const Quat = common.Quat;
 const quatFromEuler = shared.quatFromEuler;
 
 const debug_spawn_outside_enabled = false;
+const DebugStartBookmark = struct {
+    player_transform: Transform,
+    camera_transform: Transform,
+    player_yaw: f32,
+    camera_pitch: f32,
+};
+const debug_start_bookmark: ?DebugStartBookmark = null;
+// Enable this temporarily for reproducible curtain-seal close-up checks:
+// .{
+//     .player_transform = Transform{
+//         .translation = .{ .x = -5.093, .y = 1.891, .z = -0.331 },
+//         .rotation = quatFromEuler(0.0, 2.7306, 0.0),
+//     },
+//     .camera_transform = Transform{
+//         .translation = .{ .x = -5.093, .y = 2.491, .z = -0.331 },
+//         .rotation = quatFromEuler(-0.1501, 2.7306, 0.0),
+//     },
+//     .player_yaw = 2.7306,
+//     .camera_pitch = -0.1501,
+// };
 
 const SpawnDebugState = struct {
     real_spawn: SpawnChoice,

@@ -698,6 +698,12 @@ fn runSceneLoader(
             .metallic_factor = 0.0,
             .roughness_factor = 0.85,
         },
+        .{ .material_index = 14, .normal_scale = 0.25 },
+        .{ .material_index = 15, .normal_scale = 0.25 },
+        .{ .material_index = 16, .normal_scale = 0.25 },
+        .{ .material_index = 17, .normal_scale = 0.25 },
+        .{ .material_index = 18, .normal_scale = 0.25 },
+        .{ .material_index = 19, .normal_scale = 0.25 },
     };
 
     try outbox.send(.{ .progress = .{ .label = "1/7 locating cached assets", .fraction = 0.08 } });

@@ -299,6 +299,16 @@ fn sampleSceneNormal(
     return normalize(tbn * tangent_space);
 }
 
+fn applySpecularAntiAliasing(roughness: f32, metallic: f32, normal: vec3<f32>) -> f32 {
+    let dndx = dpdx(normal);
+    let dndy = dpdy(normal);
+    let variance = dot(dndx, dndx) + dot(dndy, dndy);
+    let glossy_metallic = metallic * (1.0 - roughness);
+    let aa_boost = min((4.0 + 8.0 * glossy_metallic) * variance, 0.45);
+    let roughness_floor = min(sqrt(max(variance, 0.0)) * glossy_metallic * 0.25, 0.12);
+    return clamp(max(sqrt(roughness * roughness + aa_boost), roughness + roughness_floor), 0.045, 1.0);
+}
+
 @vertex
 fn vs_main(input: VertexIn) -> VertexOut {
     let clip_model = mat4x4<f32>(input.clip0, input.clip1, input.clip2, input.clip3);
@@ -336,9 +346,10 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     let metallic_roughness_sample = textureSample(metallic_roughness_texture, mesh_sampler, input.uv);
     let occlusion_sample = textureSample(occlusion_texture, mesh_sampler, input.uv);
     let metallic = clamp(input.pbr_params.x * metallic_roughness_sample.b, 0.0, 1.0);
-    let roughness = clamp(input.pbr_params.y * metallic_roughness_sample.g, 0.045, 1.0);
+    let base_roughness = clamp(input.pbr_params.y * metallic_roughness_sample.g, 0.045, 1.0);
     let ao = clamp(mix(1.0, occlusion_sample.r, input.pbr_params.z), 0.0, 1.0);
     let normal = sampleSceneNormal(normalize(input.world_normal), input.world_tangent, input.uv, input.pbr_params.w);
+    let roughness = applySpecularAntiAliasing(base_roughness, metallic, normal);
     let view_dir = normalize(scene.camera_position.xyz - input.world_position);
     let f0 = mix(vec3<f32>(0.04), albedo.rgb, metallic);
     let ndotv = saturate(dot(normal, view_dir));
