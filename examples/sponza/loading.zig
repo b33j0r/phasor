@@ -90,13 +90,15 @@ pub fn advanceSceneFinalize(
 
     const build_ctx_res = build_ctx.ptr orelse return;
     try build_ctx_res.ensureCoreSkyPanoramaHdrShader(&core_shaders.ptr.sky_panorama_hdr);
-    try build_ctx_res.ensureCoreSkyProceduralShader(&core_shaders.ptr.sky_procedural);
+    try build_ctx_res.ensureCoreSkyProceduralLayeredShader(&core_shaders.ptr.sky_procedural_layered);
+    try build_ctx_res.ensureCoreSkyProceduralNishitaVolumetricShader(&core_shaders.ptr.sky_procedural_nishita_volumetric);
     if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
     if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
     if (!scene_assets.ptr.sky_moon_overlay.material_handle.isValid()) return error.SkyMoonOverlayMissing;
     const shaders = core_shaders.ptr;
     if (!shaders.sky_panorama_hdr.isValid()) return error.CoreSkyPanoramaShaderMissing;
-    if (!shaders.sky_procedural.isValid()) return error.CoreSkyProceduralShaderMissing;
+    if (!shaders.sky_procedural_layered.isValid()) return error.CoreSkyProceduralLayeredShaderMissing;
+    if (!shaders.sky_procedural_nishita_volumetric.isValid()) return error.CoreSkyProceduralNishitaShaderMissing;
 
     if (!commands.hasResource(SceneFinalizeState)) {
         if (loader.ptr.payload) |payload| {
@@ -144,9 +146,10 @@ pub fn advanceSceneFinalize(
                         .z = 0.0,
                     },
                 },
-                modules.SkyModule.PanoramaSky{
+                modules.SkyModule.ProceduralSky{
                     .material = scene_assets.ptr.sky_moon_overlay.material,
-                    .shader_handle = shaders.sky_procedural,
+                    .algorithm = .layered,
+                    .shader_handle = shaders.sky_procedural_layered,
                     .size = @max(@max(finalize.scene_size.x, finalize.scene_size.y), finalize.scene_size.z) * 4.0,
                     .follow_camera = true,
                     .face_segments = 56,

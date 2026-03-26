@@ -94,10 +94,19 @@ pub const BuildContext = struct {
         });
     }
 
-    pub fn ensureCoreSkyProceduralShader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
+    pub fn ensureCoreSkyProceduralLayeredShader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
         if (handle.isValid()) return;
         handle.* = try self.createShader(.{
-            .wgsl = core_shaders.sky_procedural_wgsl,
+            .wgsl = core_shaders.sky_procedural_layered_wgsl,
+            .vertex_layout = .pos3_uv2,
+            .binding_mode = .material_scene,
+        });
+    }
+
+    pub fn ensureCoreSkyProceduralNishitaVolumetricShader(self: *const BuildContext, handle: *mesh.ShaderHandle) !void {
+        if (handle.isValid()) return;
+        handle.* = try self.createShader(.{
+            .wgsl = core_shaders.sky_procedural_nishita_volumetric_wgsl,
             .vertex_layout = .pos3_uv2,
             .binding_mode = .material_scene,
         });

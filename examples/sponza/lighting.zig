@@ -139,7 +139,7 @@ pub fn setupSkyCycle(
         .panorama_environment = environment.ptr.*,
     });
     const assets = scene_assets.ptr orelse return;
-    if (core_shaders.ptr) |shaders| applySkyVisualMode(panorama_faces, shaders, assets, .panorama);
+    if (core_shaders.ptr) |shaders| applySkyVisualMode(panorama_faces, shaders, assets, .panorama, .layered);
     try commands.insertResource(SkyCycleReady{});
 }
 
@@ -165,9 +165,9 @@ pub fn toggleSkyModeInput(
     };
 
     switch (state.mode) {
-        .procedural => applySkyVisualMode(panorama_faces, shaders, assets, .procedural),
+        .procedural => applySkyVisualMode(panorama_faces, shaders, assets, .procedural, state.procedural_algorithm),
         .panorama => {
-            applySkyVisualMode(panorama_faces, shaders, assets, .panorama);
+            applySkyVisualMode(panorama_faces, shaders, assets, .panorama, state.procedural_algorithm);
             if (state.panorama_ambient) |ambient| try commands.insertResource(ambient);
             if (state.panorama_environment) |environment| try commands.insertResource(environment);
         },
@@ -346,9 +346,10 @@ fn applySkyVisualMode(
     core_shaders: *const render.CoreShaders,
     scene_assets: *const Assets,
     mode: SkyMode,
+    algorithm: modules.SkyModule.ProceduralSkyAlgorithm,
 ) void {
     const shader = switch (mode) {
-        .procedural => core_shaders.sky_procedural,
+        .procedural => modules.SkyModule.proceduralSkyShader(core_shaders, algorithm),
         .panorama => core_shaders.sky_panorama_hdr,
     };
     const material = switch (mode) {

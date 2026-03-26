@@ -205,7 +205,7 @@ fn ensureCoreShaders(commands: *Commands) !void {
     const state = commands.getResourceMut(RenderState) orelse return;
     const shader_library = commands.getResourceMut(render.ShaderLibrary) orelse return;
     const existing = commands.getResource(render.CoreShaders) orelse return;
-    if (existing.color_pos3_color4.isValid() and existing.simple_shadow_lit.isValid() and existing.sky_procedural.isValid() and existing.sky_panorama_hdr.isValid()) {
+    if (existing.color_pos3_color4.isValid() and existing.simple_shadow_lit.isValid() and existing.sky_procedural_layered.isValid() and existing.sky_procedural_nishita_volumetric.isValid() and existing.sky_panorama_hdr.isValid()) {
         return;
     }
 
@@ -225,12 +225,19 @@ fn ensureCoreShaders(commands: *Commands) !void {
     });
     errdefer _ = shader_library.destroyShader(&state.renderer, core.simple_shadow_lit);
 
-    core.sky_procedural = try createCoreShader(&state.renderer, shader_library, .{
-        .wgsl = render.CoreShaderSources.sky_procedural_wgsl,
+    core.sky_procedural_layered = try createCoreShader(&state.renderer, shader_library, .{
+        .wgsl = render.CoreShaderSources.sky_procedural_layered_wgsl,
         .vertex_layout = .pos3_uv2,
         .binding_mode = .material_scene,
     });
-    errdefer _ = shader_library.destroyShader(&state.renderer, core.sky_procedural);
+    errdefer _ = shader_library.destroyShader(&state.renderer, core.sky_procedural_layered);
+
+    core.sky_procedural_nishita_volumetric = try createCoreShader(&state.renderer, shader_library, .{
+        .wgsl = render.CoreShaderSources.sky_procedural_nishita_volumetric_wgsl,
+        .vertex_layout = .pos3_uv2,
+        .binding_mode = .material_scene,
+    });
+    errdefer _ = shader_library.destroyShader(&state.renderer, core.sky_procedural_nishita_volumetric);
 
     core.sky_panorama_hdr = try createCoreShader(&state.renderer, shader_library, .{
         .wgsl = render.CoreShaderSources.sky_panorama_hdr_wgsl,

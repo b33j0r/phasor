@@ -1,8 +1,14 @@
 // Implicit Sky protocol:
 // Any sky component with these fields can be consumed by shared builders.
 // Required fields: `material`, `shader_handle`, `size`, `follow_camera`, `face_segments`.
+pub const ProceduralSkyAlgorithm = enum {
+    layered,
+    nishita_volumetric,
+};
+
 pub const ProceduralSky = struct {
     material: render.Material,
+    algorithm: ProceduralSkyAlgorithm = .layered,
     shader_handle: render.ShaderHandle = render.ShaderHandle.invalid(),
     size: f32 = 220.0,
     follow_camera: bool = true,
@@ -28,6 +34,7 @@ const PanoramaAnchor = struct {
 };
 
 const PanoramaBuilt = struct {};
+const ProceduralBuilt = struct {};
 const panorama_layer_sort_background: i32 = -1000;
 
 const Face = enum {
@@ -40,13 +47,63 @@ const Face = enum {
 };
 
 pub fn install(app: *AppCommands, _: *Commands) !void {
+    try app.addSystem("Update", buildProceduralSkies);
     try app.addSystem("Update", buildPanoramaSkies);
     try app.addSystem("Update", updatePanoramaSkies);
 }
 
 pub fn uninstall(app: *AppCommands) void {
+    app.removeSystem(buildProceduralSkies);
     app.removeSystem(buildPanoramaSkies);
     app.removeSystem(updatePanoramaSkies);
+}
+
+pub fn proceduralSkyShader(core_shaders: *const render.CoreShaders, algorithm: ProceduralSkyAlgorithm) render.ShaderHandle {
+    return switch (algorithm) {
+        .layered => core_shaders.sky_procedural_layered,
+        .nishita_volumetric => core_shaders.sky_procedural_nishita_volumetric,
+    };
+}
+
+fn buildProceduralSkies(
+    commands: *Commands,
+    cameras: Query(.{common.Camera3d}),
+    core_shaders: ResOpt(render.CoreShaders),
+    skies: Query(.{ common.Transform, ProceduralSky, ecs.system_params.Without(ProceduralBuilt) }),
+) !void {
+    const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
+    const state = commands.getResourceMut(RenderState) orelse return;
+    const shaders = core_shaders.ptr orelse return;
+
+    var it = skies.iterator();
+    while (it.next()) |row| {
+        const transform = row.get(common.Transform) orelse continue;
+        const sky = row.get(ProceduralSky) orelse continue;
+        const size = clampSkySizeToCameraFar(sky.size, cameras);
+        const segments = clampFaceSegments(sky.face_segments);
+        const center = transform.translation;
+        const layer = layerKeyForRow(row);
+        const shader = if (sky.shader_handle.isValid())
+            sky.shader_handle
+        else
+            proceduralSkyShader(shaders, sky.algorithm);
+
+        const procedural_as_panorama = PanoramaSky{
+            .material = sky.material,
+            .shader_handle = shader,
+            .size = sky.size,
+            .follow_camera = sky.follow_camera,
+            .face_segments = sky.face_segments,
+        };
+
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, procedural_as_panorama, center, size, .front, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, procedural_as_panorama, center, size, .right, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, procedural_as_panorama, center, size, .back, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, procedural_as_panorama, center, size, .left, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, procedural_as_panorama, center, size, .top, sky.follow_camera, segments, layer);
+        try spawnPanoramaFace(commands, mesh_library, &state.renderer, procedural_as_panorama, center, size, .bottom, sky.follow_camera, segments, layer);
+        try commands.addComponent(row.entity_id, ProceduralBuilt{});
+    }
 }
 
 fn buildPanoramaSkies(
@@ -377,3 +434,4 @@ const RenderState = @import("RenderModule.zig").RenderState;
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const Query = ecs.system_params.Query;
+const ResOpt = ecs.system_params.ResOpt;

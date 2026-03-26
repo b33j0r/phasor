@@ -72,7 +72,7 @@ fn setupScene(
     const build = build_ctx.deref();
     const scene_assets = assets_res.deref();
     try build_ctx.ptr.ensureCoreSimpleShadowLitShader(&core_shaders.ptr.simple_shadow_lit);
-    try build_ctx.ptr.ensureCoreSkyProceduralShader(&core_shaders.ptr.sky_procedural);
+    try build_ctx.ptr.ensureCoreSkyProceduralNishitaVolumetricShader(&core_shaders.ptr.sky_procedural_nishita_volumetric);
     const sun_direction = (Vec3{ .x = -0.72, .y = 0.46, .z = -0.52 }).normalize();
     const light_forward = sun_direction.scale(-1.0);
     const player_spawn = Vec3{ .x = 9.0, .y = 0.9, .z = 14.5 };
@@ -91,7 +91,7 @@ fn setupScene(
     if (!scene_assets.pillar_tex.material_handle.isValid()) return error.PillarTextureMissing;
     if (!scene_assets.sky_moon_overlay.material_handle.isValid()) return error.SkyTextureMissing;
     if (!core_shaders.ptr.simple_shadow_lit.isValid()) return error.CoreShadowShaderMissing;
-    if (!core_shaders.ptr.sky_procedural.isValid()) return error.CoreSkyShaderMissing;
+    if (!core_shaders.ptr.sky_procedural_nishita_volumetric.isValid()) return error.CoreSkyShaderMissing;
 
     try commands.insertResource(DayNightCycle{});
     try commands.insertResource(render.SceneStatsMode{ .enabled = true });
@@ -180,9 +180,10 @@ fn setupScene(
         Transform{
             .translation = .{ .x = 0.0, .y = 8.0, .z = 0.0 },
         },
-        modules.SkyModule.PanoramaSky{
+        modules.SkyModule.ProceduralSky{
             .material = scene_assets.sky_moon_overlay.material,
-            .shader_handle = core_shaders.ptr.sky_procedural,
+            .algorithm = .nishita_volumetric,
+            .shader_handle = core_shaders.ptr.sky_procedural_nishita_volumetric,
             .size = 180.0,
             .follow_camera = true,
             .face_segments = 36,

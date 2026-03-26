@@ -31,6 +31,7 @@ pub const WeatherSettings = struct {
 
 pub const SkyCycleState = struct {
     mode: SkyMode = .procedural,
+    procedural_algorithm: modules.SkyModule.ProceduralSkyAlgorithm = .layered,
     day_night: DayNightSettings = .{},
     weather: WeatherSettings = .{},
     panorama_environment: ?lighting.EnvironmentLight = null,
