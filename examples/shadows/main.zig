@@ -18,6 +18,26 @@ const DayNightCycle = struct {
     weather_cycle_seconds: f32 = 80.0,
 };
 
+const DayNightState = struct {
+    sun: Vec3,
+    shadow_sun: Vec3,
+    daylight: f32,
+    night: f32,
+    twilight: f32,
+    light_color: Color.F32,
+    illuminance_lux: f32,
+    ambient_color: Color.F32,
+    ambient_intensity: f32,
+    environment_color: Color.F32,
+    environment_intensity: f32,
+    environment_diffuse_strength: f32,
+    environment_specular_strength: f32,
+    environment_average_luminance: f32,
+    exposure_auto_key_value: f32,
+    exposure_min: f32,
+    exposure_max: f32,
+};
+
 const App = struct {
     pub const options = platform.Options{
         .vsync = true,
@@ -73,8 +93,6 @@ fn setupScene(
     const scene_assets = assets_res.deref();
     try build_ctx.ptr.ensureCoreSimpleShadowLitShader(&core_shaders.ptr.simple_shadow_lit);
     try build_ctx.ptr.ensureCoreSkyProceduralNishitaVolumetricShader(&core_shaders.ptr.sky_procedural_nishita_volumetric);
-    const sun_direction = (Vec3{ .x = -0.72, .y = 0.46, .z = -0.52 }).normalize();
-    const light_forward = sun_direction.scale(-1.0);
     const player_spawn = Vec3{ .x = 9.0, .y = 0.9, .z = 14.5 };
     const pillar_center = Vec3{ .x = 0.0, .y = 4.0, .z = 0.0 };
     var player_controller = FpsController{
@@ -93,30 +111,34 @@ fn setupScene(
     if (!core_shaders.ptr.simple_shadow_lit.isValid()) return error.CoreShadowShaderMissing;
     if (!core_shaders.ptr.sky_procedural_nishita_volumetric.isValid()) return error.CoreSkyShaderMissing;
 
-    try commands.insertResource(DayNightCycle{});
+    const cycle = DayNightCycle{};
+    const initial_state = evaluateDayNightState(&cycle, 0.0);
+
+    try commands.insertResource(cycle);
     try commands.insertResource(render.SceneStatsMode{ .enabled = true });
     try modules.TimeModule.setPaused(commands, false);
     try commands.insertResource(ClearColor{ .color = Color.rgb(145, 190, 235) });
     try commands.insertResource(MouseCapture{ .enabled = true });
     try commands.insertResource(lighting.AmbientLight{
-        .color = .{ .r = 0.74, .g = 0.78, .b = 0.90, .a = 1.0 },
-        .intensity = 0.12,
+        .color = initial_state.ambient_color,
+        .intensity = initial_state.ambient_intensity,
     });
     try commands.insertResource(lighting.ExposureSettings{
         .enabled = true,
-        .auto_enabled = false,
+        .auto_enabled = true,
         .exposure = 0.22,
-        .min_exposure = 0.08,
-        .max_exposure = 0.55,
+        .auto_key_value = initial_state.exposure_auto_key_value,
+        .min_exposure = initial_state.exposure_min,
+        .max_exposure = initial_state.exposure_max,
     });
     try commands.insertResource(lighting.EnvironmentLight{
         .enabled = true,
-        .intensity = 0.22,
-        .diffuse_strength = 1.0,
-        .specular_strength = 0.08,
-        .average_luminance = 0.18,
-        .dominant_direction = sun_direction,
-        .dominant_color = .{ .r = 1.0, .g = 0.96, .b = 0.86, .a = 1.0 },
+        .intensity = initial_state.environment_intensity,
+        .diffuse_strength = initial_state.environment_diffuse_strength,
+        .specular_strength = initial_state.environment_specular_strength,
+        .average_luminance = initial_state.environment_average_luminance,
+        .dominant_direction = initial_state.sun,
+        .dominant_color = initial_state.environment_color,
     });
     try commands.insertResource(modules.RenderModule.ShadowSettings{
         .technique = .directional_shadow_map,
@@ -134,12 +156,12 @@ fn setupScene(
     _ = try commands.createEntity(.{
         Transform{
             .translation = .{ .x = 0.0, .y = 18.0, .z = 0.0 },
-            .rotation = quatFromTo(.{ .x = 0.0, .y = 0.0, .z = -1.0 }, light_forward),
+            .rotation = quatFromTo(.{ .x = 0.0, .y = 0.0, .z = -1.0 }, initial_state.shadow_sun.scale(-1.0).normalize()),
         },
         SunLight{},
         lighting.Light{ .directional = .{
-            .color = .{ .r = 1.0, .g = 0.95, .b = 0.84, .a = 1.0 },
-            .illuminance_lux = 75_000.0,
+            .color = initial_state.light_color,
+            .illuminance_lux = initial_state.illuminance_lux,
         } },
         lighting.LightVisibility{
             .enabled = true,
@@ -291,9 +313,46 @@ fn updateDayNightCycle(
     sun_query: Query(.{ Transform, lighting.Light, SunLight }),
 ) void {
     const cycle = cycle_opt.ptr orelse return;
+    const state = evaluateDayNightState(cycle, @floatCast(elapsed.ptr.seconds));
 
-    const t: f32 = @floatCast(elapsed.ptr.seconds);
-    const day_phase = fract(cycle.start_hour / 24.0 + t / @max(cycle.day_length_seconds, 3.0));
+    var it = sun_query.iterator();
+    while (it.next()) |row| {
+        const transform = row.get(Transform) orelse continue;
+        const light = row.get(lighting.Light) orelse continue;
+        switch (light.*) {
+            .directional => |*dir| {
+                const light_forward = state.shadow_sun.scale(-1.0).normalize();
+                transform.rotation = quatFromTo(.{ .x = 0.0, .y = 0.0, .z = -1.0 }, light_forward);
+                dir.color = state.light_color;
+                dir.illuminance_lux = state.illuminance_lux;
+            },
+            else => {},
+        }
+    }
+
+    const ambient = ambient_res.ptr;
+    ambient.color = state.ambient_color;
+    ambient.intensity = state.ambient_intensity;
+
+    const environment = environment_res.ptr;
+    environment.enabled = true;
+    environment.dominant_direction = state.sun;
+    environment.dominant_color = state.environment_color;
+    environment.intensity = state.environment_intensity;
+    environment.diffuse_strength = state.environment_diffuse_strength;
+    environment.specular_strength = state.environment_specular_strength;
+    environment.average_luminance = state.environment_average_luminance;
+
+    const exposure = exposure_res.ptr;
+    exposure.enabled = true;
+    exposure.auto_enabled = true;
+    exposure.auto_key_value = state.exposure_auto_key_value;
+    exposure.min_exposure = state.exposure_min;
+    exposure.max_exposure = state.exposure_max;
+}
+
+fn evaluateDayNightState(cycle: *const DayNightCycle, elapsed_seconds: f32) DayNightState {
+    const day_phase = fract(cycle.start_hour / 24.0 + elapsed_seconds / @max(cycle.day_length_seconds, 3.0));
     const sun = sunDirection(day_phase, cycle.latitude_deg);
     const shadow_sun = shadowLightDirection(sun);
     const daylight = smoothstep(-0.14, 0.10, sun.y);
@@ -303,44 +362,32 @@ fn updateDayNightCycle(
     const clear_sun_color = Color.F32{ .r = 1.0, .g = 0.95, .b = 0.84, .a = 1.0 };
     const dusk_sun_color = Color.F32{ .r = 1.0, .g = 0.58, .b = 0.33, .a = 1.0 };
     const moon_color = Color.F32{ .r = 0.44, .g = 0.52, .b = 0.70, .a = 1.0 };
+    const light_color = mixColor(moon_color, mixColor(clear_sun_color, dusk_sun_color, twilight), daylight);
 
-    var it = sun_query.iterator();
-    while (it.next()) |row| {
-        const transform = row.get(Transform) orelse continue;
-        const light = row.get(lighting.Light) orelse continue;
-        switch (light.*) {
-            .directional => |*dir| {
-                const light_forward = shadow_sun.scale(-1.0).normalize();
-                transform.rotation = quatFromTo(.{ .x = 0.0, .y = 0.0, .z = -1.0 }, light_forward);
-                dir.color = mixColor(moon_color, mixColor(clear_sun_color, dusk_sun_color, twilight), daylight);
-                dir.illuminance_lux = lerp(300.0, 95_000.0, daylight) + twilight * 12_000.0;
-            },
-            else => {},
-        }
-    }
-
-    const ambient = ambient_res.ptr;
     const day_ambient = Color.F32{ .r = 0.72, .g = 0.78, .b = 0.88, .a = 1.0 };
     const dusk_ambient = Color.F32{ .r = 0.70, .g = 0.46, .b = 0.38, .a = 1.0 };
     const night_ambient = Color.F32{ .r = 0.21, .g = 0.28, .b = 0.43, .a = 1.0 };
-    ambient.color = mixColor(night_ambient, mixColor(dusk_ambient, day_ambient, daylight), daylight + twilight * 0.45);
-    ambient.intensity = lerp(0.05, 0.20, daylight) * lerp(1.0, 1.18, twilight);
+    const ambient_color = mixColor(night_ambient, mixColor(dusk_ambient, day_ambient, daylight), daylight + twilight * 0.45);
 
-    const environment = environment_res.ptr;
-    environment.enabled = true;
-    environment.dominant_direction = sun;
-    environment.dominant_color = mixColor(moon_color, mixColor(clear_sun_color, dusk_sun_color, twilight), daylight);
-    environment.intensity = lerp(0.08, 0.55, daylight);
-    environment.diffuse_strength = lerp(0.3, 1.15, daylight);
-    environment.specular_strength = lerp(0.1, 0.22, daylight);
-    environment.average_luminance = std.math.clamp(lerp(0.04, 0.9, daylight), 0.01, 2.0);
-
-    const exposure = exposure_res.ptr;
-    exposure.enabled = true;
-    exposure.auto_enabled = true;
-    exposure.auto_key_value = lerp(0.12, 0.17, daylight);
-    exposure.min_exposure = lerp(0.03, 0.11, daylight) * lerp(1.0, 1.16, night);
-    exposure.max_exposure = lerp(0.32, 0.62, daylight);
+    return .{
+        .sun = sun,
+        .shadow_sun = shadow_sun,
+        .daylight = daylight,
+        .night = night,
+        .twilight = twilight,
+        .light_color = light_color,
+        .illuminance_lux = lerp(300.0, 95_000.0, daylight) + twilight * 12_000.0,
+        .ambient_color = ambient_color,
+        .ambient_intensity = lerp(0.05, 0.20, daylight) * lerp(1.0, 1.18, twilight),
+        .environment_color = light_color,
+        .environment_intensity = lerp(0.08, 0.55, daylight),
+        .environment_diffuse_strength = lerp(0.3, 1.15, daylight),
+        .environment_specular_strength = lerp(0.1, 0.22, daylight),
+        .environment_average_luminance = std.math.clamp(lerp(0.04, 0.9, daylight), 0.01, 2.0),
+        .exposure_auto_key_value = lerp(0.12, 0.17, daylight),
+        .exposure_min = lerp(0.03, 0.11, daylight) * lerp(1.0, 1.16, night),
+        .exposure_max = lerp(0.32, 0.62, daylight),
+    };
 }
 
 fn updateProceduralSkyMeshParams(
