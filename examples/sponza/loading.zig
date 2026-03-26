@@ -91,14 +91,14 @@ pub fn advanceSceneFinalize(
     const build_ctx_res = build_ctx.ptr orelse return;
     try build_ctx_res.ensureCoreSkyPanoramaHdrShader(&core_shaders.ptr.sky_panorama_hdr);
     try build_ctx_res.ensureCoreSkyProceduralLayeredShader(&core_shaders.ptr.sky_procedural_layered);
-    try build_ctx_res.ensureCoreSkyProceduralNishitaVolumetricShader(&core_shaders.ptr.sky_procedural_nishita_volumetric);
+    try build_ctx_res.ensureCoreSkyProceduralAtmosphericShader(&core_shaders.ptr.sky_procedural_atmospheric);
     if (!scene_assets.ptr.scene_shader.handle.isValid()) return error.SceneShaderMissing;
     if (!scene_assets.ptr.sky_panorama.material_handle.isValid()) return error.SkyPanoramaMissing;
     if (!scene_assets.ptr.sky_moon_overlay.material_handle.isValid()) return error.SkyMoonOverlayMissing;
     const shaders = core_shaders.ptr;
     if (!shaders.sky_panorama_hdr.isValid()) return error.CoreSkyPanoramaShaderMissing;
     if (!shaders.sky_procedural_layered.isValid()) return error.CoreSkyProceduralLayeredShaderMissing;
-    if (!shaders.sky_procedural_nishita_volumetric.isValid()) return error.CoreSkyProceduralNishitaShaderMissing;
+    if (!shaders.sky_procedural_atmospheric.isValid()) return error.CoreSkyProceduralAtmosphericShaderMissing;
 
     if (!commands.hasResource(SceneFinalizeState)) {
         if (loader.ptr.payload) |payload| {

@@ -3,7 +3,7 @@
 // Required fields: `material`, `shader_handle`, `size`, `follow_camera`, `face_segments`.
 pub const ProceduralSkyAlgorithm = enum {
     layered,
-    nishita_volumetric,
+    atmospheric,
 };
 
 pub const ProceduralSky = struct {
@@ -61,7 +61,7 @@ pub fn uninstall(app: *AppCommands) void {
 pub fn proceduralSkyShader(core_shaders: *const render.CoreShaders, algorithm: ProceduralSkyAlgorithm) render.ShaderHandle {
     return switch (algorithm) {
         .layered => core_shaders.sky_procedural_layered,
-        .nishita_volumetric => core_shaders.sky_procedural_nishita_volumetric,
+        .atmospheric => core_shaders.sky_procedural_atmospheric,
     };
 }
 

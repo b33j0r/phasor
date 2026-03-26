@@ -107,7 +107,7 @@ pub const CoreShaders = struct {
     color_pos3_color4: ShaderHandle = ShaderHandle.invalid(),
     simple_shadow_lit: ShaderHandle = ShaderHandle.invalid(),
     sky_procedural_layered: ShaderHandle = ShaderHandle.invalid(),
-    sky_procedural_nishita_volumetric: ShaderHandle = ShaderHandle.invalid(),
+    sky_procedural_atmospheric: ShaderHandle = ShaderHandle.invalid(),
     sky_panorama_hdr: ShaderHandle = ShaderHandle.invalid(),
 };
 pub const VertexColor = backend.VertexColor;
