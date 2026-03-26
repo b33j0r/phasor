@@ -116,9 +116,9 @@ fn renderClouds(
     var accum = vec3<f32>(0.0);
     let light_wrap = saturate(dot(dir, sun_dir) * 0.5 + 0.5);
     let silver = pow(saturate(dot(dir, sun_dir)), 18.0) * 0.65;
-    // For A/B against the older, moodier palette:
-    // dark_col = mix(vec3<f32>(0.18, 0.21, 0.28), vec3<f32>(0.58, 0.63, 0.70), day_amount)
-    // bright_col = mix(vec3<f32>(0.28, 0.31, 0.39), vec3<f32>(0.97, 0.99, 1.0), day_amount)
+    // Older, moodier palette:
+    // let dark_col = mix(vec3<f32>(0.18, 0.21, 0.28), vec3<f32>(0.58, 0.63, 0.70), day_amount);
+    // let bright_col = mix(vec3<f32>(0.28, 0.31, 0.39), vec3<f32>(0.97, 0.99, 1.0), day_amount);
     let dark_col = mix(vec3<f32>(0.42, 0.47, 0.55), vec3<f32>(0.58, 0.63, 0.70), day_amount);
     let bright_col = mix(vec3<f32>(0.72, 0.77, 0.84), vec3<f32>(0.97, 0.99, 1.0), day_amount);
     let cloud_col = mix(dark_col, bright_col, saturate(light_wrap * 0.72 + silver));
