@@ -74,11 +74,11 @@ pub fn setupLighting(
     }{
         // Soft white fill at scene origin to keep the center corridor readable.
         .{ .pos = .{ .x = 0.0, .y = 1.9, .z = 0.0 }, .color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 }, .intensity = 150.0, .range = 18.0, .dynamic = false },
-        // Main corridor: static colored lights along Z (x = 0), leaving origin unlit.
+        // Main corridor: keep the negative-Z half moodier so emissive fire reads against darker stone.
         .{ .pos = .{ .x = 0.0, .y = 2.8, .z = scene_size.z * 0.30 }, .color = .{ .r = 1.0, .g = 0.42, .b = 0.28, .a = 1.0 }, .intensity = 120.0, .range = 9.0, .dynamic = false },
-        .{ .pos = .{ .x = 0.0, .y = 2.8, .z = scene_size.z * 0.12 }, .color = .{ .r = 0.22, .g = 0.75, .b = 1.0, .a = 1.0 }, .intensity = 105.0, .range = 9.0, .dynamic = false },
+        .{ .pos = .{ .x = 0.0, .y = 2.8, .z = scene_size.z * 0.12 }, .color = .{ .r = 0.22, .g = 0.75, .b = 1.0, .a = 1.0 }, .intensity = 92.0, .range = 8.5, .dynamic = false },
         .{ .pos = .{ .x = 0.0, .y = 2.8, .z = -scene_size.z * 0.12 }, .color = .{ .r = 1.0, .g = 0.8, .b = 0.3, .a = 1.0 }, .intensity = 125.0, .range = 9.5, .dynamic = false },
-        .{ .pos = .{ .x = 0.0, .y = 2.6, .z = -scene_size.z * 0.30 }, .color = .{ .r = 0.3, .g = 0.55, .b = 1.0, .a = 1.0 }, .intensity = 100.0, .range = 8.5, .dynamic = false },
+        .{ .pos = .{ .x = 0.0, .y = 2.6, .z = -scene_size.z * 0.30 }, .color = .{ .r = 0.3, .g = 0.55, .b = 1.0, .a = 1.0 }, .intensity = 42.0, .range = 6.2, .dynamic = false },
         // Side corridors: dynamic/patrolling lights centered at +/- x_extent/3, z ~ 0.
         .{ .pos = .{ .x = -scene_size.x * 0.33, .y = 3.2, .z = 0.0 }, .color = .{ .r = 0.82, .g = 0.34, .b = 1.0, .a = 1.0 }, .intensity = 140.0, .range = 10.0, .dynamic = true },
         .{ .pos = .{ .x = scene_size.x * 0.33, .y = 3.2, .z = 0.0 }, .color = .{ .r = 0.24, .g = 1.0, .b = 0.66, .a = 1.0 }, .intensity = 135.0, .range = 10.0, .dynamic = true },

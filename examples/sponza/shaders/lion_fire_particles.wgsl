@@ -24,6 +24,7 @@ struct VertexIn {
     @location(8) model2: vec4<f32>,
     @location(9) model3: vec4<f32>,
     @location(10) color: vec4<f32>,
+    @location(11) particle_params: vec4<f32>,
 };
 
 struct VertexOut {
@@ -31,6 +32,7 @@ struct VertexOut {
     @location(0) uv: vec2<f32>,
     @location(1) local_pos: vec3<f32>,
     @location(2) color: vec4<f32>,
+    @location(3) particle_params: vec4<f32>,
 };
 
 @group(0) @binding(0) var mesh_sampler: sampler;
@@ -65,6 +67,7 @@ fn vs_main(input: VertexIn) -> VertexOut {
     out.uv = input.uv;
     out.local_pos = input.position;
     out.color = input.color;
+    out.particle_params = input.particle_params;
     return out;
 }
 
@@ -86,7 +89,10 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     var color = input.color.rgb;
     let ember = smoothstep(0.18, 0.88, 1.0 - vertical) * (1.0 - core);
     color = mix(color, vec3<f32>(0.22, 0.05, 0.02), ember * 0.36);
-    color *= (0.78 + 0.95 * core + 0.22 * vertical);
+    let brightness = max(input.particle_params.z, 0.0);
+    let albedo_energy = 0.48 + 0.42 * vertical;
+    let emissive_energy = brightness * (0.34 + 0.96 * core + 0.24 * shell);
+    color *= albedo_energy + emissive_energy;
 
     if (scene.exposure_settings.y > 0.5) {
         color *= scene.exposure_settings.x * 0.55;
