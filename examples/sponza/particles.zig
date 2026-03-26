@@ -59,27 +59,12 @@ pub fn updateLionFire(
     elapsed: Res(ElapsedTime),
     shared_fire: Res(LionFireShared),
     state_res: ResMut(LionFireState),
-    cameras: Query(.{ Transform, PlayerCamera }),
     particles: Query(.{ Transform, render.MeshInstance, LionFireParticle }),
     current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
 ) void {
     const fire_shared = shared_fire.ptr;
     const state = state_res.ptr;
     if (!phases.isPlayingPhase(current_phase.ptr)) return;
-
-    var camera_rotation: ?Quat = null;
-    var camera_position: ?Vec3 = null;
-    var camera_it = cameras.iterator();
-    while (camera_it.next()) |row| {
-        const transform = row.get(Transform) orelse continue;
-        camera_rotation = transform.rotation;
-        camera_position = transform.translation;
-        break;
-    }
-    const cam_rot = camera_rotation orelse return;
-    const cam_pos = camera_position orelse return;
-
-    _ = cam_pos;
 
     const step: f32 = @floatCast(std.math.clamp(dt.ptr.seconds, 0.0, 0.05));
     if (!(step > 0.0)) return;
@@ -142,7 +127,6 @@ pub fn updateLionFire(
 
         const geometry = particleGeometryForKind(fire_shared, p.kind);
         transform.translation = p.position;
-        _ = cam_rot;
         instance.mesh_handle = geometry.mesh_handle;
         transform.rotation = worldParticleRotation(p.spin);
         transform.scale = switch (p.kind) {
@@ -417,7 +401,6 @@ const Assets = shared.Assets;
 const ElapsedTime = modules.TimeModule.ElapsedTime;
 const HasResource = ecs.system_params.HasResource;
 const SimulationDeltaTime = modules.TimeModule.SimulationDeltaTime;
-const PlayerCamera = shared.PlayerCamera;
 const Quat = common.Quat;
 const SceneReady = shared.SceneReady;
 const Transform = common.Transform;
