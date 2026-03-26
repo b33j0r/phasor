@@ -38,10 +38,12 @@ const DemoState = struct {
 };
 
 const SceneAssets = struct {
-    particle_mesh: render.MeshHandle = render.MeshHandle.invalid(),
     ground_mesh: render.MeshHandle = render.MeshHandle.invalid(),
     particle_shader: render.ShaderHandle = render.ShaderHandle.invalid(),
     ground_shader: render.ShaderHandle = render.ShaderHandle.invalid(),
+    flame_geometry: render.ResolvedParticleGeometry = undefined,
+    spark_geometry: render.ResolvedParticleGeometry = undefined,
+    smoke_geometry: render.ResolvedParticleGeometry = undefined,
 };
 
 const App = struct {
@@ -71,11 +73,16 @@ pub const main = platform.main(App);
 
 fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext)) !void {
     const build = build_ctx.ptr;
-    const particle_mesh = try createParticleQuad(build);
     const ground_mesh = try createGroundPlane(build);
+    const flame_geometry = try render.buildParticleGeometry(build, .billboard);
+    const spark_geometry = try render.buildParticleGeometry(build, .cube);
+    const smoke_geometry = try render.buildParticleGeometry(build, .{ .sphere = .{
+        .latitude_segments = 7,
+        .longitude_segments = 10,
+    } });
     const particle_shader = try build.createShader(.{
         .wgsl = @embedFile("shaders/particle_fountain.wgsl"),
-        .vertex_layout = .pos3_color4,
+        .vertex_layout = .pos3_uv2,
         .binding_mode = .none,
     });
     const ground_shader = try build.createShader(.{
@@ -89,10 +96,12 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext)) !
 
     try commands.insertResource(ClearColor{ .color = Color.rgb(2, 2, 4) });
     try commands.insertResource(SceneAssets{
-        .particle_mesh = particle_mesh,
         .ground_mesh = ground_mesh,
         .particle_shader = particle_shader,
         .ground_shader = ground_shader,
+        .flame_geometry = flame_geometry,
+        .spark_geometry = spark_geometry,
+        .smoke_geometry = smoke_geometry,
     });
     try commands.insertResource(state);
 
@@ -141,7 +150,7 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext)) !
                 .scale = .{ .x = 0.001, .y = 0.001, .z = 0.001 },
             },
             render.MeshInstance{
-                .mesh_handle = particle_mesh,
+                .mesh_handle = flame_geometry.mesh_handle,
                 .shader_handle = particle_shader,
                 .material = render.Material.default,
                 .color = Color.rgba(0, 0, 0, 0),
@@ -175,6 +184,7 @@ fn updateParticles(
     dt: Res(DeltaTime),
     elapsed: Res(ElapsedTime),
     demo_state: ResMut(DemoState),
+    scene_assets: Res(SceneAssets),
     cameras: Query(.{ Transform, OrbitCamera }),
     particle_rows: Query(.{ ParticleTag, Transform, render.MeshInstance }),
 ) void {
@@ -297,9 +307,18 @@ fn updateParticles(
             },
         }
 
+        const geometry = particleGeometryForKind(scene_assets.ptr, particle.kind);
         transform.translation = particle.position;
-        transform.rotation = billboardRotation(billboard, particle.spin);
-        transform.scale = .{ .x = size, .y = size * stretch, .z = 1.0 };
+        instance.mesh_handle = geometry.mesh_handle;
+        transform.rotation = switch (geometry.facing) {
+            .billboard => billboardRotation(billboard, particle.spin),
+            .world => worldParticleRotation(particle.spin),
+        };
+        transform.scale = switch (particle.kind) {
+            .flame => .{ .x = size, .y = size * stretch, .z = 1.0 },
+            .spark => .{ .x = size * 0.58, .y = size * stretch, .z = size * 0.58 },
+            .smoke => .{ .x = size * 1.12, .y = size * stretch * 0.82, .z = size * 1.12 },
+        };
         instance.color = floatColorToU8(tint.x, tint.y, tint.z, alpha);
     }
 }
@@ -380,17 +399,6 @@ fn spawnParticle(state: *DemoState, elapsed_s: f32) void {
     }
 }
 
-fn createParticleQuad(build: *const render.BuildContext) !render.MeshHandle {
-    const vertices = [_]render.VertexPos3Color{
-        .{ .position = .{ -0.5, -0.5, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
-        .{ .position = .{ 0.5, -0.5, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
-        .{ .position = .{ 0.5, 0.5, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
-        .{ .position = .{ -0.5, 0.5, 0.0 }, .color = .{ 1.0, 1.0, 1.0, 1.0 } },
-    };
-    const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
-    return build.addMeshPos3Color(vertices[0..], indices[0..]);
-}
-
 fn createGroundPlane(build: *const render.BuildContext) !render.MeshHandle {
     const size = 22.0;
     const vertices = [_]render.VertexPos3Color{
@@ -405,6 +413,19 @@ fn createGroundPlane(build: *const render.BuildContext) !render.MeshHandle {
 
 fn billboardRotation(camera_rotation: Quat, spin: f32) Quat {
     return camera_rotation.mul(Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, spin));
+}
+
+fn worldParticleRotation(spin: f32) Quat {
+    return Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, spin * 0.63)
+        .mul(Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, spin));
+}
+
+fn particleGeometryForKind(scene_assets: *const SceneAssets, kind: ParticleKind) render.ResolvedParticleGeometry {
+    return switch (kind) {
+        .flame => scene_assets.flame_geometry,
+        .spark => scene_assets.spark_geometry,
+        .smoke => scene_assets.smoke_geometry,
+    };
 }
 
 fn rand01(state: *DemoState) f32 {

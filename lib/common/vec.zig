@@ -52,6 +52,10 @@ pub const Vec3 = extern struct {
     y: f32 = 0.0,
     z: f32 = 0.0,
 
+    pub fn init(x: f32, y: f32, z: f32) Vec3 {
+        return .{ .x = x, .y = y, .z = z };
+    }
+
     pub fn splat(value: f32) Vec3 {
         return .{ .x = value, .y = value, .z = value };
     }

@@ -12,13 +12,18 @@ pub fn setupLionFire(
     const assets = scene_assets.ptr orelse return;
     if (!assets.lion_fire_shader.handle.isValid()) return;
 
-    const quad = try createParticleQuad(build_ctx);
-    const base_rotation = lionMouthBaseRotation();
+    const core_geometry = try render.buildParticleGeometry(build_ctx, .billboard);
+    const smoke_geometry = try render.buildParticleGeometry(build_ctx, .{ .sphere = .{
+        .latitude_segments = 6,
+        .longitude_segments = 10,
+    } });
     var state = LionFireState{};
     state.rng_state = 0x89ab_cdef_1234_5678;
     state.mouth_position = lionMouthBasePosition();
+    state.core_geometry = core_geometry;
+    state.smoke_geometry = smoke_geometry;
     // Bookmark camera looked toward the lion mouth, so emit opposite that vector (outward from mouth).
-    state.mouth_direction = base_rotation.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = 1.0 }).normalize();
+    state.mouth_direction = Vec3.init(1.0, 0.0, 0.0);
 
     var i: usize = 0;
     while (i < max_particles) : (i += 1) {
@@ -28,7 +33,7 @@ pub fn setupLionFire(
                 .translation = hidden_position,
             },
             render.MeshInstance{
-                .mesh_handle = quad,
+                .mesh_handle = core_geometry.mesh_handle,
                 .shader_handle = assets.lion_fire_shader.handle,
                 .material = render.Material.default,
                 .color = common.Color.rgba(0, 0, 0, 0),
@@ -136,9 +141,17 @@ pub fn updateLionFire(
         };
         const noise = std.math.clamp(0.5 + 0.5 * std.math.sin(p.noise_phase + t * 2.8), 0.0, 1.0);
 
+        const geometry = particleGeometryForKind(state, p.kind);
         transform.translation = p.position;
-        transform.rotation = cam_rot.mul(Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, p.spin));
-        transform.scale = .{ .x = size, .y = size * 1.18, .z = 1.0 };
+        instance.mesh_handle = geometry.mesh_handle;
+        transform.rotation = switch (geometry.facing) {
+            .billboard => cam_rot.mul(Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, p.spin)),
+            .world => worldParticleRotation(p.spin),
+        };
+        transform.scale = switch (p.kind) {
+            .core => .{ .x = size * 0.92, .y = size * 1.28, .z = 1.0 },
+            .smoke => .{ .x = size * 1.28, .y = size * 0.94, .z = size * 1.28 },
+        };
         instance.color = floatColorToU8(color.x, color.y, color.z, alpha, noise);
     }
 }
@@ -179,7 +192,7 @@ fn spawnOneParticle(state: *LionFireState, time_s: f32) void {
 }
 
 fn lionMouthBasePosition() Vec3 {
-    const camera = Vec3{ .x = -9.967, .y = 2.492, .z = 0.056 };
+    const camera = Vec3{ .x = -9.967, .y = 2.492, .z = 0.0 };
     const rot = lionMouthBaseRotation();
     const forward = rot.rotateVec3(.{ .x = 0.0, .y = 0.0, .z = -1.0 }).normalize();
     const right = rot.rotateVec3(.{ .x = 1.0, .y = 0.0, .z = 0.0 }).normalize();
@@ -195,15 +208,17 @@ fn lionMouthBaseRotation() Quat {
     return quatFromEuler(-0.2090, 7.7481, 0.0);
 }
 
-fn createParticleQuad(build_ctx: *const render.BuildContext) !render.MeshHandle {
-    const vertices = [_]render.VertexPos3Uv{
-        .{ .position = .{ -0.5, -0.5, 0.0 }, .uv = .{ 0.0, 1.0 } },
-        .{ .position = .{ 0.5, -0.5, 0.0 }, .uv = .{ 1.0, 1.0 } },
-        .{ .position = .{ 0.5, 0.5, 0.0 }, .uv = .{ 1.0, 0.0 } },
-        .{ .position = .{ -0.5, 0.5, 0.0 }, .uv = .{ 0.0, 0.0 } },
+fn worldParticleRotation(spin: f32) Quat {
+    return Quat.fromAxisAngle(.{ .x = 1.0, .y = 0.0, .z = 0.0 }, spin * 0.37)
+        .mul(Quat.fromAxisAngle(.{ .x = 0.0, .y = 1.0, .z = 0.0 }, spin * 0.81))
+        .mul(Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, spin));
+}
+
+fn particleGeometryForKind(state: *const LionFireState, kind: ParticleKind) render.ResolvedParticleGeometry {
+    return switch (kind) {
+        .core => state.core_geometry,
+        .smoke => state.smoke_geometry,
     };
-    const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
-    return build_ctx.addMeshPos3Uv(vertices[0..], indices[0..]);
 }
 
 fn random01(state: *LionFireState) f32 {
@@ -270,6 +285,8 @@ const LionFireState = struct {
     rng_state: u64 = 0,
     mouth_position: Vec3 = .{},
     mouth_direction: Vec3 = .{ .x = 0.0, .y = 0.0, .z = -1.0 },
+    core_geometry: render.ResolvedParticleGeometry = undefined,
+    smoke_geometry: render.ResolvedParticleGeometry = undefined,
 };
 
 const std = @import("std");

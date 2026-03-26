@@ -1,6 +1,6 @@
 struct VertexIn {
     @location(0) position: vec3<f32>,
-    @location(1) color: vec4<f32>,
+    @location(1) uv: vec2<f32>,
     @location(2) clip0: vec4<f32>,
     @location(3) clip1: vec4<f32>,
     @location(4) clip2: vec4<f32>,
@@ -19,8 +19,8 @@ fn vs_main(in: VertexIn) -> VertexOut {
     let clip = mat4x4<f32>(in.clip0, in.clip1, in.clip2, in.clip3);
     var out: VertexOut;
     out.position = clip * vec4<f32>(in.position, 1.0);
-    out.local_pos = in.position.xy * 2.0;
-    out.color = in.color * in.instance_color;
+    out.local_pos = in.uv * 2.0 - vec2<f32>(1.0, 1.0);
+    out.color = in.instance_color;
     return out;
 }
 
