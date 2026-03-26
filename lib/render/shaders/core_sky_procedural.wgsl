@@ -339,8 +339,17 @@ fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
     color = mix(color, haze_col, haze * horizon * 0.10);
 
     if (scene.exposure_settings.y > 0.5) {
-        color *= scene.exposure_settings.x * 0.55;
+        let camera_exposure = max(scene.exposure_settings.x * 0.55, 0.02);
+        let environment_exposure = max(scene.exposure_settings.z * 0.28, 0.02);
+        let stabilized_environment = clamp(
+            environment_exposure,
+            camera_exposure * 0.85,
+            camera_exposure * 1.10,
+        );
+        color *= mix(camera_exposure, stabilized_environment, 0.22);
     }
+    let dither = (hash21(input.uv * vec2<f32>(1536.0, 864.0)) - 0.5) / 255.0;
+    color += vec3<f32>(dither) * mix(0.28, 0.10, day_amount);
 
     return vec4<f32>(applyColorGrade(color), 1.0);
 }
