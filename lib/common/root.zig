@@ -11,6 +11,7 @@ test "import tests" {
     _ = transform;
     _ = parent;
     _ = traits;
+    _ = gradient;
     _ = Color;
 }
 
@@ -27,7 +28,10 @@ pub const layout = @import("layout.zig");
 pub const transform = @import("transform.zig");
 pub const parent = @import("parent.zig");
 pub const traits = @import("traits.zig");
+pub const gradient = @import("gradient.zig");
 pub const Color = @import("Color.zig");
+pub const Gradient = gradient;
+pub const ComptimeGradient = gradient.ComptimeGradient;
 
 pub const Vec2 = vec.Vec2;
 pub const Vec3 = vec.Vec3;
