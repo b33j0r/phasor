@@ -47,9 +47,9 @@ const Face = enum {
 };
 
 pub fn install(app: *AppCommands, _: *Commands) !void {
-    try app.addSystem("Update", buildProceduralSkies);
-    try app.addSystem("Update", buildPanoramaSkies);
-    try app.addSystem("Update", updatePanoramaSkies);
+    try app.addSystem("BeforeFrame", buildProceduralSkies);
+    try app.addSystem("BeforeFrame", buildPanoramaSkies);
+    try app.addSystem("BeforeFrame", updatePanoramaSkies);
 }
 
 pub fn uninstall(app: *AppCommands) void {

@@ -49,8 +49,11 @@ const App = struct {
     };
 
     pub fn configure(app: *ecs.App) !void {
-        try platform.installDefaultModules(app);
         try app.installModule(modules.SkyModule);
+        try app.addSystemTo("BeforeFrame", updateDayNightCycle);
+        try app.addSystemTo("BeforeFrame", updateProceduralSkyMeshParams);
+
+        try platform.installDefaultModules(app);
         try app.installModule(modules.LightingModule);
         try app.installModule(physics.PhysicsModule{
             .config = .{
@@ -76,8 +79,6 @@ const App = struct {
         try app.addSystemTo("Startup", setupScene);
         try app.addSystemTo("Update", updateMouseCaptureToggle);
         try app.addSystemTo("Update", updatePlayerCamera);
-        try app.addSystemTo("Update", updateDayNightCycle);
-        try app.addSystemTo("Update", updateProceduralSkyMeshParams);
     }
 };
 
