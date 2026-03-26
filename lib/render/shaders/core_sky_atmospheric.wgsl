@@ -221,7 +221,7 @@ fn renderMoon(dir: vec3<f32>, sun_dir: vec3<f32>, day_amount: f32, transmittance
         return vec4<f32>(0.0);
     }
 
-    let moon = moonUv(dir, sun_dir, 0.044);
+    let moon = moonUv(dir, sun_dir, 0.088);
     if (moon.x < 0.0 || moon.x > 1.0 || moon.y < 0.0 || moon.y > 1.0) {
         return vec4<f32>(0.0);
     }
