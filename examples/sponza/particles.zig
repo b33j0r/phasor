@@ -12,16 +12,15 @@ pub fn setupLionFire(
     const assets = scene_assets.ptr orelse return;
     if (!assets.lion_fire_shader.handle.isValid()) return;
 
-    const core_geometry = try render.buildParticleGeometry(build_ctx, .billboard);
-    const smoke_geometry = try render.buildParticleGeometry(build_ctx, .{ .sphere = .{
-        .latitude_segments = 6,
-        .longitude_segments = 10,
+    const fire_geometry = try render.buildParticleGeometry(build_ctx, .{ .sphere = .{
+        .latitude_segments = 7,
+        .longitude_segments = 12,
     } });
     var state = LionFireState{};
     state.rng_state = 0x89ab_cdef_1234_5678;
     state.mouth_position = lionMouthBasePosition();
-    state.core_geometry = core_geometry;
-    state.smoke_geometry = smoke_geometry;
+    state.core_geometry = fire_geometry;
+    state.smoke_geometry = fire_geometry;
     // Bookmark camera looked toward the lion mouth, so emit opposite that vector (outward from mouth).
     state.mouth_direction = Vec3.init(1.0, 0.0, 0.0);
 
@@ -33,7 +32,7 @@ pub fn setupLionFire(
                 .translation = hidden_position,
             },
             render.MeshInstance{
-                .mesh_handle = core_geometry.mesh_handle,
+                .mesh_handle = fire_geometry.mesh_handle,
                 .shader_handle = assets.lion_fire_shader.handle,
                 .material = render.Material.default,
                 .color = common.Color.rgba(0, 0, 0, 0),
@@ -121,38 +120,20 @@ pub fn updateLionFire(
         }
 
         const life_t = std.math.clamp(p.age / p.lifetime, 0.0, 1.0);
-        const size = p.base_size * lerp(0.62, 1.85, life_t);
-        const alpha = if (p.kind == .core)
-            std.math.clamp((1.0 - life_t) * (1.0 - life_t * 0.65), 0.0, 1.0)
-        else
-            std.math.clamp((1.0 - life_t) * 0.72, 0.0, 1.0);
-
-        const color = switch (p.kind) {
-            .core => mixColor3(
-                .{ .x = 1.0, .y = 0.90, .z = 0.74 },
-                .{ .x = 1.0, .y = 0.36, .z = 0.05 },
-                std.math.clamp(life_t * 1.25, 0.0, 1.0),
-            ),
-            .smoke => mixColor3(
-                .{ .x = 0.46, .y = 0.34, .z = 0.28 },
-                .{ .x = 0.18, .y = 0.17, .z = 0.19 },
-                std.math.clamp(life_t * 0.9 + 0.1, 0.0, 1.0),
-            ),
-        };
+        const size = p.base_size * lerp(0.70, 1.96, life_t);
+        const gradient_color = sampleGradient(p.kind, life_t);
         const noise = std.math.clamp(0.5 + 0.5 * std.math.sin(p.noise_phase + t * 2.8), 0.0, 1.0);
 
         const geometry = particleGeometryForKind(state, p.kind);
         transform.translation = p.position;
+        _ = cam_rot;
         instance.mesh_handle = geometry.mesh_handle;
-        transform.rotation = switch (geometry.facing) {
-            .billboard => cam_rot.mul(Quat.fromAxisAngle(.{ .x = 0.0, .y = 0.0, .z = 1.0 }, p.spin)),
-            .world => worldParticleRotation(p.spin),
-        };
+        transform.rotation = worldParticleRotation(p.spin);
         transform.scale = switch (p.kind) {
-            .core => .{ .x = size * 0.92, .y = size * 1.28, .z = 1.0 },
-            .smoke => .{ .x = size * 1.28, .y = size * 0.94, .z = size * 1.28 },
+            .core => .{ .x = size * 0.62, .y = size * 1.46, .z = size * 0.62 },
+            .smoke => .{ .x = size * 1.36, .y = size * 0.86, .z = size * 1.36 },
         };
-        instance.color = floatColorToU8(color.x, color.y, color.z, alpha, noise);
+        instance.color = floatColorToU8(gradient_color, noise);
     }
 }
 
@@ -221,6 +202,13 @@ fn particleGeometryForKind(state: *const LionFireState, kind: ParticleKind) rend
     };
 }
 
+fn sampleGradient(kind: ParticleKind, life_t: f32) common.Color.F32 {
+    return switch (kind) {
+        .core => FlameGradient.sample(life_t),
+        .smoke => EmberGradient.sample(life_t),
+    };
+}
+
 fn random01(state: *LionFireState) f32 {
     var x = state.rng_state;
     x ^= x >> 12;
@@ -235,21 +223,12 @@ fn lerp(a: f32, b: f32, t: f32) f32 {
     return a + (b - a) * std.math.clamp(t, 0.0, 1.0);
 }
 
-fn mixColor3(a: Vec3, b: Vec3, t: f32) Vec3 {
-    const u = std.math.clamp(t, 0.0, 1.0);
-    return .{
-        .x = lerp(a.x, b.x, u),
-        .y = lerp(a.y, b.y, u),
-        .z = lerp(a.z, b.z, u),
-    };
-}
-
-fn floatColorToU8(r: f32, g: f32, b: f32, a: f32, noise: f32) common.Color {
-    const r8: u8 = @intFromFloat(std.math.clamp(r, 0.0, 1.0) * 255.0);
-    const g8: u8 = @intFromFloat(std.math.clamp(g, 0.0, 1.0) * 255.0);
-    const b_mix = std.math.clamp(b * 0.72 + noise * 0.28, 0.0, 1.0);
+fn floatColorToU8(color: common.Color.F32, noise: f32) common.Color {
+    const r8: u8 = @intFromFloat(std.math.clamp(color.r, 0.0, 1.0) * 255.0);
+    const g8: u8 = @intFromFloat(std.math.clamp(color.g, 0.0, 1.0) * 255.0);
+    const b_mix = std.math.clamp(color.b * 0.76 + noise * 0.24, 0.0, 1.0);
     const b8: u8 = @intFromFloat(b_mix * 255.0);
-    const a8: u8 = @intFromFloat(std.math.clamp(a, 0.0, 1.0) * 255.0);
+    const a8: u8 = @intFromFloat(std.math.clamp(color.a, 0.0, 1.0) * 255.0);
     return common.Color.rgba(r8, g8, b8, a8);
 }
 
@@ -261,6 +240,25 @@ const LionFireBillboard = struct {
 };
 
 const ParticleKind = enum { core, smoke };
+
+const FlameGradient = common.Gradient.initComptime(.{
+    .stops = .{
+        .{ .at = 0.0, .color = common.Color.rgba(255, 249, 238, 245) },
+        .{ .at = 0.12, .color = common.Color.rgba(255, 222, 150, 235) },
+        .{ .at = 0.34, .color = common.Color.rgba(255, 156, 52, 218) },
+        .{ .at = 0.68, .color = common.Color.rgba(255, 66, 18, 132) },
+        .{ .at = 1.0, .color = common.Color.rgba(34, 6, 2, 0) },
+    },
+});
+
+const EmberGradient = common.Gradient.initComptime(.{
+    .stops = .{
+        .{ .at = 0.0, .color = common.Color.rgba(255, 173, 84, 82) },
+        .{ .at = 0.22, .color = common.Color.rgba(196, 72, 26, 72) },
+        .{ .at = 0.64, .color = common.Color.rgba(78, 22, 18, 34) },
+        .{ .at = 1.0, .color = common.Color.rgba(10, 8, 12, 0) },
+    },
+});
 
 const Particle = struct {
     alive: bool = false,

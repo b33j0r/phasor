@@ -29,7 +29,8 @@ struct VertexIn {
 struct VertexOut {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) color: vec4<f32>,
+    @location(1) local_pos: vec3<f32>,
+    @location(2) color: vec4<f32>,
 };
 
 @group(0) @binding(0) var mesh_sampler: sampler;
@@ -62,31 +63,30 @@ fn vs_main(input: VertexIn) -> VertexOut {
     var out: VertexOut;
     out.position = clip_model * vec4<f32>(input.position, 1.0);
     out.uv = input.uv;
+    out.local_pos = input.position;
     out.color = input.color;
     return out;
 }
 
 @fragment
 fn fs_main(input: VertexOut) -> @location(0) vec4<f32> {
+    let local = input.local_pos;
     let uv = input.uv;
-    let p = uv * 2.0 - vec2<f32>(1.0, 1.0);
-    let radial = 1.0 - length(p * vec2<f32>(0.9, 1.15));
-    let radial_mask = saturate(radial);
-
-    let up = saturate(1.0 - uv.y);
-    let flame_profile = pow(up, 0.45);
-    let tip_fade = 1.0 - smoothstep(0.68, 1.0, uv.y);
+    let radius = length(local);
+    let shell = 1.0 - smoothstep(0.18, 0.96, radius);
+    let vertical = saturate(local.y * 1.25 + 0.48);
+    let core = 1.0 - smoothstep(0.0, 0.72, radius);
     let edge_breakup = noise2(vec2<f32>(uv.x * 7.5 + input.color.b * 6.0, uv.y * 8.5 + input.color.r * 5.0));
-    let breakup = saturate(0.62 + edge_breakup * 0.55);
-    let alpha = input.color.a * radial_mask * flame_profile * tip_fade * breakup;
+    let breakup = saturate(0.52 + edge_breakup * 0.64);
+    let alpha = input.color.a * shell * vertical * breakup;
     if (alpha <= 0.001) {
         discard;
     }
 
     var color = input.color.rgb;
-    let ember = smoothstep(0.54, 1.0, uv.y) * saturate(1.0 - radial_mask * 1.25);
-    color = mix(color, vec3<f32>(0.25, 0.10, 0.06), ember * 0.22);
-    color *= (0.85 + 0.40 * radial_mask);
+    let ember = smoothstep(0.18, 0.88, 1.0 - vertical) * (1.0 - core);
+    color = mix(color, vec3<f32>(0.22, 0.05, 0.02), ember * 0.36);
+    color *= (0.78 + 0.95 * core + 0.22 * vertical);
 
     if (scene.exposure_settings.y > 0.5) {
         color *= scene.exposure_settings.x * 0.55;
