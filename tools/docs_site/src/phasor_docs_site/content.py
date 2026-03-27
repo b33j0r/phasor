@@ -176,14 +176,25 @@ def render_embed(
             "</section>"
         )
     if embed.kind == "example_grid":
+        featured_only = embed.attributes.get("featured", "").lower() == "true"
+        limit = int(embed.attributes["limit"]) if "limit" in embed.attributes else None
+        selected_examples = sorted(
+            examples,
+            key=lambda item: (-item.detail_priority, item.title.lower(), item.name),
+        )
+        if featured_only:
+            selected_examples = [example for example in selected_examples if example.detail_priority > 0]
+        if limit is not None:
+            selected_examples = selected_examples[:limit]
         cards = []
-        for example in examples:
+        for example in selected_examples:
             badge_html = "".join(
                 f'<span class="badge">{html.escape(tag)}</span>' for tag in example.feature_tags
             )
             support = "WASM + Native" if example.wasm_supported else "Native only"
             cards.append(
                 '<article class="example-card">'
+                f'<div class="eyebrow">Example</div>'
                 f'<h3><a href="examples/{html.escape(example.name)}.html">{html.escape(example.title)}</a></h3>'
                 f'<p>{html.escape(example.summary)}</p>'
                 f'<div class="support">{html.escape(support)}</div>'
@@ -193,6 +204,32 @@ def render_embed(
                 "</article>"
             )
         return '<section class="example-grid">' + "".join(cards) + "</section>"
+    if embed.kind == "overview_cards":
+        cards = [
+            (
+                "Native and wasm apps",
+                "The build graph supports native targets and browser builds, with examples used to prove the real startup and asset-loading paths.",
+            ),
+            (
+                "2D and 3D rendering",
+                "Examples cover the path from a single triangle to imported scenes, layered cameras, materials, lighting, and post-process tuning.",
+            ),
+            (
+                "Scenes, skies, and simulation",
+                "glTF import, prepared scene workflows, panoramic skies, procedural skies, physics, audio, and first-person movement all show up in the example set.",
+            ),
+        ]
+        return (
+            '<section class="callout-grid">'
+            + "".join(
+                '<article class="callout-card">'
+                f"<h3>{html.escape(title)}</h3>"
+                f"<p>{html.escape(summary)}</p>"
+                "</article>"
+                for title, summary in cards
+            )
+            + "</section>"
+        )
     if embed.kind == "feature_matrix":
         rows = []
         for key, feature in sorted(features.items()):
@@ -216,8 +253,18 @@ def render_embed(
 def render_inline(text: str) -> str:
     escaped = html.escape(text)
     escaped = re.sub(r"`([^`]+)`", lambda m: f"<code>{m.group(1)}</code>", escaped)
-    escaped = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", lambda m: f'<a href="{html.escape(m.group(2))}">{m.group(1)}</a>', escaped)
+    escaped = re.sub(
+        r"\[([^\]]+)\]\(([^)]+)\)",
+        lambda m: f'<a href="{html.escape(normalize_href(m.group(2)))}">{m.group(1)}</a>',
+        escaped,
+    )
     return escaped
+
+
+def normalize_href(target: str) -> str:
+    if target.endswith(".md"):
+        return f"{target[:-3]}.html"
+    return target
 
 
 def normalize_language_name(language: str) -> str:

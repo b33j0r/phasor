@@ -49,7 +49,7 @@ def validate(paths: SitePaths) -> list[ValidationIssue]:
                 target = paths.repo_root / path_attr
                 if not target.is_file():
                     issues.append(ValidationIssue(f"Embed path does not exist in {page.relative_path}: {path_attr}"))
-            elif embed.kind in {"example_grid", "feature_matrix", "command_block"}:
+            elif embed.kind in {"example_grid", "overview_cards", "feature_matrix", "command_block"}:
                 continue
             else:
                 issues.append(ValidationIssue(f"Unknown embed kind in {page.relative_path}: {embed.kind}"))

@@ -5,13 +5,14 @@ import json
 import shutil
 from pathlib import Path
 
-from .models import ExampleRecord, NavigationItem, PageRecord
+from .models import ExampleRecord, FeatureManifestEntry, NavigationItem, PageRecord
 
 
 def render_site(
     output_root: Path,
     pages: list[PageRecord],
     examples: list[ExampleRecord],
+    features: dict[str, FeatureManifestEntry],
     navigation: list[NavigationItem],
 ) -> Path:
     output_root.mkdir(parents=True, exist_ok=True)
@@ -29,7 +30,9 @@ def render_site(
         target_path = output_root / relative_path
         target_path.parent.mkdir(parents=True, exist_ok=True)
         nav_html = render_nav(navigation, relative_path)
-        target_path.write_text(render_document(example.title, nav_html, render_example_page(example), relative_path))
+        target_path.write_text(
+            render_document(example.title, nav_html, render_example_page(example, features), relative_path)
+        )
 
     index_page = next((page for page in pages if page.relative_path.as_posix() == "index.md"), None)
     return output_root / (index_page.relative_path.with_suffix(".html") if index_page else Path("index.html"))
@@ -127,34 +130,78 @@ def write_search_index(output_root: Path, pages: list[PageRecord], examples: lis
     (output_root / "search-index.json").write_text(json.dumps(payload, indent=2) + "\n")
 
 
-def render_example_page(example: ExampleRecord) -> str:
+def render_example_page(example: ExampleRecord, features: dict[str, FeatureManifestEntry]) -> str:
     support = "WASM + Native" if example.wasm_supported else "Native only"
     feature_badges = "".join(f'<span class="badge">{html.escape(tag)}</span>' for tag in example.feature_tags)
     build_lines = [example.run_step]
     if example.web_step:
         build_lines.append(example.web_step)
     command_html = "".join(f"<li><code>{html.escape(line)}</code></li>" for line in build_lines)
-    curated_files = "".join(render_source_panel(example, rel_path) for rel_path in example.source_files)
-    extra_links = "".join(
-        f'<li><code>{html.escape(path)}</code></li>' for path in example.extra_files
+    feature_list = "".join(
+        render_feature_item(tag, features[tag])
+        for tag in example.feature_tags
+        if tag in features
     )
-    extra_section = (
-        "<h2>Additional Files</h2><ul>" + extra_links + "</ul>"
-        if extra_links
+    source_index = "".join(
+        f'<li><code>{html.escape(path)}</code></li>' for path in example.source_files
+    )
+    additional_count = len(example.extra_files)
+    curated_files = "".join(render_source_panel(example, rel_path) for rel_path in example.source_files)
+    additional_section = (
+        "<section>"
+        "<h2>Project Files</h2>"
+        "<p>This example includes more project files than the highlighted walkthrough below. "
+        f"The generated source bundle also includes {additional_count} additional file"
+        f"{'' if additional_count == 1 else 's'} for reference.</p>"
+        "<div class=\"commands\">"
+        f'<a class="nav-link" href="../data/examples/{html.escape(example.name)}.json">Open source bundle JSON</a>'
+        "</div>"
+        "</section>"
+        if additional_count
         else ""
     )
     return (
+        "<section class=\"hero-block hero-block-example\">"
+        f'<div class="eyebrow">Example</div>'
         f"<h1>{html.escape(example.title)}</h1>\n"
-        f"<p>{html.escape(example.summary)}</p>\n"
-        "<section class=\"example-hero\">"
+        f"<p class=\"lede\">{html.escape(example.summary)}</p>\n"
+        "<div class=\"hero-actions\">"
         f"<div><div class=\"support\">{html.escape(support)}</div><div class=\"badges\">{feature_badges}</div></div>"
-        f"<div><a class=\"nav-link\" href=\"../data/examples/{html.escape(example.name)}.json\">Source bundle JSON</a></div>"
+        f'<a class="nav-link" href="../data/examples/{html.escape(example.name)}.json">Source bundle JSON</a>'
+        "</div>"
         "</section>\n"
+        "<section class=\"info-grid\">"
+        "<article class=\"info-card\">"
         "<h2>Build And Run</h2>\n"
+        "<p>Every docs page points back to the real example project. These are the commands used to build it.</p>"
         f"<ul>{command_html}</ul>\n"
-        "<h2>Highlighted Source</h2>\n"
+        "</article>"
+        "<article class=\"info-card\">"
+        "<h2>Highlighted Files</h2>"
+        "<p>The walkthrough starts with the files most likely to answer how the example is put together.</p>"
+        f"<ul>{source_index}</ul>"
+        "</article>"
+        "</section>"
+        "<section>"
+        "<h2>Feature Coverage</h2>"
+        "<p>These tags are shared across the site so examples, feature pages, and future guides can point to the same capability map.</p>"
+        f'<div class="feature-list">{feature_list}</div>'
+        "</section>"
+        "<section>"
+        "<h2>Source Walkthrough</h2>\n"
         f"{curated_files}\n"
-        f"{extra_section}\n"
+        "</section>\n"
+        f"{additional_section}\n"
+    )
+
+
+def render_feature_item(tag: str, feature: FeatureManifestEntry) -> str:
+    return (
+        '<article class="feature-item">'
+        f'<div class="feature-tag"><code>{html.escape(tag)}</code></div>'
+        f"<h3>{html.escape(feature.title)}</h3>"
+        f"<p>{html.escape(feature.summary)}</p>"
+        "</article>"
     )
 
 

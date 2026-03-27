@@ -23,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("generate", help="Generate the docs site scaffold and machine-readable example index")
     serve_parser = subparsers.add_parser("serve", help="Generate and serve the docs site with a FastAPI static server")
     serve_parser.add_argument("--host", default="127.0.0.1")
-    serve_parser.add_argument("--port", type=int, default=8000)
+    serve_parser.add_argument("--port", type=int, default=8011)
     return parser
 
 
@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         data_root = paths.output_root / "data"
         build_example_index(examples, data_root)
         build_example_bundles(examples, data_root)
-        index_path = render_site(paths.output_root, pages, examples, navigation)
+        index_path = render_site(paths.output_root, pages, examples, feature_manifest, navigation)
         print(f"generated site: {index_path}")
         return 0
 

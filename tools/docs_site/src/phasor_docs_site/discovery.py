@@ -75,6 +75,7 @@ def discover_examples(paths: SitePaths, manifests: dict[str, ExampleManifestEntr
                 summary=manifest.summary if manifest else f"{name} example",
                 feature_tags=feature_tags,
                 source_files=highlighted_files,
+                detail_priority=manifest.detail_priority if manifest else 0,
                 screenshots=manifest.screenshots if manifest else [],
                 extra_files=extra_files,
                 all_source_files=discovered_files,

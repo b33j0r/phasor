@@ -1,13 +1,21 @@
 # Examples
 
-The examples are the fastest way to understand what `phasor` can do today. They are not decorative samples. Most of them were created while building or proving a renderer, wasm, physics, or scene-import feature.
+The examples are the fastest way to understand what `phasor` can do today. They were written to prove engine features, so they track the real feature surface more closely than a hand-maintained marketing list.
+
+## How To Read The Example Set
+
+- `triangle` is the shortest path from a project to a rendered frame
+- `gltf` shows scene import and the wasm asset path
+- `warehouse` combines panoramic sky, audio, and first-person movement
+- `shadows` pushes lighting, shadows, and procedural sky work
+- `sponza` is the deepest renderer example, with prepared scenes, PBR, normal maps, and grading controls
 
 ## Example Browser
 
 {{ example_grid }}
 
-## Why This Matters
+## Why The Examples Matter
 
-- examples reflect the real feature surface more accurately than a hand-maintained capability list
 - build commands and source bundles stay tied to the actual example projects
-- advanced examples like `warehouse`, `shadows`, and `sponza` expose how multiple engine systems fit together
+- feature tags let the docs point back to real code instead of detached prose
+- the larger examples show how renderer, ECS, assets, and platform concerns fit together in one project

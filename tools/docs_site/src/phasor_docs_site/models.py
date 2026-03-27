@@ -31,6 +31,7 @@ class ExampleRecord:
     summary: str
     feature_tags: list[str]
     source_files: list[str]
+    detail_priority: int = 0
     screenshots: list[str] = field(default_factory=list)
     extra_files: list[str] = field(default_factory=list)
     all_source_files: list[str] = field(default_factory=list)

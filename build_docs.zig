@@ -30,6 +30,10 @@ pub fn addDocsSiteSteps(b: *std.Build) void {
         "run",
         "phasor-docs-site",
         "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8011",
     });
     docs_serve.setCwd(b.path("."));
     if (b.args) |args| {

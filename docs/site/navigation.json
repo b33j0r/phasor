@@ -11,6 +11,18 @@
     {
       "title": "Renderer",
       "path": "renderer.md"
+    },
+    {
+      "title": "WASM",
+      "path": "wasm.md"
+    },
+    {
+      "title": "Scenes",
+      "path": "scenes_and_assets.md"
+    },
+    {
+      "title": "Skies",
+      "path": "lighting_and_skies.md"
     }
   ]
 }
