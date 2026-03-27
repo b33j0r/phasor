@@ -99,10 +99,12 @@ def render_site_header(nav_html: str) -> str:
     return (
         "    <header class=\"site-header\">\n"
         "      <div class=\"site-header-top\">\n"
-        "        <div>\n"
+        "        <div class=\"site-brand-block\">\n"
         "          <div class=\"brand\">phasor</div>\n"
         "          <div class=\"tagline\">ECS-first Zig game engine docs</div>\n"
         "        </div>\n"
+        "      </div>\n"
+        "      <div class=\"site-header-utility\">\n"
         "        <label class=\"theme-picker\">\n"
         "          <span>Theme</span>\n"
         "          <select data-theme-select>\n"
