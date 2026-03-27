@@ -39,6 +39,17 @@ pre {
   background: var(--code-bg);
 }
 
+pre[class*="language-"] {
+  padding: 18px;
+}
+
+code[class*="language-"],
+pre[class*="language-"] {
+  background: var(--code-bg);
+  color: var(--ink);
+  text-shadow: none;
+}
+
 .page-shell {
   max-width: var(--page-max-width);
   margin: 0 auto;

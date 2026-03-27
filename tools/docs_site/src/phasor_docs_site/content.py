@@ -78,6 +78,7 @@ def render_markdown(
     lines = body.splitlines()
     parts: list[str] = []
     in_code = False
+    code_language = "text"
     code_lines: list[str] = []
     paragraph_lines: list[str] = []
     list_lines: list[str] = []
@@ -103,10 +104,15 @@ def render_markdown(
             flush_paragraph()
             flush_list()
             if in_code:
-                parts.append("<pre><code>" + html.escape("\n".join(code_lines)) + "</code></pre>")
+                parts.append(
+                    f'<pre class="language-{code_language}"><code class="language-{code_language}">'
+                    + html.escape("\n".join(code_lines))
+                    + "</code></pre>"
+                )
                 code_lines = []
                 in_code = False
             else:
+                code_language = normalize_language_name(stripped[3:].strip())
                 in_code = True
             continue
 
@@ -166,7 +172,7 @@ def render_embed(
         return (
             '<section class="code-block">'
             f'<div class="code-label">{html.escape(rel_path)}</div>'
-            f"<pre><code>{html.escape(content)}</code></pre>"
+            f'<pre class="language-{code_language_for_path(rel_path)}"><code class="language-{code_language_for_path(rel_path)}">{html.escape(content)}</code></pre>'
             "</section>"
         )
     if embed.kind == "example_grid":
@@ -212,3 +218,28 @@ def render_inline(text: str) -> str:
     escaped = re.sub(r"`([^`]+)`", lambda m: f"<code>{m.group(1)}</code>", escaped)
     escaped = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", lambda m: f'<a href="{html.escape(m.group(2))}">{m.group(1)}</a>', escaped)
     return escaped
+
+
+def normalize_language_name(language: str) -> str:
+    if not language:
+        return "text"
+    if language == "md":
+        return "markdown"
+    if language == "zon":
+        return "zig"
+    return language
+
+
+def code_language_for_path(rel_path: str) -> str:
+    suffix = Path(rel_path).suffix
+    if suffix == ".zig":
+        return "zig"
+    if suffix == ".wgsl":
+        return "wgsl"
+    if suffix == ".md":
+        return "markdown"
+    if suffix == ".json":
+        return "json"
+    if suffix == ".zon":
+        return "zig"
+    return "text"

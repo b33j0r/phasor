@@ -46,6 +46,11 @@ def render_nav(navigation: list[NavigationItem], current_path: Path) -> str:
 def render_document(title: str, nav_html: str, body_html: str, current_path: Path) -> str:
     site_css = relative_href(current_path, Path("static/css/site.css"))
     theme_css = relative_href(current_path, Path("static/css/sunset-wave.css"))
+    prism_core = relative_href(current_path, Path("static/js/prism/prism.min.js"))
+    prism_zig = relative_href(current_path, Path("static/js/prism/prism-zig.min.js"))
+    prism_wgsl = relative_href(current_path, Path("static/js/prism/prism-wgsl.min.js"))
+    prism_markdown = relative_href(current_path, Path("static/js/prism/prism-markdown.min.js"))
+    prism_json = relative_href(current_path, Path("static/js/prism/prism-json.min.js"))
     return (
         "<!doctype html>\n"
         "<html lang=\"en\">\n"
@@ -70,6 +75,11 @@ def render_document(title: str, nav_html: str, body_html: str, current_path: Pat
         f"      {body_html}\n"
         "    </main>\n"
         "  </div>\n"
+        f"  <script src=\"{html.escape(prism_core)}\"></script>\n"
+        f"  <script src=\"{html.escape(prism_zig)}\"></script>\n"
+        f"  <script src=\"{html.escape(prism_wgsl)}\"></script>\n"
+        f"  <script src=\"{html.escape(prism_markdown)}\"></script>\n"
+        f"  <script src=\"{html.escape(prism_json)}\"></script>\n"
         "</body>\n"
         "</html>\n"
     )
@@ -150,9 +160,25 @@ def render_example_page(example: ExampleRecord) -> str:
 
 def render_source_panel(example: ExampleRecord, rel_path: str) -> str:
     content = (example.directory / rel_path).read_text()
+    language = code_language_for_path(rel_path)
     return (
         "<section class=\"source-panel\">"
         f"<div class=\"code-label\">{html.escape(rel_path)}</div>"
-        f"<pre><code>{html.escape(content)}</code></pre>"
+        f'<pre class="language-{language}"><code class="language-{language}">{html.escape(content)}</code></pre>'
         "</section>"
     )
+
+
+def code_language_for_path(rel_path: str) -> str:
+    suffix = Path(rel_path).suffix
+    if suffix == ".zig":
+        return "zig"
+    if suffix == ".wgsl":
+        return "wgsl"
+    if suffix == ".md":
+        return "markdown"
+    if suffix == ".json":
+        return "json"
+    if suffix == ".zon":
+        return "zig"
+    return "text"
