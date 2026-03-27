@@ -32,11 +32,11 @@ The more important pattern is not the resource itself. It is that each phase can
 
 The `Loading` phase in `sponza` owns loader, lighting, and loading-screen work:
 
-{{ include_lines path="examples/sponza/phases.zig" start="8" end="30" }}
+{{ include_lines path="examples/sponza/phases.zig" start="9" end="58" }}
 
 Then the parent `InGame` phase installs the systems that should survive child transitions like `Playing <-> Paused`:
 
-{{ include_lines path="examples/sponza/phases.zig" start="83" end="111" }}
+{{ include_lines path="examples/sponza/phases.zig" start="83" end="108" }}
 
 That split is the part worth preserving:
 

@@ -31,14 +31,12 @@ const Boot = struct {
     }
 
     fn setupResources(commands: *ecs.Commands) !void {
-        if (!commands.hasResource(SpawnCounter)) {
-            try commands.insertResource(SpawnCounter{ .value = 0 });
-            _ = try commands.createEntity(.{
-                SpawnerTag{},
-                StopwatchTimer{},
-                CountdownTimer{ .remaining = 3.0 },
-            });
-        }
+        try commands.insertResource(SpawnCounter{ .value = 0 });
+        _ = try commands.createEntity(.{
+            SpawnerTag{},
+            StopwatchTimer{},
+            CountdownTimer{ .remaining = 3.0 },
+        });
     }
 };
 

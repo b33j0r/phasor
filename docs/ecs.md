@@ -31,7 +31,7 @@ Resources are world-level state. Use them for data that should exist once for th
 
 The ECS example sets up a resource and a helper entity during boot. `SpawnCounter` is a resource because the count belongs to the whole simulation, not to any single particle:
 
-{{ include_lines path="examples/ecs/main.zig" start="33" end="41" }}
+{{ include_lines path="examples/ecs/main.zig" start="33" end="40" }}
 
 The renderer examples do the same thing with engine resources. `ClearColor` is inserted once and then consumed by the render path every frame:
 
@@ -45,7 +45,7 @@ Systems are ordinary Zig functions registered into schedules. They become intere
 
 The ECS example registers its running behavior as four update systems:
 
-{{ include_lines path="examples/ecs/main.zig" start="45" end="51" }}
+{{ include_lines path="examples/ecs/main.zig" start="44" end="49" }}
 
 That keeps the behavior legible:
 
@@ -66,7 +66,7 @@ The bouncing-ball example integrates motion with a simple query over `Transform`
 
 The same idea scales up to more selective queries. The ECS example updates only entities that have `Position`, `Velocity`, and `ParticleTag`:
 
-{{ include_lines path="examples/ecs/main.zig" start="70" end="79" }}
+{{ include_lines path="examples/ecs/main.zig" start="68" end="77" }}
 
 That is the main ECS rhythm in `phasor`: declare the slice of the world you need, iterate it, and mutate only the components the query hands you.
 
@@ -76,7 +76,7 @@ Events are for transient messages that should be queued and drained, not stored 
 
 The ECS example defines an `ExitRequested` event, sends it from one system, then consumes it in another:
 
-{{ include_lines path="examples/ecs/main.zig" start="81" end="95" }}
+{{ include_lines path="examples/ecs/main.zig" start="79" end="94" }}
 
 That split matters. One system decides that the countdown has finished. Another system owns the state transition that follows. The event keeps that handoff explicit without introducing hidden coupling between the two systems.
 
