@@ -75,11 +75,8 @@ fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext)) !
     const build = build_ctx.ptr;
     const ground_mesh = try createGroundPlane(build);
     const flame_geometry = try render.buildParticleGeometry(build, .billboard);
-    const spark_geometry = try render.buildParticleGeometry(build, .cube);
-    const smoke_geometry = try render.buildParticleGeometry(build, .{ .sphere = .{
-        .latitude_segments = 7,
-        .longitude_segments = 10,
-    } });
+    const spark_geometry = try render.buildParticleGeometry(build, .billboard);
+    const smoke_geometry = try render.buildParticleGeometry(build, .billboard);
     const particle_shader = try build.createShader(.{
         .wgsl = @embedFile("shaders/particle_fountain.wgsl"),
         .vertex_layout = .pos3_uv2,
@@ -273,35 +270,35 @@ fn updateParticles(
         switch (particle.kind) {
             .flame => {
                 const flare = 0.5 + 0.5 * std.math.sin(particle.noise_phase + t * 16.0);
-                alpha = std.math.clamp((1.0 - life_t) * (1.0 - life_t * 0.18) * 0.95, 0.0, 0.95);
+                alpha = std.math.clamp((1.0 - life_t) * (1.0 - life_t * 0.18) * 0.82, 0.0, 0.82);
                 size *= lerp(0.85, 1.65, life_t);
                 stretch *= lerp(1.15, 1.70, life_t);
                 tint = mixColor(
-                    .{ .x = 1.0, .y = 0.97, .z = 0.88 },
-                    .{ .x = 1.0, .y = 0.44, .z = 0.08 },
+                    .{ .x = 1.0, .y = 0.82, .z = 0.46 },
+                    .{ .x = 1.0, .y = 0.36, .z = 0.08 },
                     std.math.clamp(life_t * 0.86 + flare * 0.08, 0.0, 1.0),
                 );
             },
             .spark => {
                 const flicker = 0.5 + 0.5 * std.math.sin(particle.noise_phase * 1.3 + t * 22.0);
-                alpha = std.math.clamp((1.0 - life_t) * 0.78, 0.0, 0.78);
-                size *= lerp(0.55, 0.92, life_t);
-                stretch *= lerp(1.55, 2.30, life_t);
+                alpha = std.math.clamp((1.0 - life_t) * 0.52, 0.0, 0.52);
+                size *= lerp(0.06, 0.12, life_t);
+                stretch *= lerp(4.0, 8.0, life_t);
                 tint = mixColor(
-                    .{ .x = 0.48, .y = 0.88, .z = 1.0 },
-                    .{ .x = 1.0, .y = 0.72, .z = 0.24 },
+                    .{ .x = 0.56, .y = 0.88, .z = 1.0 },
+                    .{ .x = 1.0, .y = 0.74, .z = 0.28 },
                     flicker * 0.42 + life_t * 0.24,
                 );
             },
             .smoke => {
                 const fade_in = std.math.clamp(life_t / 0.16, 0.0, 1.0);
                 const fade_out = std.math.clamp((1.0 - life_t) / 0.8, 0.0, 1.0);
-                alpha = 0.32 * fade_in * fade_out;
-                size *= lerp(1.25, 2.85, life_t);
-                stretch *= lerp(1.0, 1.45, life_t);
+                alpha = 0.18 * fade_in * fade_out;
+                size *= lerp(1.4, 3.3, life_t);
+                stretch *= lerp(1.0, 1.2, life_t);
                 tint = mixColor(
-                    .{ .x = 0.28, .y = 0.26, .z = 0.25 },
-                    .{ .x = 0.08, .y = 0.08, .z = 0.09 },
+                    .{ .x = 0.34, .y = 0.32, .z = 0.31 },
+                    .{ .x = 0.10, .y = 0.10, .z = 0.11 },
                     std.math.clamp(life_t * 0.9, 0.0, 1.0),
                 );
             },
@@ -316,8 +313,8 @@ fn updateParticles(
         };
         transform.scale = switch (particle.kind) {
             .flame => .{ .x = size, .y = size * stretch, .z = 1.0 },
-            .spark => .{ .x = size * 0.58, .y = size * stretch, .z = size * 0.58 },
-            .smoke => .{ .x = size * 1.12, .y = size * stretch * 0.82, .z = size * 1.12 },
+            .spark => .{ .x = size, .y = size * stretch, .z = 1.0 },
+            .smoke => .{ .x = size * 1.08, .y = size * stretch, .z = 1.0 },
         };
         instance.color = floatColorToU8(tint.x, tint.y, tint.z, alpha);
     }

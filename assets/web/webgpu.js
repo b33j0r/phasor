@@ -831,8 +831,47 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
   return pipeline;
 }
 
-function createColorPipelinesFromWgsl(ctx, wgslSource) {
-  const label = inferShaderLabel("color", wgslSource);
+function colorVertexBuffersForLayout(vertexLayout) {
+  const instanceBuffer = {
+    arrayStride: instanceStrideBytes,
+    stepMode: "instance",
+    attributes: [
+      { shaderLocation: 2, offset: 0, format: "float32x4" },
+      { shaderLocation: 3, offset: 16, format: "float32x4" },
+      { shaderLocation: 4, offset: 32, format: "float32x4" },
+      { shaderLocation: 5, offset: 48, format: "float32x4" },
+      { shaderLocation: 6, offset: 128, format: "float32x4" },
+    ],
+  };
+  switch (vertexLayout) {
+    case 2:
+      return [
+        {
+          arrayStride: 20,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x2" },
+          ],
+        },
+        instanceBuffer,
+      ];
+    case 5:
+    default:
+      return [
+        {
+          arrayStride: 28,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x3" },
+            { shaderLocation: 1, offset: 12, format: "float32x4" },
+          ],
+        },
+        instanceBuffer,
+      ];
+  }
+}
+
+function createColorPipelinesFromWgsl(ctx, wgslSource, vertexLayout = 5) {
+  const label = inferShaderLabel(`color-v${vertexLayout}`, wgslSource);
   const module = createShaderModuleLabeled(ctx, label, wgslSource);
   const depthState = {
     format: "depth24plus",
@@ -844,26 +883,7 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
     depthWriteEnabled: false,
     depthCompare: "less-equal",
   };
-  const vertexBuffers = [
-    {
-      arrayStride: 28,
-      attributes: [
-        { shaderLocation: 0, offset: 0, format: "float32x3" },
-        { shaderLocation: 1, offset: 12, format: "float32x4" },
-      ],
-    },
-    {
-      arrayStride: instanceStrideBytes,
-      stepMode: "instance",
-      attributes: [
-        { shaderLocation: 2, offset: 0, format: "float32x4" },
-        { shaderLocation: 3, offset: 16, format: "float32x4" },
-        { shaderLocation: 4, offset: 32, format: "float32x4" },
-        { shaderLocation: 5, offset: 48, format: "float32x4" },
-        { shaderLocation: 6, offset: 128, format: "float32x4" },
-      ],
-    },
-  ];
+  const vertexBuffers = colorVertexBuffersForLayout(vertexLayout);
 
   const opaque = createRenderPipelineLabeled(ctx, `${label}:opaque`, {
     layout: "auto",
@@ -903,7 +923,7 @@ function createColorPipelinesFromWgsl(ctx, wgslSource) {
     primitive: { topology: "triangle-list" },
   });
   webgpuCreates.pipelines += 2;
-  return { opaque, blend };
+  return { opaque, blend, vertexLayout };
 }
 
 function createMaterialPipelinesFromWgsl(ctx, wgslSource, vertexLayout, bindingMode = 1) {
@@ -2965,7 +2985,7 @@ const imports = {
       const ctx = ctxs.get(ctxId);
       if (!ctx) return 0;
       const wgsl = readString(wgslPtr, wgslLen);
-      const shader = createColorPipelinesFromWgsl(ctx, wgsl);
+      const shader = createColorPipelinesFromWgsl(ctx, wgsl, 5);
       let handle = 0;
       if (ctx.shaderFree.length > 0) {
         handle = ctx.shaderFree.pop();
@@ -2981,7 +3001,7 @@ const imports = {
       if (!ctx) return 0;
       const wgsl = readString(wgslPtr, wgslLen);
       const shader = bindingMode === 0
-        ? createColorPipelinesFromWgsl(ctx, wgsl)
+        ? createColorPipelinesFromWgsl(ctx, wgsl, vertexLayout)
         : bindingMode === 1 || bindingMode === 2 || bindingMode === 3
           ? createMaterialPipelinesFromWgsl(ctx, wgsl, vertexLayout, bindingMode)
           : null;
