@@ -780,7 +780,7 @@ ul {
 
   .theme-picker select {
     min-width: 0;
-    max-width: 240px;
+    max-width: 260px;
     width: 100%;
   }
 }
@@ -802,17 +802,22 @@ ul {
   }
 
   .theme-picker {
-    display: grid;
+    display: inline-flex;
+    width: 100%;
     gap: 6px;
-    justify-content: stretch;
+    align-items: center;
+    justify-content: space-between;
   }
 
   .theme-picker-control {
-    justify-content: stretch;
+    flex: 1 1 auto;
+    justify-content: flex-end;
   }
 
   .theme-picker select {
-    max-width: none;
+    min-width: 0;
+    max-width: 220px;
+    width: 100%;
   }
 
   .nav-link {
