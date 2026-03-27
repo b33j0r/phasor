@@ -1,19 +1,19 @@
 # Renderer
 
-The renderer is built around a few core pieces. Cameras decide what gets seen. Layers decide which drawables belong together. `MeshInstance` carries most 3D scene content. `Sprite` and `Text` cover the 2D side. Materials and shaders decide how those things are drawn.
+The renderer revolves around a small set of pieces you touch early: cameras decide what gets seen, layers decide which drawables belong together, `MeshInstance` carries most 3D content, and `Sprite` and `Text` cover the 2D side.
 
-If you are trying to get something on screen, the first questions are usually:
+If you are trying to get something on screen, start with one startup system, one renderable, and one camera. The `triangle` example is the shortest version of that path.
 
-- which camera is rendering this layer
-- am I spawning a `MeshInstance`, `Sprite`, or `Text`
-- which material or shader is attached
-- do I need scene lighting, post-process, or debug views yet
+{{ include_lines path="examples/triangle/main.zig" start="1" end="27" }}
 
-The rest of this page should help the reader recognize those building blocks quickly before drilling into the larger API surface.
+From there, the next renderer decisions are usually:
 
-## Public Render API Surface
+- do I need a `Triangle`, `Sprite`, `Text`, or `MeshInstance`
+- which `CameraLayer` should this draw on
+- do I need a material or a custom shader yet
+- is this still a single-camera scene, or do I need overlays and debug layers
 
-{{ include_file path="lib/render/root.zig" }}
+The full render module surface is available at [lib/render/root.zig](/code/lib/render/root.zig) when you want to browse the exports directly.
 
 ## Feature Tags Used Across The Site
 

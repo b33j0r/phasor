@@ -9,6 +9,7 @@ from .models import ExampleRecord, FeatureManifestEntry, NavigationItem, PageRec
 
 
 def render_site(
+    repo_root: Path,
     output_root: Path,
     pages: list[PageRecord],
     examples: list[ExampleRecord],
@@ -17,6 +18,7 @@ def render_site(
 ) -> Path:
     output_root.mkdir(parents=True, exist_ok=True)
     copy_static_assets(output_root, Path(__file__).resolve().parents[4] / "docs" / "site" / "static")
+    copy_code_tree(repo_root, output_root)
     write_search_index(output_root, pages, examples)
 
     for page in pages:
@@ -109,6 +111,25 @@ def copy_static_assets(output_root: Path, static_root: Path) -> None:
     shutil.copytree(static_root, target_root)
 
 
+def copy_code_tree(repo_root: Path, output_root: Path) -> None:
+    code_root = output_root / "code"
+    if code_root.exists():
+        shutil.rmtree(code_root)
+    code_root.mkdir(parents=True, exist_ok=True)
+
+    for source_path in repo_root.rglob("*"):
+        if not source_path.is_file():
+            continue
+        rel_path = source_path.relative_to(repo_root)
+        if should_skip_code_path(rel_path):
+            continue
+        if source_path.suffix not in CODE_FILE_SUFFIXES:
+            continue
+        target_path = code_root / rel_path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, target_path)
+
+
 def write_search_index(output_root: Path, pages: list[PageRecord], examples: list[ExampleRecord]) -> None:
     payload = {
         "pages": [
@@ -130,6 +151,43 @@ def write_search_index(output_root: Path, pages: list[PageRecord], examples: lis
         ],
     }
     (output_root / "search-index.json").write_text(json.dumps(payload, indent=2) + "\n")
+
+
+CODE_FILE_SUFFIXES = {
+    ".c",
+    ".cpp",
+    ".css",
+    ".h",
+    ".hpp",
+    ".html",
+    ".js",
+    ".json",
+    ".md",
+    ".py",
+    ".sh",
+    ".svg",
+    ".toml",
+    ".txt",
+    ".wgsl",
+    ".yaml",
+    ".yml",
+    ".zig",
+    ".zon",
+}
+
+SKIPPED_CODE_PARTS = {
+    ".git",
+    ".venv",
+    "__pycache__",
+    ".zig-cache",
+    "zig-out",
+    "zig-pkg",
+    "_build",
+}
+
+
+def should_skip_code_path(rel_path: Path) -> bool:
+    return any(part in SKIPPED_CODE_PARTS for part in rel_path.parts)
 
 
 def render_example_page(example: ExampleRecord, features: dict[str, FeatureManifestEntry]) -> str:

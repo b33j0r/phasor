@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         data_root = paths.output_root / "data"
         build_example_index(examples, data_root)
         build_example_bundles(examples, data_root)
-        index_path = render_site(paths.output_root, pages, examples, feature_manifest, navigation)
+        index_path = render_site(paths.repo_root, paths.output_root, pages, examples, feature_manifest, navigation)
         print(f"generated site: {index_path}")
         return 0
 
