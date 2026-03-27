@@ -1662,7 +1662,7 @@ pub const Frame = struct {
     }
 
     pub fn drawColoredMeshes(self: *Frame, mesh: Mesh, shader: Shader, instances: []const MeshInstance, blend: bool) void {
-        if (mesh.vertex_layout != .pos3_color4) return;
+        if (!shaderMatchesMesh(shader, mesh.vertex_layout)) return;
         if (instances.len == 0) return;
         const render_pass = self.render_pass orelse return;
         const total_bytes: usize = instances.len * @sizeOf(InstanceData);

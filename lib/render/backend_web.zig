@@ -741,7 +741,7 @@ pub const Frame = struct {
     }
 
     pub fn drawColoredMeshes(self: *Frame, mesh: Mesh, shader: Shader, instances: []const MeshInstance, blend: bool) void {
-        if (mesh.vertex_layout != .pos3_color4) return;
+        if (!shaderMatchesMesh(shader, mesh.vertex_layout)) return;
         if (instances.len == 0) return;
         const blend_flag: u32 = if (blend) 1 else 0;
         webgpu_draw_colored_meshes(
@@ -752,6 +752,16 @@ pub const Frame = struct {
             @intCast(instances.len),
             blend_flag,
         );
+    }
+
+    fn shaderMatchesMesh(shader: Shader, layout: MeshVertexLayout) bool {
+        return switch (shader.vertex_layout) {
+            .uv2 => layout == .uv2,
+            .pos3_color4 => layout == .pos3_color4,
+            .pos3_uv2 => layout == .pos3_uv2,
+            .pos3_norm_uv2 => layout == .pos3_norm_uv2,
+            .pos3_norm_tangent_uv2 => layout == .pos3_norm_tangent_uv2,
+        };
     }
 
     pub fn drawTexturedMeshesWithShader(self: *Frame, mesh: Mesh, material: Material, shader: Shader, instances: []const MeshInstance, blend: bool) void {
