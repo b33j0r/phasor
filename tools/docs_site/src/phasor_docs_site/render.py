@@ -359,10 +359,7 @@ def render_example_page(
         "</article>"
         f"{overview_cards}"
         "<article class=\"info-card example-source-card content-section\">"
-        "<div class=\"section-heading-row\">"
         "<h2>Source</h2>"
-        f'<a class="nav-link" href="{html.escape(relative_href(current_path, Path("code") / "examples" / example.name / "index.html"))}">Open example code tree</a>'
-        "</div>"
         f"{source_browser}\n"
         "</article>"
         "</div>"
