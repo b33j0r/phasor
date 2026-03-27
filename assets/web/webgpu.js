@@ -2351,7 +2351,6 @@ const imports = {
       const mesh = ctx.meshes[meshHandle];
       const shader = ctx.shaders[shaderHandle];
       if (!mesh || !shader) return;
-      if (mesh.vertexLayout !== 3) return;
       if (!instanceCount) return;
       const stride = instanceStrideBytes;
       const alignment = 256;
