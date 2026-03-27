@@ -40,6 +40,20 @@ pub fn ResOpt(comptime T: type) type {
     };
 }
 
+pub fn ResMutOpt(comptime T: type) type {
+    return struct {
+        ptr: ?*T,
+
+        pub fn init_system_param(self: *@This(), comptime _: anytype, commands: *Commands) !void {
+            self.ptr = commands.getResourceMut(T);
+        }
+
+        pub fn deref(self: @This()) ?*T {
+            return self.ptr;
+        }
+    };
+}
+
 pub fn HasResource(comptime T: type) type {
     return struct {
         value: bool = false,

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import uvicorn
 
+from .audit import run_system_audit, write_system_audit
 from .config import detect_paths
 from .content import load_pages, render_pages
 from .discovery import discover_examples, load_example_manifest, load_feature_manifest, load_navigation
@@ -21,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("validate", help="Validate manifests, embeds, and discovered examples")
     subparsers.add_parser("generate", help="Generate the docs site scaffold and machine-readable example index")
+    subparsers.add_parser("audit-systems", help="Audit registered systems, their params, and hidden data access patterns")
     serve_parser = subparsers.add_parser("serve", help="Generate and serve the docs site with a FastAPI static server")
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8011)
@@ -57,6 +59,19 @@ def main(argv: list[str] | None = None) -> int:
         build_example_bundles(examples, data_root)
         index_path = render_site(paths.repo_root, paths.output_root, pages, examples, feature_manifest, navigation)
         print(f"generated site: {index_path}")
+        return 0
+
+    if args.command == "audit-systems":
+        report = run_system_audit(paths)
+        json_path, md_path = write_system_audit(paths, report)
+        print(f"system audit written: {md_path}")
+        print(f"json report written: {json_path}")
+        print(
+            "summary: "
+            f"{len(report.registrations)} systems, "
+            f"{len(report.findings)} system findings, "
+            f"{len(report.lifecycle_findings)} lifecycle findings"
+        )
         return 0
 
     if args.command == "serve":

@@ -25,19 +25,16 @@ pub const Loading = struct {
         try ctx.addSystem(schedule.DefaultSchedule.BeforeFrame, particles.setupLionFire);
         try ctx.addSystem(schedule.DefaultSchedule.Update, loading.updateLoadingScreen);
 
-        try ctx.world.insertResource(ClearColor{ .color = Color.BLACK });
+        try commands.insertResource(ClearColor{ .color = Color.BLACK });
 
-        const db = ctx.world.dbMut();
-        const camera_entity = db.reserveEntityId();
-        _ = try db.createEntityWithId(camera_entity, .{
+        const camera_entity = try commands.createEntity(.{
             Transform{},
             Camera3d{ .Viewport = .{ .mode = .TopLeft } },
             CameraLayer(1001){},
             LoadingScreen{},
         });
 
-        const text_entity = db.reserveEntityId();
-        _ = try db.createEntityWithId(text_entity, .{
+        const text_entity = try commands.createEntity(.{
             Transform{},
             render.Text{
                 .content = "Sponza\nBooting...",
@@ -51,22 +48,30 @@ pub const Loading = struct {
             LoadingScreenText{},
         });
 
-        try ctx.world.insertResource(LoadingScreenState{
+        try commands.insertResource(LoadingScreenState{
             .camera_entity = camera_entity,
             .text_entity = text_entity,
         });
+        if (!commands.isEmpty()) {
+            try commands.apply();
+        }
     }
 
     pub fn exit(_: *Loading, ctx: *modules.PhasesModule.PhaseContext) !void {
+        var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
+        defer commands.deinit();
         if (ctx.world.getResource(LoadingScreenState)) |state| {
-            ctx.world.dbMut().removeEntity(state.text_entity) catch {};
-            ctx.world.dbMut().removeEntity(state.camera_entity) catch {};
-            _ = ctx.world.removeResource(LoadingScreenState);
+            try commands.removeEntity(state.text_entity);
+            try commands.removeEntity(state.camera_entity);
+            _ = commands.removeResource(LoadingScreenState);
         }
         if (ctx.world.getResource(LoadingScreenVisualState)) |state| {
-            ctx.world.dbMut().removeEntity(state.fill_entity) catch {};
-            ctx.world.dbMut().removeEntity(state.track_entity) catch {};
-            _ = ctx.world.removeResource(LoadingScreenVisualState);
+            try commands.removeEntity(state.fill_entity);
+            try commands.removeEntity(state.track_entity);
+            _ = commands.removeResource(LoadingScreenVisualState);
+        }
+        if (!commands.isEmpty()) {
+            try commands.apply();
         }
     }
 };
@@ -76,15 +81,18 @@ pub const InGame = union(enum) {
     Paused: Paused,
 
     pub fn enter(_: *InGame, ctx: *modules.PhasesModule.PhaseContext) !void {
-        const db = ctx.world.dbMut();
-        const camera_entity = db.reserveEntityId();
-        _ = try db.createEntityWithId(camera_entity, .{
+        var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
+        defer commands.deinit();
+        const camera_entity = try commands.createEntity(.{
             Transform{},
             Camera3d{ .Viewport = .{ .mode = .TopLeft } },
             CameraLayer(1000){},
             HudCameraTag{},
         });
-        try ctx.world.insertResource(HudCameraState{ .camera_entity = camera_entity });
+        try commands.insertResource(HudCameraState{ .camera_entity = camera_entity });
+        if (!commands.isEmpty()) {
+            try commands.apply();
+        }
 
         try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.handlePhaseInput);
         try ctx.addSystem(schedule.DefaultSchedule.Update, gameplay.cycleColorGradeInput);
@@ -100,9 +108,14 @@ pub const InGame = union(enum) {
     }
 
     pub fn exit(_: *InGame, ctx: *modules.PhasesModule.PhaseContext) !void {
+        var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
+        defer commands.deinit();
         if (ctx.world.getResource(HudCameraState)) |state| {
-            ctx.world.dbMut().removeEntity(state.camera_entity) catch {};
-            _ = ctx.world.removeResource(HudCameraState);
+            try commands.removeEntity(state.camera_entity);
+            _ = commands.removeResource(HudCameraState);
+        }
+        if (!commands.isEmpty()) {
+            try commands.apply();
         }
     }
 };

@@ -83,6 +83,7 @@ pub fn advanceSceneFinalize(
     collision_store: ResMut(physics.CollisionMeshStore),
     scene_assets: ResMut(Assets),
     loader: ResMut(SceneLoaderState),
+    finalize_opt: ResMutOpt(SceneFinalizeState),
 ) !void {
     if (commands.hasResource(SceneReady)) return;
     if (loader.ptr.failed != null) return;
@@ -99,7 +100,7 @@ pub fn advanceSceneFinalize(
     if (!shaders.sky_procedural_layered.isValid()) return error.CoreSkyProceduralLayeredShaderMissing;
     if (!shaders.sky_procedural_atmospheric.isValid()) return error.CoreSkyProceduralAtmosphericShaderMissing;
 
-    if (!commands.hasResource(SceneFinalizeState)) {
+    if (finalize_opt.ptr == null) {
         if (loader.ptr.payload) |payload| {
             const bounds = payload.bake.bounds;
             const center = bounds.center();
@@ -119,7 +120,7 @@ pub fn advanceSceneFinalize(
         return;
     }
 
-    const finalize = commands.getResourceMut(SceneFinalizeState) orelse return;
+    const finalize = finalize_opt.ptr orelse return;
     switch (finalize.stage) {
         .inspect_bake => {
             loader.ptr.progress = .{ .label = "5/7 validating collision bake", .fraction = 0.58 };
@@ -757,6 +758,7 @@ const render = phasor.renderer;
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
+const ResMutOpt = ecs.system_params.ResMutOpt;
 const ResOpt = ecs.system_params.ResOpt;
 
 const Assets = shared.Assets;

@@ -10,14 +10,15 @@ pub fn setupLighting(
     scene_ready: HasResource(SceneReady),
     lighting_ready: HasResource(LightingReady),
     scene_assets: ResOpt(Assets),
+    spawn_plan: ResOpt(SceneSpawnPlan),
 ) !void {
     if (lighting_ready.value) return;
     if (!scene_ready.value) return;
     const assets = scene_assets.ptr orelse return;
     if (!assets.sky_panorama.texture_handle.isValid()) return;
 
-    const scene_size = if (commands.getResource(SceneSpawnPlan)) |spawn_plan|
-        spawn_plan.scene_size
+    const scene_size = if (spawn_plan.ptr) |plan|
+        plan.scene_size
     else
         Vec3{ .x = 40.0, .y = 20.0, .z = 40.0 };
 

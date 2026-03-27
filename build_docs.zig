@@ -25,6 +25,16 @@ pub fn addDocsSiteSteps(b: *std.Build) void {
     const docs_site_step = b.step("docs-site", "Generate the docs site");
     docs_site_step.dependOn(&docs_generate.step);
 
+    const audit_systems = b.addSystemCommand(&.{
+        "uv",
+        "run",
+        "phasor-docs-site",
+        "audit-systems",
+    });
+    audit_systems.setCwd(b.path("."));
+    const audit_systems_step = b.step("audit-systems", "Audit system param signatures and hidden ECS data access");
+    audit_systems_step.dependOn(&audit_systems.step);
+
     const docs_serve = b.addSystemCommand(&.{
         "uv",
         "run",
