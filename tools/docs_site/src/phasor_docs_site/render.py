@@ -34,7 +34,7 @@ def render_site(
         target_path.parent.mkdir(parents=True, exist_ok=True)
         nav_html = render_nav(navigation, relative_path)
         target_path.write_text(
-            render_document(example.title, nav_html, render_example_page(example, features), relative_path)
+            render_document(example.title, nav_html, render_example_page(example, features, relative_path), relative_path)
         )
 
     index_page = next((page for page in pages if page.relative_path.as_posix() == "index.md"), None)
@@ -209,7 +209,11 @@ def should_skip_code_path(rel_path: Path) -> bool:
     return any(part in SKIPPED_CODE_PARTS for part in rel_path.parts)
 
 
-def render_example_page(example: ExampleRecord, features: dict[str, FeatureManifestEntry]) -> str:
+def render_example_page(
+    example: ExampleRecord,
+    features: dict[str, FeatureManifestEntry],
+    current_path: Path,
+) -> str:
     support = "WASM + Native" if example.wasm_supported else "Native only"
     feature_badges = "".join(f'<span class="badge">{html.escape(tag)}</span>' for tag in example.feature_tags)
     feature_list = "".join(
@@ -220,7 +224,7 @@ def render_example_page(example: ExampleRecord, features: dict[str, FeatureManif
     source_index = "".join(
         f'<li><code>{html.escape(path)}</code></li>' for path in example.source_files
     )
-    source_browser = render_source_browser(example)
+    source_browser = render_source_browser(example, current_path)
     return (
         "<section class=\"hero-block hero-block-example\">"
         f'<div class="eyebrow">Example</div>'
@@ -231,11 +235,23 @@ def render_example_page(example: ExampleRecord, features: dict[str, FeatureManif
         f'<a class="nav-link" href="../data/examples/{html.escape(example.name)}.json">Source bundle JSON</a>'
         "</div>"
         "</section>\n"
-        "<section class=\"info-grid\">"
-        "<article class=\"info-card\">"
+        "<section class=\"example-layout\">"
+        "<div class=\"example-main-column\">"
+        "<article class=\"info-card example-stage-card\">"
         "<h2>Live Demo</h2>\n"
-        f"{render_live_demo(example)}\n"
+        f"{render_live_demo(example, current_path)}\n"
         "</article>"
+        "<article class=\"info-card example-source-card\">"
+        "<div class=\"section-heading-row\">"
+        "<h2>Source Walkthrough</h2>"
+        f'<a class="nav-link" href="{html.escape(relative_href(current_path, Path("code") / "examples" / example.name / "main.zig"))}">Open example code tree</a>'
+        "</div>"
+        "<p>The browser below includes the full example project tree. Raw file links point into the generated "
+        "<code>/code</code> copy of the repo.</p>"
+        f"{source_browser}\n"
+        "</article>"
+        "</div>"
+        "<aside class=\"example-side-column\">"
         "<article class=\"info-card\">"
         "<h2>Build And Run</h2>\n"
         "<p>Each command block says where it should be run so the root build graph and the standalone example project layout are both clear.</p>"
@@ -252,11 +268,7 @@ def render_example_page(example: ExampleRecord, features: dict[str, FeatureManif
         "<p>These tags are shared across the site so examples, feature pages, and future guides can point to the same capability map.</p>"
         f'<div class="feature-list">{feature_list}</div>'
         "</section>"
-        "<section>"
-        "<h2>Source Walkthrough</h2>\n"
-        "<p>The browser below includes the full example project tree. Raw file links point into the generated "
-        "<code>/code</code> copy of the repo.</p>"
-        f"{source_browser}\n"
+        "</aside>"
         "</section>\n"
     )
 
@@ -293,11 +305,12 @@ def render_command_group(example: ExampleRecord) -> str:
     )
 
 
-def render_live_demo(example: ExampleRecord) -> str:
+def render_live_demo(example: ExampleRecord, current_path: Path) -> str:
     if example.live_demo_path:
+        iframe_src = relative_href(current_path, Path(example.live_demo_path))
         return (
             '<div class="live-demo-frame">'
-            f'<iframe src="/{html.escape(example.live_demo_path)}" title="{html.escape(example.title)} live demo" loading="lazy"></iframe>'
+            f'<iframe src="{html.escape(iframe_src)}" title="{html.escape(example.title)} live demo" loading="lazy"></iframe>'
             "</div>"
         )
     if example.wasm_supported:
@@ -340,14 +353,14 @@ def render_source_panel(example: ExampleRecord, rel_path: str, *, include_label:
     )
 
 
-def render_source_browser(example: ExampleRecord) -> str:
+def render_source_browser(example: ExampleRecord, current_path: Path) -> str:
     ordered_files = list(dict.fromkeys([*example.source_files, *example.extra_files]))
     buttons: list[str] = []
     panes: list[str] = []
     for index, rel_path in enumerate(ordered_files):
         active_class = " is-active" if index == 0 else ""
         item_id = f"file-{index}"
-        raw_href = f"/code/examples/{example.name}/{rel_path}"
+        raw_href = relative_href(current_path, Path("code") / "examples" / example.name / rel_path)
         buttons.append(
             '<button type="button" class="source-file'
             f'{active_class}" data-source-target="{html.escape(item_id)}">'

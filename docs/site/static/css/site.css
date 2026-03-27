@@ -184,6 +184,33 @@ ul {
   background: var(--panel-bg);
 }
 
+.example-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.85fr);
+  gap: 16px;
+  margin-top: 18px;
+  align-items: start;
+}
+
+.example-main-column,
+.example-side-column {
+  display: grid;
+  gap: 16px;
+}
+
+.example-stage-card h2,
+.example-source-card h2 {
+  margin-bottom: 0;
+}
+
+.section-heading-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
 .callout-card h3,
 .info-card h2,
 .feature-item h3 {
@@ -394,6 +421,15 @@ ul {
 
   .source-browser {
     grid-template-columns: 1fr;
+  }
+
+  .example-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .hero-actions {
