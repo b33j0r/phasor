@@ -111,7 +111,7 @@ def render_site_header(nav_html: str) -> str:
         "            <div class=\"theme-picker-control\">\n"
         "              <select data-theme-select aria-label=\"Theme\">\n"
         "                <option value=\"sunset-wave-dark\">Sunset Wave (Dark)</option>\n"
-        "                <option value=\"solar-wave-light\">Solar Wave (Light)</option>\n"
+        "                <option value=\"solar-wave-light\">Sunset Wave (Light)</option>\n"
         "                <option value=\"print\">Print</option>\n"
         "              </select>\n"
         "            </div>\n"
