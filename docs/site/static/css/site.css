@@ -322,31 +322,35 @@ ul {
 }
 
 .example-card-media {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin: calc(var(--panel-padding) * -1) calc(var(--panel-padding) * -1) 0;
   border-radius: calc(var(--panel-radius) - 2px);
   overflow: hidden;
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel-bg) 80%, black 8%);
+  min-height: 220px;
 }
 
 .example-card-media img {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  height: 100%;
   object-fit: cover;
   object-position: center;
 }
 
 @media (min-width: 1080px) {
   .example-card.has-media {
-    grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.78fr);
-    align-items: start;
+    grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.95fr);
+    align-items: stretch;
   }
 
   .example-card.has-media .example-card-media {
     margin: 0;
-    align-self: start;
+    min-height: 100%;
+    align-self: stretch;
   }
 }
 
