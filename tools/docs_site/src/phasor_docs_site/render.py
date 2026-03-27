@@ -18,25 +18,34 @@ def render_site(
     copy_static_assets(output_root, Path(__file__).resolve().parents[4] / "docs" / "site" / "static")
     write_search_index(output_root, pages, examples)
 
-    nav_html = render_nav(navigation)
     for page in pages:
         target_path = output_root / page.relative_path.with_suffix(".html")
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_text(render_document(page.title, nav_html, page.rendered_html))
+        nav_html = render_nav(navigation, page.relative_path.with_suffix(".html"))
+        target_path.write_text(render_document(page.title, nav_html, page.rendered_html, page.relative_path.with_suffix(".html")))
+
+    for example in examples:
+        relative_path = Path("examples") / f"{example.name}.html"
+        target_path = output_root / relative_path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        nav_html = render_nav(navigation, relative_path)
+        target_path.write_text(render_document(example.title, nav_html, render_example_page(example), relative_path))
 
     index_page = next((page for page in pages if page.relative_path.as_posix() == "index.md"), None)
     return output_root / (index_page.relative_path.with_suffix(".html") if index_page else Path("index.html"))
 
 
-def render_nav(navigation: list[NavigationItem]) -> str:
+def render_nav(navigation: list[NavigationItem], current_path: Path) -> str:
     links = "".join(
-        f'<a class="nav-link" href="{html.escape(Path(item.path).with_suffix(".html").as_posix())}">{html.escape(item.title)}</a>'
+        f'<a class="nav-link" href="{html.escape(relative_href(current_path, Path(item.path).with_suffix(".html")))}">{html.escape(item.title)}</a>'
         for item in navigation
     )
     return f'<nav class="site-nav">{links}</nav>'
 
 
-def render_document(title: str, nav_html: str, body_html: str) -> str:
+def render_document(title: str, nav_html: str, body_html: str, current_path: Path) -> str:
+    site_css = relative_href(current_path, Path("static/css/site.css"))
+    theme_css = relative_href(current_path, Path("static/css/sunset-wave.css"))
     return (
         "<!doctype html>\n"
         "<html lang=\"en\">\n"
@@ -47,8 +56,8 @@ def render_document(title: str, nav_html: str, body_html: str) -> str:
         "  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
         "  <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n"
         "  <link href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap\" rel=\"stylesheet\">\n"
-        "  <link rel=\"stylesheet\" href=\"static/css/site.css\">\n"
-        "  <link rel=\"stylesheet\" href=\"static/css/sunset-wave.css\">\n"
+        f"  <link rel=\"stylesheet\" href=\"{html.escape(site_css)}\">\n"
+        f"  <link rel=\"stylesheet\" href=\"{html.escape(theme_css)}\">\n"
         "</head>\n"
         "<body>\n"
         "  <div class=\"page-shell\">\n"
@@ -64,6 +73,16 @@ def render_document(title: str, nav_html: str, body_html: str) -> str:
         "</body>\n"
         "</html>\n"
     )
+
+
+def relative_href(from_path: Path, to_path: Path) -> str:
+    from_dir = from_path.parent
+    return Path(
+        *(
+            [".."] * len(from_dir.parts)
+            + list(to_path.parts)
+        )
+    ).as_posix() if from_dir.parts else to_path.as_posix()
 
 
 def copy_static_assets(output_root: Path, static_root: Path) -> None:
@@ -88,7 +107,7 @@ def write_search_index(output_root: Path, pages: list[PageRecord], examples: lis
         "examples": [
             {
                 "title": example.title,
-                "path": f"data/examples/{example.name}.json",
+                "path": f"examples/{example.name}.html",
                 "summary": example.summary,
                 "feature_tags": example.feature_tags,
             }
@@ -96,3 +115,44 @@ def write_search_index(output_root: Path, pages: list[PageRecord], examples: lis
         ],
     }
     (output_root / "search-index.json").write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def render_example_page(example: ExampleRecord) -> str:
+    support = "WASM + Native" if example.wasm_supported else "Native only"
+    feature_badges = "".join(f'<span class="badge">{html.escape(tag)}</span>' for tag in example.feature_tags)
+    build_lines = [example.run_step]
+    if example.web_step:
+        build_lines.append(example.web_step)
+    command_html = "".join(f"<li><code>{html.escape(line)}</code></li>" for line in build_lines)
+    curated_files = "".join(render_source_panel(example, rel_path) for rel_path in example.source_files)
+    extra_links = "".join(
+        f'<li><code>{html.escape(path)}</code></li>' for path in example.extra_files
+    )
+    extra_section = (
+        "<h2>Additional Files</h2><ul>" + extra_links + "</ul>"
+        if extra_links
+        else ""
+    )
+    return (
+        f"<h1>{html.escape(example.title)}</h1>\n"
+        f"<p>{html.escape(example.summary)}</p>\n"
+        "<section class=\"example-hero\">"
+        f"<div><div class=\"support\">{html.escape(support)}</div><div class=\"badges\">{feature_badges}</div></div>"
+        f"<div><a class=\"nav-link\" href=\"../data/examples/{html.escape(example.name)}.json\">Source bundle JSON</a></div>"
+        "</section>\n"
+        "<h2>Build And Run</h2>\n"
+        f"<ul>{command_html}</ul>\n"
+        "<h2>Highlighted Source</h2>\n"
+        f"{curated_files}\n"
+        f"{extra_section}\n"
+    )
+
+
+def render_source_panel(example: ExampleRecord, rel_path: str) -> str:
+    content = (example.directory / rel_path).read_text()
+    return (
+        "<section class=\"source-panel\">"
+        f"<div class=\"code-label\">{html.escape(rel_path)}</div>"
+        f"<pre><code>{html.escape(content)}</code></pre>"
+        "</section>"
+    )

@@ -126,6 +126,11 @@ li {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.example-card h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+
 .badges {
   display: flex;
   flex-wrap: wrap;
@@ -150,6 +155,18 @@ li {
 }
 
 .commands { margin-top: 14px; }
+
+.example-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin: 18px 0 8px;
+}
+
+.source-panel {
+  margin-top: 18px;
+}
 
 .code-block .code-label {
   font-family: "IBM Plex Mono", monospace;
@@ -176,5 +193,8 @@ li {
   .page-body {
     padding: 20px;
     border-radius: 22px;
+  }
+  .example-hero {
+    flex-direction: column;
   }
 }

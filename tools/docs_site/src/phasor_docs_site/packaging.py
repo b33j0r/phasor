@@ -22,6 +22,7 @@ def build_example_index(examples: list[ExampleRecord], output_root: Path) -> Pat
                 "source_files": example.source_files,
                 "extra_files": example.extra_files,
                 "bundle_path": f"examples/{example.name}.json",
+                "detail_path": f"examples/{example.name}.html",
             }
             for example in examples
         ]

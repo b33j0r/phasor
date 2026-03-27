@@ -178,11 +178,12 @@ def render_embed(
             support = "WASM + Native" if example.wasm_supported else "Native only"
             cards.append(
                 '<article class="example-card">'
-                f'<h3>{html.escape(example.title)}</h3>'
+                f'<h3><a href="examples/{html.escape(example.name)}.html">{html.escape(example.title)}</a></h3>'
                 f'<p>{html.escape(example.summary)}</p>'
                 f'<div class="support">{html.escape(support)}</div>'
                 f'<div class="badges">{badge_html}</div>'
                 f'<div class="commands"><code>{html.escape(example.run_step)}</code></div>'
+                f'<div class="commands"><a class="nav-link" href="examples/{html.escape(example.name)}.html">Open example</a></div>'
                 "</article>"
             )
         return '<section class="example-grid">' + "".join(cards) + "</section>"
