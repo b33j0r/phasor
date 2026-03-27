@@ -191,11 +191,13 @@ def render_embed(
             selected_examples = [example for example in selected_examples if example.detail_priority > 0]
         if limit is not None:
             selected_examples = selected_examples[:limit]
-        cards = []
-        for example in selected_examples:
+        wasm_examples = [example for example in selected_examples if example.wasm_supported]
+        native_only_examples = [example for example in selected_examples if not example.wasm_supported]
+
+        def render_example_card(example: ExampleRecord) -> str:
             badge_html = "".join(render_feature_badge(tag, feature_href(tag)) for tag in example.feature_tags)
             support = "WASM + Native" if example.wasm_supported else "Native only"
-            cards.append(
+            return (
                 '<article class="example-card">'
                 f'<div class="eyebrow">Example</div>'
                 f'<h3><a href="examples/{html.escape(example.name)}.html">{html.escape(example.title)}</a></h3>'
@@ -209,7 +211,25 @@ def render_embed(
                 f'<div class="commands"><a class="nav-link" href="examples/{html.escape(example.name)}.html">Open example</a></div>'
                 "</article>"
             )
-        return '<section class="example-grid">' + "".join(cards) + "</section>"
+
+        sections: list[str] = []
+        if wasm_examples:
+            sections.append(
+                '<section class="example-browser-section">'
+                "<h3>WASM + Native</h3>"
+                '<div class="example-grid">'
+                + "".join(render_example_card(example) for example in wasm_examples)
+                + "</div></section>"
+            )
+        if native_only_examples:
+            sections.append(
+                '<section class="example-browser-section">'
+                "<h3>Native Only</h3>"
+                '<div class="example-grid">'
+                + "".join(render_example_card(example) for example in native_only_examples)
+                + "</div></section>"
+            )
+        return "".join(sections)
     if embed.kind == "overview_cards":
         cards = [
             (
