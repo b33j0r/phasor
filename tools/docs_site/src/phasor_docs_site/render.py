@@ -103,7 +103,7 @@ def render_site_header(nav_html: str) -> str:
         "      <div class=\"site-header-top\">\n"
         "        <div class=\"site-brand-block\">\n"
         "          <div class=\"brand\">phasor</div>\n"
-        "          <div class=\"tagline\">Zig game engine docs</div>\n"
+        # "          <div class=\"tagline\">Zig game engine docs</div>\n"
         "        </div>\n"
         "        <div class=\"site-header-utility\">\n"
         "          <div class=\"theme-picker\">\n"
