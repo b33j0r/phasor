@@ -17,7 +17,7 @@ An entity in `phasor` is just an ID plus the components you attach to it. The us
 
 The triangle example is the smallest version of that pattern. It creates one entity that carries a `Triangle` render component, then a second entity that carries the camera components for the scene:
 
-{{ include_lines path="examples/triangle/main.zig" start="10" end="26" }}
+{{ include_lines path="examples/triangle/main.zig" start="10" end="27" }}
 
 As soon as you need richer scene structure, you keep using the same operation. The bouncing-ball example creates a root ball entity, then child entities for the inset mesh and the sprite decal:
 
@@ -35,7 +35,7 @@ The ECS example sets up a resource and a helper entity during boot. `SpawnCounte
 
 The renderer examples do the same thing with engine resources. `ClearColor` is inserted once and then consumed by the render path every frame:
 
-{{ include_lines path="examples/triangle/main.zig" start="21" end="26" }}
+{{ include_lines path="examples/triangle/main.zig" start="21" end="27" }}
 
 When a system needs one of these values later, it should declare `Res(T)` or `ResMut(T)` in its system params instead of reaching back into the world manually.
 
