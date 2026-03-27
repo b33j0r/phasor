@@ -343,6 +343,7 @@ def render_example_page(
         f'<li><code>{html.escape(path)}</code></li>' for path in example.source_files
     )
     source_browser = render_source_browser(example, current_path)
+    overview_cards = render_example_overview(example, feature_list, source_index)
     return (
         "<section class=\"hero-block hero-block-example\">"
         f'<div class="eyebrow">Example</div>'
@@ -359,6 +360,7 @@ def render_example_page(
         "<h2>Live Demo</h2>\n"
         f"{render_live_demo(example, current_path)}\n"
         "</article>"
+        f"{overview_cards}"
         "<article class=\"info-card example-source-card content-section\">"
         "<div class=\"section-heading-row\">"
         "<h2>Source Walkthrough</h2>"
@@ -369,24 +371,29 @@ def render_example_page(
         f"{source_browser}\n"
         "</article>"
         "</div>"
-        "<aside class=\"example-side-column\">"
-        "<article class=\"info-card doc-aside\">"
+        "</section>\n"
+    )
+
+
+def render_example_overview(example: ExampleRecord, feature_list: str, source_index: str) -> str:
+    return (
+        '<section class="example-overview-grid">'
+        '<article class="info-card example-overview-card doc-aside">'
         "<h2>Build And Run</h2>\n"
         "<p>Each command block says where it should be run so the root build graph and the standalone example project layout are both clear.</p>"
         f"{render_command_group(example)}\n"
         "</article>"
-        "<article class=\"info-card doc-aside\">"
+        '<article class="info-card example-overview-card doc-aside">'
         "<h2>Highlighted Files</h2>"
         "<p>The walkthrough starts with the files most likely to answer how the example is put together.</p>"
         f"<ul>{source_index}</ul>"
         "</article>"
-        "<article class=\"info-card doc-aside\">"
+        '<article class="info-card example-overview-card doc-aside">'
         "<h2>Feature Coverage</h2>"
         "<p>These tags link to the shared feature definitions page.</p>"
         f'<ul>{feature_list}</ul>'
         "</article>"
-        "</aside>"
-        "</section>\n"
+        "</section>"
     )
 
 

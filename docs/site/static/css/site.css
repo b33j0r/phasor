@@ -241,17 +241,22 @@ ul {
 }
 
 .example-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(320px, 0.8fr);
-  gap: 16px;
   margin-top: 18px;
-  align-items: start;
 }
 
-.example-main-column,
-.example-side-column {
+.example-main-column {
   display: grid;
   gap: 16px;
+}
+
+.example-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.example-overview-card {
+  align-self: start;
 }
 
 .example-stage-card h2,
@@ -379,7 +384,7 @@ ul {
 
 .source-browser {
   display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
   gap: 16px;
   margin-top: 18px;
 }
@@ -393,6 +398,9 @@ ul {
 
 .source-browser-sidebar {
   padding: 14px;
+  position: sticky;
+  top: 12px;
+  align-self: start;
 }
 
 .source-browser-title {
@@ -575,18 +583,13 @@ ul {
     padding: 16px;
   }
 
+  .example-overview-grid,
   .feature-related-grid,
   .callout-grid,
   .info-grid,
   .example-grid,
   .feature-list,
   .code-directory-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 1180px) {
-  .example-layout {
     grid-template-columns: 1fr;
   }
 }
@@ -603,6 +606,10 @@ ul {
 
   .source-browser {
     grid-template-columns: 1fr;
+  }
+
+  .source-browser-sidebar {
+    position: static;
   }
 
   .section-heading-row {
