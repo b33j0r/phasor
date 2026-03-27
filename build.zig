@@ -20,73 +20,10 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    build_examples.addManagedChildProjects(ctx.b, &.{
-        .{
-            .name = "ecs",
-            .dir = "examples/ecs",
-            .enable_wasm = false,
-        },
-        .{
-            .name = "window",
-            .dir = "examples/window",
-            .enable_wasm = false,
-        },
-        .{
-            .name = "triangle",
-            .dir = "examples/triangle",
-            .enable_wasm = true,
-        },
-        .{
-            .name = "bouncing-ball",
-            .dir = "examples/bouncing-ball",
-            .enable_wasm = true,
-        },
-        .{
-            .name = "particles",
-            .dir = "examples/particles",
-            .enable_wasm = true,
-        },
-        .{
-            .name = "cube",
-            .dir = "examples/cube",
-            .enable_wasm = true,
-        },
-        .{
-            .name = "physics-cubes",
-            .dir = "examples/physics-cubes",
-            .enable_wasm = true,
-        },
-        .{
-            .name = "gltf",
-            .dir = "examples/gltf",
-            .enable_wasm = true,
-        },
-        .{
-            .name = "warehouse",
-            .dir = "examples/warehouse",
-            .enable_wasm = true,
-        },
-        .{
-            .name = "shadows",
-            .dir = "examples/shadows",
-            .enable_wasm = true,
-        },
-        .{
-            .name = "sponza",
-            .dir = "examples/sponza",
-            .enable_wasm = false,
-            .extra_steps = &.{
-                .{
-                    .step_name = "fetch-sponza",
-                    .description = "Download the Sponza glTF sample into examples/sponza/assets",
-                    .child_args = &.{ "build", "fetch-sponza" },
-                },
-            },
-        },
-    });
+    const web_examples_step = build_examples.addManagedChildProjects(ctx.b, &build_examples.managed_child_projects);
     build_examples.addEcsQueryCacheBenchmark(&ctx, engine.phasor.module);
 
-    build_docs.addDocsSiteSteps(b);
+    build_docs.addDocsSiteSteps(b, web_examples_step);
 
     const test_step = b.step("test", "Run tests");
     const test_slow_step = b.step("test-slow", "Run tests including slow dependency suites");

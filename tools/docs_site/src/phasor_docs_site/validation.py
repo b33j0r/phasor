@@ -51,7 +51,11 @@ def validate(paths: SitePaths) -> list[ValidationIssue]:
 
     for manifest_name in sorted(example_manifest):
         if manifest_name not in example_names:
-            issues.append(ValidationIssue(f"Manifest example '{manifest_name}' is not present in build.zig managed child projects"))
+            issues.append(
+                ValidationIssue(
+                    f"Manifest example '{manifest_name}' is not present in build_examples.zig managed child projects"
+                )
+            )
 
     for example in examples:
         if not example.directory.is_dir():

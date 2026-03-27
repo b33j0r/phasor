@@ -86,7 +86,77 @@ pub const ManagedChildProject = struct {
     extra_steps: []const ManagedChildStep = &.{},
 };
 
-pub fn addManagedChildProjects(b: *std.Build, projects: []const ManagedChildProject) void {
+pub const managed_child_projects = [_]ManagedChildProject{
+    .{
+        .name = "ecs",
+        .dir = "examples/ecs",
+        .enable_wasm = false,
+    },
+    .{
+        .name = "window",
+        .dir = "examples/window",
+        .enable_wasm = false,
+    },
+    .{
+        .name = "triangle",
+        .dir = "examples/triangle",
+        .enable_wasm = true,
+    },
+    .{
+        .name = "bouncing-ball",
+        .dir = "examples/bouncing-ball",
+        .enable_wasm = true,
+    },
+    .{
+        .name = "particles",
+        .dir = "examples/particles",
+        .enable_wasm = true,
+    },
+    .{
+        .name = "cube",
+        .dir = "examples/cube",
+        .enable_wasm = true,
+    },
+    .{
+        .name = "physics-cubes",
+        .dir = "examples/physics-cubes",
+        .enable_wasm = true,
+    },
+    .{
+        .name = "gltf",
+        .dir = "examples/gltf",
+        .enable_wasm = true,
+    },
+    .{
+        .name = "warehouse",
+        .dir = "examples/warehouse",
+        .enable_wasm = true,
+    },
+    .{
+        .name = "shadows",
+        .dir = "examples/shadows",
+        .enable_wasm = true,
+    },
+    .{
+        .name = "sponza",
+        .dir = "examples/sponza",
+        .enable_wasm = false,
+        .extra_steps = &.{
+            .{
+                .step_name = "fetch-sponza",
+                .description = "Download the Sponza glTF sample into examples/sponza/assets",
+                .child_args = &.{ "build", "fetch-sponza" },
+            },
+        },
+    },
+};
+
+pub fn addManagedChildProjects(b: *std.Build, projects: []const ManagedChildProject) *std.Build.Step {
+    const web_examples_step = b.step(
+        "web-examples",
+        "Build every wasm-capable example web bundle used by the docs site",
+    );
+
     for (projects) |project| {
         for (project.extra_steps) |extra_step| {
             addForwardedExampleStep(
@@ -113,13 +183,15 @@ pub fn addManagedChildProjects(b: *std.Build, projects: []const ManagedChildProj
             false,
         );
         if (project.enable_wasm) {
+            const web_step_name = b.fmt("web-{s}", .{project.name});
             addForwardedExampleStep(
                 b,
-                b.fmt("web-{s}", .{project.name}),
+                web_step_name,
                 b.fmt("Build the {s} web bundle", .{project.name}),
                 &.{ "build", "web" },
                 project.dir,
             );
+            web_examples_step.dependOn(&b.top_level_steps.get(web_step_name).?.step);
             addForwardedExampleRunStep(
                 b,
                 b.fmt("run-{s}-wasm", .{project.name}),
@@ -129,4 +201,6 @@ pub fn addManagedChildProjects(b: *std.Build, projects: []const ManagedChildProj
             );
         }
     }
+
+    return web_examples_step;
 }

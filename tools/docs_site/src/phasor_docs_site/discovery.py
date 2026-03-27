@@ -53,7 +53,7 @@ def load_navigation(paths: SitePaths) -> list[NavigationItem]:
 
 
 def discover_examples(paths: SitePaths, manifests: dict[str, ExampleManifestEntry]) -> list[ExampleRecord]:
-    build_text = (paths.repo_root / "build.zig").read_text()
+    build_text = (paths.repo_root / "build_examples.zig").read_text()
     records: list[ExampleRecord] = []
     for name, relative_dir, wasm_supported_text in MANAGED_PROJECT_RE.findall(build_text):
         manifest = manifests.get(name)
