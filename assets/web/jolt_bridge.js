@@ -427,7 +427,7 @@ export function createJoltEnv(getMemoryView) {
       writeVec3(ptr + 56, vec3FromJolt(groundVelocity));
       const groundBodyValue = bodyIdValueOrZero(groundBodyId);
       writeU32(ptr + 68, groundBodyValue);
-      writeU64(ptr + 72, groundBodyValue === 0 ? 0 : character.GetGroundUserData());
+      writeU64(ptr + 72, groundBodyValue === 0 ? 0 : world.bodyInterface.GetUserData(groundBodyId));
       writeBool(ptr + 80, character.GetMaxHitsExceeded());
     } finally {}
   }
