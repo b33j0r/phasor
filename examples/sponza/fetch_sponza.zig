@@ -2,7 +2,7 @@ const std = @import("std");
 
 const sponza_api_url = "https://api.github.com/repos/KhronosGroup/glTF-Sample-Assets/contents/Models/Sponza/glTF?ref=main";
 const sponza_cache_dir = "assets/sponza/glTF";
-const user_agent = "phasor-lite-fetch-sponza";
+const user_agent = "phasor-fetch-sponza";
 
 const ApiEntry = struct {
     name: []const u8,

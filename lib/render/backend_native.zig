@@ -697,7 +697,7 @@ pub const Renderer = struct {
         const view = texture.createView(&wgpu.TextureViewDescriptor{}) orelse return error.SurfaceTextureError;
 
         const encoder = self.device.createCommandEncoder(&wgpu.CommandEncoderDescriptor{
-            .label = wgpu.StringView.fromSlice("phasor-lite encoder"),
+            .label = wgpu.StringView.fromSlice("phasor encoder"),
         }) orelse return error.CommandEncoderFailed;
 
         return Frame{
@@ -1887,14 +1887,14 @@ fn createSurface(instance: *wgpu.Instance, native: NativeSurface) !*wgpu.Surface
     switch (native.kind) {
         .metal => {
             const descriptor = wgpu.surfaceDescriptorFromMetalLayer(.{
-                .label = "phasor-lite metal surface",
+                .label = "phasor metal surface",
                 .layer = native.handle.metal.layer,
             });
             return mutable_instance.createSurface(&descriptor) orelse error.SurfaceCreationFailed;
         },
         .win32 => {
             const descriptor = wgpu.surfaceDescriptorFromWindowsHWND(.{
-                .label = "phasor-lite win32 surface",
+                .label = "phasor win32 surface",
                 .hinstance = native.handle.win32.hinstance,
                 .hwnd = native.handle.win32.hwnd,
             });
@@ -1902,7 +1902,7 @@ fn createSurface(instance: *wgpu.Instance, native: NativeSurface) !*wgpu.Surface
         },
         .x11 => {
             const descriptor = wgpu.surfaceDescriptorFromXlibWindow(.{
-                .label = "phasor-lite x11 surface",
+                .label = "phasor x11 surface",
                 .display = native.handle.x11.display,
                 .window = native.handle.x11.window,
             });
