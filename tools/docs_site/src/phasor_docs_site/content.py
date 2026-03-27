@@ -307,9 +307,12 @@ def render_related_examples(examples: list[ExampleRecord]) -> str:
         support = "WASM + Native" if example.wasm_supported else "Native only"
         cards.append(
             '<article class="related-example-card">'
-            f'<h3><a href="examples/{html.escape(example.name)}.html">{html.escape(example.title)}</a></h3>'
-            f'<p>{html.escape(example.summary)}</p>'
-            f'<div class="support">{html.escape(support)}</div>'
+            '<a class="related-example-link" '
+            f'href="examples/{html.escape(example.name)}.html" '
+            f'title="{html.escape(example.summary)}">'
+            f'<span class="related-example-title">{html.escape(example.title)}</span>'
+            f'<span class="related-example-support">{html.escape(support)}</span>'
+            "</a>"
             "</article>"
         )
     return (
