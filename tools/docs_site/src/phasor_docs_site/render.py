@@ -18,7 +18,7 @@ def render_site(
 ) -> Path:
     output_root.mkdir(parents=True, exist_ok=True)
     copy_static_assets(output_root, Path(__file__).resolve().parents[4] / "docs" / "site" / "static")
-    copy_code_tree(repo_root, output_root)
+    code_files = copy_code_tree(repo_root, output_root)
     copy_live_examples(examples, output_root)
     write_search_index(output_root, pages, examples)
 
@@ -36,6 +36,8 @@ def render_site(
         target_path.write_text(
             render_document(example.title, nav_html, render_example_page(example, features, relative_path), relative_path)
         )
+
+    render_code_pages(output_root, navigation, code_files)
 
     index_page = next((page for page in pages if page.relative_path.as_posix() == "index.md"), None)
     return output_root / (index_page.relative_path.with_suffix(".html") if index_page else Path("index.html"))
@@ -114,11 +116,12 @@ def copy_static_assets(output_root: Path, static_root: Path) -> None:
     shutil.copytree(static_root, target_root)
 
 
-def copy_code_tree(repo_root: Path, output_root: Path) -> None:
+def copy_code_tree(repo_root: Path, output_root: Path) -> list[Path]:
     code_root = output_root / "code"
     if code_root.exists():
         shutil.rmtree(code_root)
     code_root.mkdir(parents=True, exist_ok=True)
+    copied_files: list[Path] = []
 
     for source_path in repo_root.rglob("*"):
         if not source_path.is_file():
@@ -131,6 +134,8 @@ def copy_code_tree(repo_root: Path, output_root: Path) -> None:
         target_path = code_root / rel_path
         target_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, target_path)
+        copied_files.append(rel_path)
+    return copied_files
 
 
 def copy_live_examples(examples: list[ExampleRecord], output_root: Path) -> None:
@@ -147,6 +152,82 @@ def copy_live_examples(examples: list[ExampleRecord], output_root: Path) -> None
             continue
         target_root = live_root / example.name
         shutil.copytree(source_root, target_root)
+
+
+def render_code_pages(output_root: Path, navigation: list[NavigationItem], code_files: list[Path]) -> None:
+    directories: set[Path] = {Path("code")}
+    for file_path in code_files:
+        parent = Path("code") / file_path.parent
+        while True:
+            directories.add(parent)
+            if parent == Path("code"):
+                break
+            parent = parent.parent
+
+    for directory in sorted(directories, key=lambda path: (len(path.parts), path.as_posix())):
+        current_path = directory / "index.html"
+        target_path = output_root / current_path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        nav_html = render_nav(navigation, current_path)
+        body_html = render_code_directory_page(directory, current_path, directories, code_files)
+        target_path.write_text(render_document(f"Code · {directory.as_posix()}", nav_html, body_html, current_path))
+
+
+def render_code_directory_page(
+    directory: Path,
+    current_path: Path,
+    directories: set[Path],
+    code_files: list[Path],
+) -> str:
+    code_dir = directory.relative_to("code")
+    title = "<h1>Code Browser</h1>" if directory == Path("code") else f"<h1>{html.escape(directory.as_posix())}</h1>"
+    intro = (
+        "<p>Browse the generated repository tree here. Directory pages link deeper into the tree, and file entries open the raw copied source.</p>"
+    )
+    parent_html = ""
+    if directory != Path("code"):
+        parent_directory = directory.parent
+        parent_href = relative_href(current_path, parent_directory / "index.html")
+        parent_html = f'<div class="commands"><a class="nav-link" href="{html.escape(parent_href)}">Up one level</a></div>'
+
+    child_dirs = sorted(
+        child for child in directories
+        if child.parent == directory and child != directory
+    )
+    child_files = sorted(
+        file_path for file_path in code_files
+        if (Path("code") / file_path).parent == directory
+    )
+
+    dir_items = "".join(
+        '<li class="code-entry">'
+        f'<a href="{html.escape(relative_href(current_path, child / "index.html"))}">{html.escape(child.name)}/</a>'
+        "</li>"
+        for child in child_dirs
+    )
+    file_items = "".join(
+        '<li class="code-entry">'
+        f'<a href="{html.escape(relative_href(current_path, Path("code") / file_path))}">{html.escape(file_path.name)}</a>'
+        f'<span class="code-entry-path">{html.escape(file_path.as_posix())}</span>'
+        "</li>"
+        for file_path in child_files
+    )
+
+    sections = []
+    if child_dirs:
+        sections.append(
+            '<section class="code-directory-card"><h2>Directories</h2><ul class="code-entry-list">'
+            f"{dir_items}</ul></section>"
+        )
+    if child_files:
+        sections.append(
+            '<section class="code-directory-card"><h2>Files</h2><ul class="code-entry-list">'
+            f"{file_items}</ul></section>"
+        )
+    if not sections:
+        sections.append('<section class="code-directory-card"><p>This directory is empty.</p></section>')
+
+    return title + intro + parent_html + '<div class="code-directory-grid">' + "".join(sections) + "</div>"
 
 
 def write_search_index(output_root: Path, pages: list[PageRecord], examples: list[ExampleRecord]) -> None:
@@ -262,12 +343,11 @@ def render_example_page(
         "<p>The walkthrough starts with the files most likely to answer how the example is put together.</p>"
         f"<ul>{source_index}</ul>"
         "</article>"
-        "</section>"
-        "<section>"
+        "<article class=\"info-card\">"
         "<h2>Feature Coverage</h2>"
         "<p>These tags are shared across the site so examples, feature pages, and future guides can point to the same capability map.</p>"
         f'<div class="feature-list">{feature_list}</div>'
-        "</section>"
+        "</article>"
         "</aside>"
         "</section>\n"
     )

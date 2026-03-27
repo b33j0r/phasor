@@ -13,7 +13,7 @@ From there, the next renderer decisions are usually:
 - do I need a material or a custom shader yet
 - is this still a single-camera scene, or do I need overlays and debug layers
 
-The full render module surface is available at [lib/render/root.zig](/code/lib/render/root.zig) when you want to browse the exports directly.
+The full render module surface is available at [lib/render/root.zig](/code/lib/render/root.zig), and the surrounding module tree is browsable at [/code/lib/render/](/code/lib/render/index.html).
 
 ## Feature Tags Used Across The Site
 

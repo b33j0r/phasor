@@ -398,6 +398,43 @@ ul {
   margin-bottom: 0.8rem;
 }
 
+.code-directory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.code-directory-card {
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  padding: var(--panel-padding);
+  background: var(--panel-bg);
+}
+
+.code-entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.code-entry + .code-entry {
+  margin-top: 10px;
+}
+
+.code-entry a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.code-entry-path {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-family: "IBM Plex Mono", monospace;
+}
+
 .feature-matrix table {
   width: 100%;
   border-collapse: collapse;
