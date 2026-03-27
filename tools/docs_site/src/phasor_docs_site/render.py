@@ -52,35 +52,51 @@ def render_nav(navigation: list[NavigationItem], current_path: Path) -> str:
 
 
 def render_document(title: str, nav_html: str, body_html: str, current_path: Path) -> str:
+    head_html = render_document_head(title, current_path)
+    header_html = render_site_header(nav_html)
+    scripts_html = render_document_scripts(current_path)
+    return (
+        "<!doctype html>\n"
+        "<html lang=\"en\" data-theme=\"sunset-wave-dark\">\n"
+        f"{head_html}"
+        "<body>\n"
+        "  <div class=\"page-shell\">\n"
+        f"{header_html}"
+        "    <main class=\"page-body\">\n"
+        f"      {body_html}\n"
+        "    </main>\n"
+        "  </div>\n"
+        f"{scripts_html}"
+        "</body>\n"
+        "</html>\n"
+    )
+
+
+def render_document_head(title: str, current_path: Path) -> str:
     site_css = relative_href(current_path, Path("static/css/site.css"))
     sunset_css = relative_href(current_path, Path("static/css/sunset-wave.css"))
     solar_css = relative_href(current_path, Path("static/css/solar-wave.css"))
     print_css = relative_href(current_path, Path("static/css/print.css"))
     favicon_svg = relative_href(current_path, Path("static/images/favicon.svg"))
-    site_js = relative_href(current_path, Path("static/js/site.js"))
-    prism_core = relative_href(current_path, Path("static/js/prism/prism.min.js"))
-    prism_zig = relative_href(current_path, Path("static/js/prism/prism-zig.min.js"))
-    prism_wgsl = relative_href(current_path, Path("static/js/prism/prism-wgsl.min.js"))
-    prism_markdown = relative_href(current_path, Path("static/js/prism/prism-markdown.min.js"))
-    prism_json = relative_href(current_path, Path("static/js/prism/prism-json.min.js"))
     return (
-        "<!doctype html>\n"
-        "<html lang=\"en\" data-theme=\"sunset-wave-dark\">\n"
         "<head>\n"
         "  <meta charset=\"utf-8\">\n"
         "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"  <title>{html.escape(title)}</title>\n"
         "  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
         "  <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n"
-        "  <link href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap\" rel=\"stylesheet\">\n"
+        "  <link href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:wght@400;600;700&family=Space+Grotesk:wght@400;500;700&display=swap\" rel=\"stylesheet\">\n"
         f"  <link rel=\"icon\" href=\"{html.escape(favicon_svg)}\" type=\"image/svg+xml\" sizes=\"any\">\n"
         f"  <link rel=\"stylesheet\" href=\"{html.escape(site_css)}\">\n"
         f"  <link rel=\"stylesheet\" href=\"{html.escape(sunset_css)}\">\n"
         f"  <link rel=\"stylesheet\" href=\"{html.escape(solar_css)}\">\n"
         f"  <link rel=\"stylesheet\" href=\"{html.escape(print_css)}\">\n"
         "</head>\n"
-        "<body>\n"
-        "  <div class=\"page-shell\">\n"
+    )
+
+
+def render_site_header(nav_html: str) -> str:
+    return (
         "    <header class=\"site-header\">\n"
         "      <div class=\"site-header-top\">\n"
         "        <div>\n"
@@ -98,18 +114,23 @@ def render_document(title: str, nav_html: str, body_html: str, current_path: Pat
         "      </div>\n"
         f"      {nav_html}\n"
         "    </header>\n"
-        "    <main class=\"page-body\">\n"
-        f"      {body_html}\n"
-        "    </main>\n"
-        "  </div>\n"
+    )
+
+
+def render_document_scripts(current_path: Path) -> str:
+    site_js = relative_href(current_path, Path("static/js/site.js"))
+    prism_core = relative_href(current_path, Path("static/js/prism/prism.min.js"))
+    prism_zig = relative_href(current_path, Path("static/js/prism/prism-zig.min.js"))
+    prism_wgsl = relative_href(current_path, Path("static/js/prism/prism-wgsl.min.js"))
+    prism_markdown = relative_href(current_path, Path("static/js/prism/prism-markdown.min.js"))
+    prism_json = relative_href(current_path, Path("static/js/prism/prism-json.min.js"))
+    return (
         f"  <script src=\"{html.escape(prism_core)}\"></script>\n"
         f"  <script src=\"{html.escape(prism_zig)}\"></script>\n"
         f"  <script src=\"{html.escape(prism_wgsl)}\"></script>\n"
         f"  <script src=\"{html.escape(prism_markdown)}\"></script>\n"
         f"  <script src=\"{html.escape(prism_json)}\"></script>\n"
         f"  <script src=\"{html.escape(site_js)}\"></script>\n"
-        "</body>\n"
-        "</html>\n"
     )
 
 
@@ -127,15 +148,13 @@ def copy_static_assets(output_root: Path, static_root: Path) -> None:
     if not static_root.is_dir():
         return
     target_root = output_root / "static"
-    if target_root.exists():
-        shutil.rmtree(target_root)
-    shutil.copytree(static_root, target_root)
+    shutil.copytree(static_root, target_root, dirs_exist_ok=True)
 
 
 def copy_code_tree(repo_root: Path, output_root: Path) -> list[Path]:
     code_root = output_root / "code"
     if code_root.exists():
-        shutil.rmtree(code_root)
+        shutil.rmtree(code_root, ignore_errors=True)
     code_root.mkdir(parents=True, exist_ok=True)
     copied_files: list[Path] = []
 
@@ -156,8 +175,6 @@ def copy_code_tree(repo_root: Path, output_root: Path) -> list[Path]:
 
 def copy_live_examples(examples: list[ExampleRecord], output_root: Path) -> None:
     live_root = output_root / "live" / "examples"
-    if live_root.exists():
-        shutil.rmtree(live_root)
     live_root.mkdir(parents=True, exist_ok=True)
 
     for example in examples:
@@ -167,7 +184,7 @@ def copy_live_examples(examples: list[ExampleRecord], output_root: Path) -> None
         if not source_root.is_dir():
             continue
         target_root = live_root / example.name
-        shutil.copytree(source_root, target_root)
+        shutil.copytree(source_root, target_root, dirs_exist_ok=True)
 
 
 def render_code_pages(output_root: Path, navigation: list[NavigationItem], code_files: list[Path]) -> None:
@@ -338,11 +355,11 @@ def render_example_page(
         "</section>\n"
         "<section class=\"example-layout\">"
         "<div class=\"example-main-column\">"
-        "<article class=\"info-card example-stage-card\">"
+        "<article class=\"info-card example-stage-card content-section\">"
         "<h2>Live Demo</h2>\n"
         f"{render_live_demo(example, current_path)}\n"
         "</article>"
-        "<article class=\"info-card example-source-card\">"
+        "<article class=\"info-card example-source-card content-section\">"
         "<div class=\"section-heading-row\">"
         "<h2>Source Walkthrough</h2>"
         f'<a class="nav-link" href="{html.escape(relative_href(current_path, Path("code") / "examples" / example.name / "main.zig"))}">Open example code tree</a>'
@@ -353,17 +370,17 @@ def render_example_page(
         "</article>"
         "</div>"
         "<aside class=\"example-side-column\">"
-        "<article class=\"info-card\">"
+        "<article class=\"info-card doc-aside\">"
         "<h2>Build And Run</h2>\n"
         "<p>Each command block says where it should be run so the root build graph and the standalone example project layout are both clear.</p>"
         f"{render_command_group(example)}\n"
         "</article>"
-        "<article class=\"info-card\">"
+        "<article class=\"info-card doc-aside\">"
         "<h2>Highlighted Files</h2>"
         "<p>The walkthrough starts with the files most likely to answer how the example is put together.</p>"
         f"<ul>{source_index}</ul>"
         "</article>"
-        "<article class=\"info-card\">"
+        "<article class=\"info-card doc-aside\">"
         "<h2>Feature Coverage</h2>"
         "<p>These tags link to the shared feature definitions page.</p>"
         f'<ul>{feature_list}</ul>'
@@ -415,7 +432,7 @@ def render_live_demo(example: ExampleRecord, current_path: Path) -> str:
         )
     if example.wasm_supported:
         return (
-            '<div class="live-demo-note">'
+            '<div class="live-demo-note doc-aside">'
             "<p>This example supports wasm, but the live bundle is not in the docs build yet.</p>"
             "<p>Build it first from the repo root with "
             f"<code>{html.escape(example.web_step or '')}</code>"
@@ -425,7 +442,7 @@ def render_live_demo(example: ExampleRecord, current_path: Path) -> str:
             "</div>"
         )
     return (
-        '<div class="live-demo-note">'
+        '<div class="live-demo-note doc-aside">'
         "<p>This example is native-only, so the docs page focuses on commands, source, and feature coverage.</p>"
         "</div>"
     )
@@ -481,7 +498,7 @@ def render_source_browser(example: ExampleRecord, current_path: Path) -> str:
         )
     return (
         '<section class="source-browser" data-source-browser>'
-        '<aside class="source-browser-sidebar">'
+        '<aside class="source-browser-sidebar doc-aside">'
         '<div class="source-browser-title">Files</div>'
         f'<div class="source-browser-files">{"".join(buttons)}</div>'
         "</aside>"
