@@ -42,6 +42,13 @@ This document records the concrete repo surfaces that anchor the docs-site rollo
 - `docs/site/navigation.json`
   - top-level site navigation and page ordering
 
+## Feature Tag Policy
+
+- feature tags are internal taxonomy, not user-facing marketing language
+- a tag should correspond to a real engine capability exercised by code, not a vague theme
+- example tags should point readers toward what the example proves or depends on
+- guide pages should link back to tags only when that helps route readers to representative examples
+
 ## CLI Entry Points
 
 - `uv run phasor-docs-site validate`
