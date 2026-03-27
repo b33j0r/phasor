@@ -287,7 +287,7 @@ def render_command_group(example: ExampleRecord) -> str:
 
     return (
         '<div class="command-groups">'
-        + render_command_block("From Repo Root", "cwd: /Users/brian/Projects/phasor/phasor", root_commands)
+        + render_command_block("From Repo Root", "cwd: <repo root>", root_commands)
         + render_command_block("From Example Directory", f"cwd: {local_dir}", local_commands)
         + "</div>"
     )
