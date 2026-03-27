@@ -15,6 +15,4 @@ From there, the next renderer decisions are usually:
 
 The full render module surface is available at [lib/render/root.zig](/code/lib/render/root.zig), and the surrounding module tree is browsable at [/code/lib/render/](/code/lib/render/index.html).
 
-## Feature Tags Used Across The Site
-
-{{ feature_matrix }}
+The shared tags used across renderer examples and other guide pages are documented on the [Features](features.md) page.

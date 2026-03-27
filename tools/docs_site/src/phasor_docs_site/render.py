@@ -296,11 +296,15 @@ def render_example_page(
     current_path: Path,
 ) -> str:
     support = "WASM + Native" if example.wasm_supported else "Native only"
-    feature_badges = "".join(f'<span class="badge">{html.escape(tag)}</span>' for tag in example.feature_tags)
-    feature_list = "".join(
-        render_feature_item(tag, features[tag])
+    feature_badges = "".join(
+        render_feature_badge(tag, relative_href(current_path, Path("features.html")) + f"#{feature_anchor(tag)}")
         for tag in example.feature_tags
-        if tag in features
+    )
+    feature_list = "".join(
+        '<li><a href="'
+        f'{html.escape(relative_href(current_path, Path("features.html")) + f"#{feature_anchor(tag)}")}'
+        f'"><code>{html.escape(tag)}</code></a></li>'
+        for tag in example.feature_tags
     )
     source_index = "".join(
         f'<li><code>{html.escape(path)}</code></li>' for path in example.source_files
@@ -345,8 +349,8 @@ def render_example_page(
         "</article>"
         "<article class=\"info-card\">"
         "<h2>Feature Coverage</h2>"
-        "<p>These tags are shared across the site so examples, feature pages, and future guides can point to the same capability map.</p>"
-        f'<div class="feature-list">{feature_list}</div>'
+        "<p>These tags link to the shared feature definitions page.</p>"
+        f'<ul>{feature_list}</ul>'
         "</article>"
         "</aside>"
         "</section>\n"
@@ -411,13 +415,15 @@ def render_live_demo(example: ExampleRecord, current_path: Path) -> str:
     )
 
 
-def render_feature_item(tag: str, feature: FeatureManifestEntry) -> str:
+def feature_anchor(tag: str) -> str:
+    return f"feature-{tag}"
+
+
+def render_feature_badge(tag: str, href: str) -> str:
     return (
-        '<article class="feature-item">'
-        f'<div class="feature-tag"><code>{html.escape(tag)}</code></div>'
-        f"<h3>{html.escape(feature.title)}</h3>"
-        f"<p>{html.escape(feature.summary)}</p>"
-        "</article>"
+        f'<a class="badge" href="{html.escape(href)}">'
+        f"{html.escape(tag)}"
+        "</a>"
     )
 
 

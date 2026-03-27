@@ -18,11 +18,9 @@ The examples are the fastest way to understand the engine because they were writ
 
 {{ example_grid featured="true" limit="3" }}
 
-## Core Feature Tags
+## Feature Map
 
-The docs generator tracks feature tags across examples so the overview, feature pages, and example detail pages all talk about the same capability map.
-
-{{ feature_matrix }}
+The shared tags used across examples and guide pages are documented on the [Features](features.md) page.
 
 ## Next Reads
 

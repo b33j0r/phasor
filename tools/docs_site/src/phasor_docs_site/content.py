@@ -201,9 +201,7 @@ def render_embed(
             selected_examples = selected_examples[:limit]
         cards = []
         for example in selected_examples:
-            badge_html = "".join(
-                f'<span class="badge">{html.escape(tag)}</span>' for tag in example.feature_tags
-            )
+            badge_html = "".join(render_feature_badge(tag, feature_href(tag)) for tag in example.feature_tags)
             support = "WASM + Native" if example.wasm_supported else "Native only"
             cards.append(
                 '<article class="example-card">'
@@ -260,6 +258,18 @@ def render_embed(
             '<section class="feature-matrix"><table><thead><tr><th>Tag</th><th>Feature</th><th>Summary</th></tr></thead>'
             f"<tbody>{''.join(rows)}</tbody></table></section>"
         )
+    if embed.kind == "feature_catalog":
+        entries = []
+        for key, feature in sorted(features.items()):
+            entries.append(
+                '<article class="feature-definition" '
+                f'id="{html.escape(feature_anchor(key))}">'
+                f'<div class="feature-tag"><code>{html.escape(key)}</code></div>'
+                f"<h2>{html.escape(feature.title)}</h2>"
+                f"<p>{html.escape(feature.summary)}</p>"
+                "</article>"
+            )
+        return '<section class="feature-catalog">' + "".join(entries) + "</section>"
     if embed.kind == "command_block":
         command = embed.attributes.get("value", "")
         return f'<pre><code>{html.escape(command)}</code></pre>'
@@ -281,6 +291,22 @@ def normalize_href(target: str) -> str:
     if target.endswith(".md"):
         return f"{target[:-3]}.html"
     return target
+
+
+def feature_anchor(tag: str) -> str:
+    return f"feature-{tag}"
+
+
+def feature_href(tag: str) -> str:
+    return f"features.html#{feature_anchor(tag)}"
+
+
+def render_feature_badge(tag: str, href: str) -> str:
+    return (
+        f'<a class="badge" href="{html.escape(href)}">'
+        f"{html.escape(tag)}"
+        "</a>"
+    )
 
 
 def normalize_language_name(language: str) -> str:

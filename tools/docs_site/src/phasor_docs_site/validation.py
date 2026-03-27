@@ -73,7 +73,7 @@ def validate(paths: SitePaths) -> list[ValidationIssue]:
                             f"include_lines range out of bounds in {page.relative_path}: {path_attr}:{start_line}-{end_line}"
                         )
                     )
-            elif embed.kind in {"example_grid", "overview_cards", "feature_matrix", "command_block"}:
+            elif embed.kind in {"example_grid", "overview_cards", "feature_matrix", "feature_catalog", "command_block"}:
                 continue
             else:
                 issues.append(ValidationIssue(f"Unknown embed kind in {page.relative_path}: {embed.kind}"))

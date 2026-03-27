@@ -237,6 +237,7 @@ ul {
   color: var(--accent-2);
   font-size: 0.84rem;
   font-weight: 500;
+  text-decoration: none;
 }
 
 .support {
@@ -396,6 +397,23 @@ ul {
 
 .feature-tag {
   margin-bottom: 0.8rem;
+}
+
+.feature-catalog {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.feature-definition {
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  padding: var(--panel-padding);
+  background: var(--panel-bg);
+}
+
+.feature-definition h2 {
+  margin-top: 0;
 }
 
 .code-directory-grid {
