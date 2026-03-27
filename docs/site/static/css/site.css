@@ -254,6 +254,24 @@ ul {
   background: var(--panel-bg);
 }
 
+.example-browser-section {
+  margin-top: 2rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--line);
+}
+
+.example-browser-section:first-child {
+  margin-top: 1.25rem;
+}
+
+.example-browser-section > h3 {
+  margin: 0 0 1rem;
+}
+
+.example-browser-section > .example-grid {
+  margin-top: 0;
+}
+
 .example-layout {
   margin-top: 18px;
 }
