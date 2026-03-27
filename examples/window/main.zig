@@ -8,7 +8,7 @@ pub fn main(init: std.process.Init) !u8 {
     defer commands.deinit();
 
     try commands.insertResource(WindowSettings{
-        .title = "Phasor Lite Window",
+        .title = "Phasor Window",
     });
     if (!commands.isEmpty()) {
         try commands.apply();

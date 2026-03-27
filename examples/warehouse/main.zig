@@ -23,7 +23,7 @@ const BoxFaceMask = struct {
 const App = struct {
     pub const options = platform.Options{
         .window = .{
-            .title = "Phasor Lite - Warehouse",
+            .title = "Phasor - Warehouse",
             .width = 1440,
             .height = 900,
         },

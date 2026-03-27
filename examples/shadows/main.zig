@@ -42,7 +42,7 @@ const App = struct {
     pub const options = platform.Options{
         .vsync = true,
         .window = .{
-            .title = "Phasor Lite - Shadows",
+            .title = "Phasor - Shadows",
             .width = 1440,
             .height = 900,
         },

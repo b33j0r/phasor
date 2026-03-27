@@ -62,7 +62,7 @@ pub const WindowFlags = struct {
 pub const WindowSettings = struct {
     width: u32 = 800,
     height: u32 = 450,
-    title: []const u8 = "Phasor Lite",
+    title: []const u8 = "Phasor",
     flags: u32 = WindowFlags.Resizable | WindowFlags.HighDPI,
 };
 

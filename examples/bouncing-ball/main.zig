@@ -29,7 +29,7 @@ const Assets = struct {
 const App = struct {
     pub const options = platform.Options{
         .window = .{
-            .title = "Phasor Lite - Bouncing Ball",
+            .title = "Phasor - Bouncing Ball",
             .width = 800,
             .height = 600,
         },

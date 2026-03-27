@@ -13,7 +13,7 @@ const DebugReported = struct {};
 const App = struct {
     pub const options = platform.Options{
         .window = .{
-            .title = "Phasor Lite - glTF",
+            .title = "Phasor - glTF",
             .width = 1280,
             .height = 900,
         },

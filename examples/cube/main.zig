@@ -3,7 +3,7 @@ const CubeRoot = struct {};
 const App = struct {
     pub const options = platform.Options{
         .window = .{
-            .title = "Phasor Lite - Cube",
+            .title = "Phasor - Cube",
             .width = 900,
             .height = 700,
         },

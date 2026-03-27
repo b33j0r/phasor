@@ -18,7 +18,7 @@ const SpawnState = struct {
 const App = struct {
     pub const options = platform.Options{
         .window = .{
-            .title = "Phasor Lite - Physics Cubes",
+            .title = "Phasor - Physics Cubes",
             .width = 1280,
             .height = 800,
         },
