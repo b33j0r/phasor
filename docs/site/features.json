@@ -1,0 +1,72 @@
+{
+  "features": {
+    "render-bootstrap": {
+      "title": "Render Bootstrap",
+      "summary": "Minimal native and wasm startup path for a renderable app."
+    },
+    "camera": {
+      "title": "Cameras",
+      "summary": "Viewport setup, layering, and camera configuration."
+    },
+    "sprites": {
+      "title": "Sprites",
+      "summary": "2D sprite and textured-quad rendering."
+    },
+    "particles": {
+      "title": "Particles",
+      "summary": "Particle geometry, update loops, and particle-focused rendering."
+    },
+    "physics": {
+      "title": "Physics",
+      "summary": "Jolt-backed rigid bodies, colliders, and character movement."
+    },
+    "renderer-3d": {
+      "title": "3D Rendering",
+      "summary": "3D meshes, transforms, and scene-facing cameras."
+    },
+    "scene-import": {
+      "title": "Scene Import",
+      "summary": "glTF and imported-scene workflows."
+    },
+    "wasm-assets": {
+      "title": "WASM Asset Strategy",
+      "summary": "Embedded/resource-aware asset loading patterns for browser builds."
+    },
+    "prepared-scene": {
+      "title": "Prepared Scene Pipeline",
+      "summary": "Background CPU preparation and staged application of large imported scenes."
+    },
+    "procedural-sky": {
+      "title": "Procedural Sky",
+      "summary": "Generated sky shading, including layered and atmospheric variants."
+    },
+    "panorama-sky": {
+      "title": "Panorama Sky",
+      "summary": "Panorama environment textures and skybox-style presentation."
+    },
+    "lighting": {
+      "title": "Lighting",
+      "summary": "Ambient, directional, point, and environment lighting."
+    },
+    "audio": {
+      "title": "Audio",
+      "summary": "Sound playback and audio module integration."
+    },
+    "fps-controller": {
+      "title": "FPS Controller",
+      "summary": "First-person movement, camera control, and character controller integration."
+    },
+    "pbr": {
+      "title": "PBR",
+      "summary": "Material workflows with metallic/roughness and scene environment lighting."
+    },
+    "normal-maps": {
+      "title": "Normal Maps",
+      "summary": "Normal-map shading and runtime tuning/debug controls."
+    },
+    "color-grading": {
+      "title": "Color Grading",
+      "summary": "Post-tonemap color grading and renderer tuning."
+    }
+  }
+}

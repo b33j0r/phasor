@@ -2,9 +2,12 @@
 zig-out/
 .zig-cache/
 .zig-global-cache/
+.venv/
+docs/_build/
 *.log
 *.tmp
 .DS_Store
 local/
 *.wasm
 zig-pkg/
+__pycache__/

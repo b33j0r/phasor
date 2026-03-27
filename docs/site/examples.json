@@ -1,0 +1,64 @@
+{
+  "examples": {
+    "triangle": {
+      "title": "Triangle",
+      "summary": "Smallest renderer bootstrap path with a single scene-facing camera.",
+      "feature_tags": [
+        "render-bootstrap",
+        "camera"
+      ],
+      "screenshots": [],
+      "source_files": [
+        "build.zig",
+        "build.zig.zon",
+        "build_phasor.zig",
+        "main.zig"
+      ],
+      "detail_priority": 10
+    },
+    "gltf": {
+      "title": "glTF",
+      "summary": "Imports a real glTF scene and demonstrates the embedded wasm asset path.",
+      "feature_tags": [
+        "scene-import",
+        "wasm-assets",
+        "renderer-3d"
+      ],
+      "screenshots": [],
+      "source_files": [
+        "build.zig",
+        "build.zig.zon",
+        "build_phasor.zig",
+        "main.zig"
+      ],
+      "detail_priority": 20
+    },
+    "sponza": {
+      "title": "Sponza",
+      "summary": "Advanced renderer showcase for prepared scene import, skies, lighting, PBR, and debug controls.",
+      "feature_tags": [
+        "pbr",
+        "scene-import",
+        "prepared-scene",
+        "procedural-sky",
+        "panorama-sky",
+        "lighting",
+        "normal-maps",
+        "color-grading"
+      ],
+      "screenshots": [],
+      "source_files": [
+        "build.zig",
+        "build.zig.zon",
+        "build_phasor.zig",
+        "main.zig",
+        "shared.zig",
+        "loading.zig",
+        "lighting.zig",
+        "gameplay.zig",
+        "phases.zig"
+      ],
+      "detail_priority": 30
+    }
+  }
+}

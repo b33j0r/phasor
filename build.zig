@@ -1,6 +1,7 @@
 const std = @import("std");
 const build_deps = @import("build_deps.zig");
 const build_examples = @import("build_examples.zig");
+const build_docs = @import("build_docs.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -84,6 +85,8 @@ pub fn build(b: *std.Build) void {
         },
     });
     build_examples.addEcsQueryCacheBenchmark(&ctx, engine.phasor.module);
+
+    build_docs.addDocsSiteSteps(b);
 
     const test_step = b.step("test", "Run tests");
     const test_slow_step = b.step("test-slow", "Run tests including slow dependency suites");
