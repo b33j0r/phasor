@@ -1,0 +1,44 @@
+:root {
+  --bg:
+    radial-gradient(circle at 18% 16%, rgba(255, 207, 92, 0.26), transparent 18%),
+    radial-gradient(circle at 78% 14%, rgba(80, 188, 255, 0.22), transparent 22%),
+    radial-gradient(circle at 52% 82%, rgba(255, 86, 168, 0.18), transparent 24%),
+    linear-gradient(180deg, #2d145c 0%, #511d8a 18%, #8f278f 42%, #f24c7c 62%, #ff8d44 82%, #ffd36e 100%);
+  --paper: rgba(20, 18, 44, 0.78);
+  --ink: #fff6ff;
+  --muted: #f5bfde;
+  --line: rgba(255, 214, 240, 0.22);
+  --accent: #ffd166;
+  --accent-2: #68e1fd;
+  --badge-bg: rgba(104, 225, 253, 0.14);
+  --code-bg: rgba(12, 10, 30, 0.92);
+}
+
+body { background: var(--bg); }
+
+.site-header,
+.page-body {
+  box-shadow: 0 24px 80px rgba(55, 7, 53, 0.28);
+}
+
+.site-header {
+  background:
+    linear-gradient(135deg, rgba(255, 209, 102, 0.07), rgba(104, 225, 253, 0.05)),
+    var(--paper);
+}
+
+.page-body {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+    var(--paper);
+}
+
+.nav-link { background: rgba(255, 255, 255, 0.07); }
+
+.example-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    rgba(35, 18, 69, 0.7);
+}
+
+.brand { text-shadow: 0 0 18px rgba(255, 209, 102, 0.3); }
