@@ -149,8 +149,8 @@
       ],
       "code_example": {
         "path": "examples/sponza/loading.zig",
-        "start": 687,
-        "end": 735,
+        "start": 215,
+        "end": 248,
         "caption": "Preparing a large scene means applying importer overrides and baking the assets before they enter the live world."
       }
     },
@@ -205,8 +205,8 @@
       ],
       "code_example": {
         "path": "examples/gltf/main.zig",
-        "start": 65,
-        "end": 76,
+        "start": 67,
+        "end": 79,
         "caption": "Instantiating a scene turns parsed asset data into live renderer resources and entities."
       }
     },
@@ -233,8 +233,8 @@
       ],
       "code_example": {
         "path": "examples/gltf/main.zig",
-        "start": 156,
-        "end": 176,
+        "start": 164,
+        "end": 179,
         "caption": "The wasm-friendly path hydrates scene buffers and images from embedded data before import."
       }
     }

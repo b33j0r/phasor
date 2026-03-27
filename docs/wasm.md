@@ -16,9 +16,9 @@ The `gltf` example is the clearest current reference because it has to solve sce
 
 The wasm path does not assume a native-style filesystem read for the FlightHelmet scene. Instead, it embeds the source assets and hydrates missing buffer and image bytes before import.
 
-{{ include_lines path="examples/gltf/main.zig" start="41" end="77" }}
+{{ include_lines path="examples/gltf/main.zig" start="41" end="79" }}
 
-{{ include_lines path="examples/gltf/main.zig" start="156" end="195" }}
+{{ include_lines path="examples/gltf/main.zig" start="164" end="179" }}
 
 ## Build Commands
 

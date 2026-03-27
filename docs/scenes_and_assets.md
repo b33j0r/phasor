@@ -12,7 +12,7 @@ For most projects, that means three layers of concern:
 
 The `gltf` example shows the direct path. A scene asset becomes parsed scene data, then `ImportedScene.instantiate` turns that data into runtime entities under a pivot entity.
 
-{{ include_lines path="examples/gltf/main.zig" start="47" end="77" }}
+{{ include_lines path="examples/gltf/main.zig" start="49" end="79" }}
 
 ## What To Read Next
 
