@@ -18,11 +18,10 @@ pub fn ensureLoadingScreenVisuals(
     core_shaders: ResMut(render.CoreShaders),
     scene_assets: ResMut(Assets),
     screen_state: ResOpt(LoadingScreenState),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) !void {
     if (screen_state.ptr == null) return;
-    const phase = current_phase.ptr orelse return;
-    if (phase.phase != .Loading) return;
+    if (current_phase.ptr.phase != .Loading) return;
     if (commands.hasResource(LoadingScreenVisualState)) return;
 
     const build_ctx_res = build_ctx.ptr orelse return;
@@ -250,7 +249,7 @@ pub fn updateLoadingScreen(
     loader: ResOpt(SceneLoaderState),
     screen_state: ResMut(LoadingScreenState),
     scene_assets: ResOpt(Assets),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
     window_bounds_opt: ResOpt(common.WindowBounds),
     texts: Query(.{ render.Text, Transform, LoadingScreenText }),
     bar_tracks: Query(.{ Transform, MeshInstance, LoadingScreenBarTrack }),
@@ -259,13 +258,13 @@ pub fn updateLoadingScreen(
     const loader_state = loader.ptr;
     const spinner = spinnerFrame(elapsed.ptr.seconds);
     var header_buffer: [64]u8 = undefined;
-    const phase_name = if (current_phase.ptr) |phase| switch (phase.phase) {
+    const phase_name = switch (current_phase.ptr.phase) {
         .Loading => "Loading",
         .InGame => |in_game| switch (in_game) {
             .Playing => "InGame.Playing",
             .Paused => "InGame.Paused",
         },
-    } else "Boot";
+    };
     const header = std.fmt.bufPrint(&header_buffer, "Sponza {c} {s}", .{ spinner, phase_name }) catch "Sponza";
 
     var bar_buffer: [20]u8 = undefined;

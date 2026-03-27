@@ -4,7 +4,7 @@ pub fn spawnPlayerFromCollision(
     physics_stats: Res(physics.Stats),
     spawn_plan: ResOpt(SceneSpawnPlan),
     players: Query(.{Player}),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) !void {
     if (!phases.isPlayingPhase(current_phase.ptr)) return;
     if (spawn_plan.ptr == null) return;
@@ -118,7 +118,7 @@ pub fn captureScreenshotInput(
     elapsed: Res(modules.TimeModule.ElapsedTime),
     screenshot_state_opt: ResOpt(ScreenshotCaptureState),
     commands: *ecs.Commands,
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) void {
     if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
     if (builtin.os.tag == .wasi) return;
@@ -153,7 +153,7 @@ pub fn handlePhaseInput(
     keyboard_opt: ResOpt(Keyboard),
     capture_opt: ResOpt(MouseCapture),
     commands: *ecs.Commands,
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) !void {
     const keyboard = keyboard_opt.ptr orelse return;
     var capture = if (capture_opt.ptr) |existing| existing.* else MouseCapture{};
@@ -175,7 +175,7 @@ pub fn cycleColorGradeInput(
     keyboard_opt: ResOpt(Keyboard),
     commands: *ecs.Commands,
     color_grading_opt: ResOpt(render.ColorGradingSettings),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) !void {
     if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
     const keyboard = keyboard_opt.ptr orelse return;
@@ -191,7 +191,7 @@ pub fn cycleDebugViewInput(
     keyboard_opt: ResOpt(Keyboard),
     commands: *ecs.Commands,
     debug_view_opt: ResOpt(render.SceneDebugView),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) !void {
     if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
     const keyboard = keyboard_opt.ptr orelse return;
@@ -205,7 +205,7 @@ pub fn toggleEnvironmentSpecularInput(
     keyboard_opt: ResOpt(Keyboard),
     commands: *ecs.Commands,
     environment_specular_mode_opt: ResOpt(render.EnvironmentSpecularMode),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) !void {
     if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
     const keyboard = keyboard_opt.ptr orelse return;
@@ -223,7 +223,7 @@ pub fn cycleNormalMapScaleInput(
     keyboard_opt: ResOpt(Keyboard),
     commands: *ecs.Commands,
     normal_map_scale_opt: ResOpt(render.NormalMapScale),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) !void {
     if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
     const keyboard = keyboard_opt.ptr orelse return;
@@ -237,7 +237,7 @@ pub fn cycleNormalMapScaleInput(
 pub fn updatePlayerCamera(
     players: Query(.{ Transform, FpsController, Player }),
     cameras: Query(.{ Transform, PlayerCamera }),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) void {
     if (!phases.isPlayingPhase(current_phase.ptr)) return;
     var player_transform: ?Transform = null;
@@ -265,7 +265,7 @@ pub fn updatePlayerCamera(
 pub fn logPlayerBookmark(
     keyboard_opt: ResOpt(Keyboard),
     players: Query(.{ Transform, FpsController, Player }),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) void {
     if (!phases.isPlayingPhase(current_phase.ptr)) return;
     const keyboard = keyboard_opt.ptr orelse return;
@@ -303,7 +303,7 @@ pub fn emitSponzaHudMetrics(
     normal_map_scale_opt: ResOpt(render.NormalMapScale),
     debug_view_opt: ResOpt(render.SceneDebugView),
     players: Query(.{ Transform, FpsController, Player }),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) void {
     if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;
     var it = players.iterator();

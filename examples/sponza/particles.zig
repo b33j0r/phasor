@@ -60,7 +60,7 @@ pub fn updateLionFire(
     shared_fire: Res(LionFireShared),
     state_res: ResMut(LionFireState),
     particles: Query(.{ Transform, render.MeshInstance, LionFireParticle }),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) void {
     const fire_shared = shared_fire.ptr;
     const state = state_res.ptr;

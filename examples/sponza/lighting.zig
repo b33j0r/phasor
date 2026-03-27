@@ -149,7 +149,7 @@ pub fn toggleSkyModeInput(
     cycle_state: ResMut(SkyCycleState),
     core_shaders: ResOpt(render.CoreShaders),
     scene_assets: ResOpt(Assets),
-    current_phase: ResOpt(phases.SponzaPhases.CurrentPhase),
+    current_phase: Res(phases.SponzaPhases.CurrentPhase),
     panorama_faces: Query(.{ render.MeshInstance, render.Layer(-1), render.LayerSortKey }),
 ) !void {
     if (!phases.isPlayingPhase(current_phase.ptr) and !phases.isPausedPhase(current_phase.ptr)) return;

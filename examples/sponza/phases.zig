@@ -136,9 +136,8 @@ pub const Paused = struct {
     }
 };
 
-pub fn isPlayingPhase(current_phase: ?*const SponzaPhases.CurrentPhase) bool {
-    const phase = current_phase orelse return false;
-    return switch (phase.phase) {
+pub fn isPlayingPhase(current_phase: *const SponzaPhases.CurrentPhase) bool {
+    return switch (current_phase.phase) {
         .Loading => false,
         .InGame => |in_game| switch (in_game) {
             .Playing => true,
@@ -147,9 +146,8 @@ pub fn isPlayingPhase(current_phase: ?*const SponzaPhases.CurrentPhase) bool {
     };
 }
 
-pub fn isPausedPhase(current_phase: ?*const SponzaPhases.CurrentPhase) bool {
-    const phase = current_phase orelse return false;
-    return switch (phase.phase) {
+pub fn isPausedPhase(current_phase: *const SponzaPhases.CurrentPhase) bool {
+    return switch (current_phase.phase) {
         .Loading => false,
         .InGame => |in_game| switch (in_game) {
             .Playing => false,
