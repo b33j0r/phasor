@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import threading
+import webbrowser
 from pathlib import Path
 
 import uvicorn
@@ -26,6 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser = subparsers.add_parser("serve", help="Generate and serve the docs site with a FastAPI static server")
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8011)
+    serve_parser.add_argument("--no-browser", action="store_true", help="Serve without opening a browser")
+    serve_parser.add_argument("--no-open", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
@@ -83,6 +87,11 @@ def main(argv: list[str] | None = None) -> int:
         if generate_code != 0:
             return generate_code
         app = create_app(paths)
+        open_browser = not (args.no_browser or args.no_open)
+        url = f"http://{args.host}:{args.port}/"
+        if open_browser:
+            print(f"opening browser: {url}")
+            threading.Timer(0.35, lambda: webbrowser.open(url)).start()
         uvicorn.run(app, host=args.host, port=args.port)
         return 0
 
