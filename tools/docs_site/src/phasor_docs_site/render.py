@@ -195,10 +195,6 @@ def should_skip_code_path(rel_path: Path) -> bool:
 def render_example_page(example: ExampleRecord, features: dict[str, FeatureManifestEntry]) -> str:
     support = "WASM + Native" if example.wasm_supported else "Native only"
     feature_badges = "".join(f'<span class="badge">{html.escape(tag)}</span>' for tag in example.feature_tags)
-    build_lines = [example.run_step]
-    if example.web_step:
-        build_lines.append(example.web_step)
-    command_html = "".join(f"<li><code>{html.escape(line)}</code></li>" for line in build_lines)
     feature_list = "".join(
         render_feature_item(tag, features[tag])
         for tag in example.feature_tags
@@ -221,8 +217,8 @@ def render_example_page(example: ExampleRecord, features: dict[str, FeatureManif
         "<section class=\"info-grid\">"
         "<article class=\"info-card\">"
         "<h2>Build And Run</h2>\n"
-        "<p>Every docs page points back to the real example project. These are the commands used to build it.</p>"
-        f"<ul>{command_html}</ul>\n"
+        "<p>Each command block says where it should be run so the root build graph and the standalone example project layout are both clear.</p>"
+        f"{render_command_group(example)}\n"
         "</article>"
         "<article class=\"info-card\">"
         "<h2>Highlighted Files</h2>"
@@ -241,6 +237,37 @@ def render_example_page(example: ExampleRecord, features: dict[str, FeatureManif
         "<code>/code</code> copy of the repo.</p>"
         f"{source_browser}\n"
         "</section>\n"
+    )
+
+
+def render_command_group(example: ExampleRecord) -> str:
+    local_dir = f"examples/{example.name}"
+    root_commands = [example.run_step]
+    local_commands = ["zig build run"]
+    if example.web_step:
+        root_commands.append(example.web_step)
+        local_commands.append("zig build web")
+
+    def render_command_block(title: str, location: str, commands: list[str]) -> str:
+        items = "".join(
+            '<div class="command-entry">'
+            f'<div class="command-context">{html.escape(location)}</div>'
+            f'<pre><code>{html.escape(command)}</code></pre>'
+            "</div>"
+            for command in commands
+        )
+        return (
+            '<section class="command-group">'
+            f"<h3>{html.escape(title)}</h3>"
+            f"{items}"
+            "</section>"
+        )
+
+    return (
+        '<div class="command-groups">'
+        + render_command_block("From Repo Root", "cwd: /Users/brian/Projects/phasor/phasor", root_commands)
+        + render_command_block("From Example Directory", f"cwd: {local_dir}", local_commands)
+        + "</div>"
     )
 
 

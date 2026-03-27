@@ -212,7 +212,10 @@ def render_embed(
                 f'<p>{html.escape(example.summary)}</p>'
                 f'<div class="support">{html.escape(support)}</div>'
                 f'<div class="badges">{badge_html}</div>'
-                f'<div class="commands"><code>{html.escape(example.run_step)}</code></div>'
+                '<div class="commands">'
+                '<div class="command-context">Repo root</div>'
+                f'<code>{html.escape(example.run_step)}</code>'
+                "</div>"
                 f'<div class="commands"><a class="nav-link" href="examples/{html.escape(example.name)}.html">Open example</a></div>'
                 "</article>"
             )
