@@ -9,7 +9,7 @@
   --badge-bg: rgba(255, 255, 255, 0.08);
   --code-bg: #111428;
   --panel-bg: rgba(255, 255, 255, 0.04);
-  --page-max-width: 1160px;
+  --page-max-width: 1560px;
   --panel-padding: 18px;
   --panel-radius: 22px;
   --panel-shadow: 0 18px 70px rgba(0, 0, 0, 0.2);
@@ -186,7 +186,7 @@ ul {
 
 .example-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.85fr);
+  grid-template-columns: minmax(0, 1.65fr) minmax(320px, 0.8fr);
   gap: 16px;
   margin-top: 18px;
   align-items: start;
@@ -322,7 +322,7 @@ ul {
 
 .source-browser {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
   gap: 16px;
   margin-top: 18px;
 }
@@ -371,6 +371,7 @@ ul {
 
 .source-browser-main {
   padding: 16px;
+  min-width: 0;
 }
 
 .source-pane {
@@ -411,19 +412,14 @@ ul {
   vertical-align: top;
 }
 
-@media (max-width: 720px) {
-  .page-shell { padding: 18px 12px 48px; }
-
-  .page-body {
-    padding: 20px;
-    border-radius: 22px;
-  }
-
-  .source-browser {
+@media (max-width: 1180px) {
+  .example-layout {
     grid-template-columns: 1fr;
   }
+}
 
-  .example-layout {
+@media (max-width: 980px) {
+  .source-browser {
     grid-template-columns: 1fr;
   }
 
@@ -434,5 +430,14 @@ ul {
 
   .hero-actions {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .page-shell { padding: 18px 12px 48px; }
+
+  .page-body {
+    padding: 20px;
+    border-radius: 22px;
   }
 }
