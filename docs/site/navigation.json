@@ -17,6 +17,10 @@
       "path": "getting_started.md"
     },
     {
+      "title": "Phases",
+      "path": "phases.md"
+    },
+    {
       "title": "Renderer",
       "path": "renderer.md"
     },
