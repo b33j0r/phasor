@@ -41,6 +41,7 @@ code {
 }
 
 pre {
+  max-width: 100%;
   overflow-x: auto;
   padding: 18px;
   border-radius: 20px;
@@ -198,11 +199,35 @@ ul {
 .callout-grid,
 .info-grid,
 .example-grid,
-.feature-list {
+.feature-list,
+.feature-catalog,
+.feature-related-grid,
+.code-directory-grid,
+.example-layout,
+.source-browser {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
   margin-top: 18px;
+}
+
+.callout-grid,
+.info-grid,
+.example-grid,
+.feature-list {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.callout-card,
+.info-card,
+.example-card,
+.feature-item,
+.feature-definition,
+.related-example-card,
+.code-directory-card,
+.source-browser-sidebar,
+.source-browser-main,
+.page-body > * {
+  min-width: 0;
 }
 
 .callout-card,
@@ -430,12 +455,6 @@ ul {
   margin-bottom: 0.8rem;
 }
 
-.feature-catalog {
-  display: grid;
-  gap: 16px;
-  margin-top: 18px;
-}
-
 .feature-definition {
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
@@ -464,7 +483,6 @@ ul {
 }
 
 .feature-related-grid {
-  display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   margin-top: 12px;
@@ -482,10 +500,7 @@ ul {
 }
 
 .code-directory-grid {
-  display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-  margin-top: 18px;
 }
 
 .code-directory-card {
@@ -536,6 +551,38 @@ ul {
   padding: 12px 10px;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
+}
+
+@media (max-width: 1320px) {
+  .page-shell {
+    padding: 24px 16px 56px;
+  }
+
+  .page-body {
+    padding: 22px;
+  }
+
+  .site-header {
+    padding: 16px 18px;
+  }
+
+  .feature-definition,
+  .callout-card,
+  .info-card,
+  .example-card,
+  .feature-item,
+  .code-directory-card {
+    padding: 16px;
+  }
+
+  .feature-related-grid,
+  .callout-grid,
+  .info-grid,
+  .example-grid,
+  .feature-list,
+  .code-directory-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 1180px) {
