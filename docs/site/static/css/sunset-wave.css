@@ -1,4 +1,4 @@
-:root {
+html[data-theme="sunset-wave-dark"] {
   --bg:
     radial-gradient(circle at 18% 16%, rgba(255, 207, 92, 0.26), transparent 18%),
     radial-gradient(circle at 78% 14%, rgba(80, 188, 255, 0.22), transparent 22%),
@@ -12,6 +12,7 @@
   --accent-2: #68e1fd;
   --badge-bg: rgba(104, 225, 253, 0.14);
   --code-bg: rgba(12, 10, 30, 0.92);
+  --panel-shadow: 0 24px 80px rgba(55, 7, 53, 0.28);
   --sunset-gold: #ffd166;
   --sunset-cyan: #68e1fd;
   --sunset-pink: #ff79c6;
@@ -32,89 +33,84 @@
   --syntax-tag: var(--sunset-pink);
 }
 
-body { background: var(--bg); }
+html[data-theme="sunset-wave-dark"] body { background: var(--bg); }
 
-.site-header,
-.page-body {
-  box-shadow: 0 24px 80px rgba(55, 7, 53, 0.28);
-}
-
-.site-header {
+html[data-theme="sunset-wave-dark"] .site-header {
   background:
     linear-gradient(135deg, rgba(255, 209, 102, 0.07), rgba(104, 225, 253, 0.05)),
     var(--paper);
 }
 
-.page-body {
+html[data-theme="sunset-wave-dark"] .page-body {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
     var(--paper);
 }
 
-.nav-link { background: rgba(255, 255, 255, 0.07); }
+html[data-theme="sunset-wave-dark"] .nav-link { background: rgba(255, 255, 255, 0.07); }
 
-.example-card {
+html[data-theme="sunset-wave-dark"] .example-card {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
     rgba(35, 18, 69, 0.7);
 }
 
-.brand { text-shadow: 0 0 18px rgba(255, 209, 102, 0.3); }
+html[data-theme="sunset-wave-dark"] .brand { text-shadow: 0 0 18px rgba(255, 209, 102, 0.3); }
 
-code[class*="language-"],
-pre[class*="language-"] {
+html[data-theme="sunset-wave-dark"] code[class*="language-"],
+html[data-theme="sunset-wave-dark"] pre[class*="language-"] {
   color: var(--syntax-text);
 }
 
-.token.comment,
-.token.prolog,
-.token.doctype,
-.token.cdata {
+html[data-theme="sunset-wave-dark"] .token.comment,
+html[data-theme="sunset-wave-dark"] .token.prolog,
+html[data-theme="sunset-wave-dark"] .token.doctype,
+html[data-theme="sunset-wave-dark"] .token.cdata {
   color: var(--syntax-comment);
 }
 
-.token.punctuation {
+html[data-theme="sunset-wave-dark"] .token.punctuation {
   color: var(--syntax-punctuation);
 }
 
-.token.keyword,
-.token.selector,
-.token.atrule {
+html[data-theme="sunset-wave-dark"] .token.keyword,
+html[data-theme="sunset-wave-dark"] .token.selector,
+html[data-theme="sunset-wave-dark"] .token.atrule {
   color: var(--syntax-keyword);
 }
 
-.token.function,
-.token.class-name {
+html[data-theme="sunset-wave-dark"] .token.function,
+html[data-theme="sunset-wave-dark"] .token.class-name {
   color: var(--syntax-function);
 }
 
-.token.string,
-.token.char,
-.token.attr-value {
+html[data-theme="sunset-wave-dark"] .token.string,
+html[data-theme="sunset-wave-dark"] .token.char,
+html[data-theme="sunset-wave-dark"] .token.attr-value {
   color: var(--syntax-string);
 }
 
-.token.number,
-.token.boolean,
-.token.constant {
+html[data-theme="sunset-wave-dark"] .token.number,
+html[data-theme="sunset-wave-dark"] .token.boolean,
+html[data-theme="sunset-wave-dark"] .token.constant {
   color: var(--syntax-number);
 }
 
-.token.operator,
-.token.entity,
-.token.url {
+html[data-theme="sunset-wave-dark"] .token.operator,
+html[data-theme="sunset-wave-dark"] .token.entity,
+html[data-theme="sunset-wave-dark"] .token.url {
   color: var(--syntax-operator);
 }
 
-.token.property,
-.token.symbol,
-.token.builtin {
+html[data-theme="sunset-wave-dark"] .token.property,
+html[data-theme="sunset-wave-dark"] .token.symbol,
+html[data-theme="sunset-wave-dark"] .token.builtin {
   color: var(--syntax-property);
 }
 
-.token.tag,
-.token.attr-name,
-.token.regex,
-.token.important {
+html[data-theme="sunset-wave-dark"] .token.tag,
+html[data-theme="sunset-wave-dark"] .token.attr-name,
+html[data-theme="sunset-wave-dark"] .token.regex,
+html[data-theme="sunset-wave-dark"] .token.important {
   color: var(--syntax-type);
 }

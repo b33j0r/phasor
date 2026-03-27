@@ -53,7 +53,9 @@ def render_nav(navigation: list[NavigationItem], current_path: Path) -> str:
 
 def render_document(title: str, nav_html: str, body_html: str, current_path: Path) -> str:
     site_css = relative_href(current_path, Path("static/css/site.css"))
-    theme_css = relative_href(current_path, Path("static/css/sunset-wave.css"))
+    sunset_css = relative_href(current_path, Path("static/css/sunset-wave.css"))
+    solar_css = relative_href(current_path, Path("static/css/solar-wave.css"))
+    print_css = relative_href(current_path, Path("static/css/print.css"))
     favicon_svg = relative_href(current_path, Path("static/images/favicon.svg"))
     site_js = relative_href(current_path, Path("static/js/site.js"))
     prism_core = relative_href(current_path, Path("static/js/prism/prism.min.js"))
@@ -63,7 +65,7 @@ def render_document(title: str, nav_html: str, body_html: str, current_path: Pat
     prism_json = relative_href(current_path, Path("static/js/prism/prism-json.min.js"))
     return (
         "<!doctype html>\n"
-        "<html lang=\"en\">\n"
+        "<html lang=\"en\" data-theme=\"sunset-wave-dark\">\n"
         "<head>\n"
         "  <meta charset=\"utf-8\">\n"
         "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
@@ -73,13 +75,27 @@ def render_document(title: str, nav_html: str, body_html: str, current_path: Pat
         "  <link href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap\" rel=\"stylesheet\">\n"
         f"  <link rel=\"icon\" href=\"{html.escape(favicon_svg)}\" type=\"image/svg+xml\" sizes=\"any\">\n"
         f"  <link rel=\"stylesheet\" href=\"{html.escape(site_css)}\">\n"
-        f"  <link rel=\"stylesheet\" href=\"{html.escape(theme_css)}\">\n"
+        f"  <link rel=\"stylesheet\" href=\"{html.escape(sunset_css)}\">\n"
+        f"  <link rel=\"stylesheet\" href=\"{html.escape(solar_css)}\">\n"
+        f"  <link rel=\"stylesheet\" href=\"{html.escape(print_css)}\">\n"
         "</head>\n"
         "<body>\n"
         "  <div class=\"page-shell\">\n"
         "    <header class=\"site-header\">\n"
-        "      <div class=\"brand\">phasor</div>\n"
-        "      <div class=\"tagline\">ECS-first Zig game engine docs</div>\n"
+        "      <div class=\"site-header-top\">\n"
+        "        <div>\n"
+        "          <div class=\"brand\">phasor</div>\n"
+        "          <div class=\"tagline\">ECS-first Zig game engine docs</div>\n"
+        "        </div>\n"
+        "        <label class=\"theme-picker\">\n"
+        "          <span>Theme</span>\n"
+        "          <select data-theme-select>\n"
+        "            <option value=\"sunset-wave-dark\">Sunset Wave (Dark)</option>\n"
+        "            <option value=\"solar-wave-light\">Solar Wave (Light)</option>\n"
+        "            <option value=\"print\">Print</option>\n"
+        "          </select>\n"
+        "        </label>\n"
+        "      </div>\n"
         f"      {nav_html}\n"
         "    </header>\n"
         "    <main class=\"page-body\">\n"

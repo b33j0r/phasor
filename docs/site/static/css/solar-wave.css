@@ -1,0 +1,106 @@
+html[data-theme="solar-wave-light"] {
+  --bg:
+    linear-gradient(180deg, #f7f5ef 0%, #fdf1cf 28%, #ffd6b8 62%, #f3dff7 100%);
+  --paper: rgba(255, 252, 246, 0.9);
+  --ink: #2d2642;
+  --muted: #6e6384;
+  --line: rgba(76, 59, 108, 0.16);
+  --accent: #d85a33;
+  --accent-2: #2279b8;
+  --badge-bg: rgba(34, 121, 184, 0.1);
+  --code-bg: rgba(255, 249, 239, 0.96);
+  --panel-shadow: 0 18px 60px rgba(128, 87, 64, 0.12);
+  --syntax-text: #2d2642;
+  --syntax-comment: #8f7d92;
+  --syntax-punctuation: #786f8e;
+  --syntax-keyword: #c24f7a;
+  --syntax-function: #b36311;
+  --syntax-string: #2e7b5f;
+  --syntax-number: #d85a33;
+  --syntax-type: #2279b8;
+  --syntax-operator: #8154b0;
+  --syntax-property: #3062a6;
+  --syntax-tag: #c24f7a;
+}
+
+html[data-theme="solar-wave-light"] body { background: var(--bg); }
+
+html[data-theme="solar-wave-light"] .site-header {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 233, 214, 0.65)),
+    var(--paper);
+}
+
+html[data-theme="solar-wave-light"] .page-body {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 246, 233, 0.78)),
+    var(--paper);
+}
+
+html[data-theme="solar-wave-light"] .example-card,
+html[data-theme="solar-wave-light"] .info-card,
+html[data-theme="solar-wave-light"] .callout-card,
+html[data-theme="solar-wave-light"] .feature-item,
+html[data-theme="solar-wave-light"] .code-directory-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 241, 227, 0.78)),
+    var(--paper);
+}
+
+html[data-theme="solar-wave-light"] code[class*="language-"],
+html[data-theme="solar-wave-light"] pre[class*="language-"] {
+  color: var(--syntax-text);
+}
+
+html[data-theme="solar-wave-light"] .token.comment,
+html[data-theme="solar-wave-light"] .token.prolog,
+html[data-theme="solar-wave-light"] .token.doctype,
+html[data-theme="solar-wave-light"] .token.cdata {
+  color: var(--syntax-comment);
+}
+
+html[data-theme="solar-wave-light"] .token.punctuation {
+  color: var(--syntax-punctuation);
+}
+
+html[data-theme="solar-wave-light"] .token.keyword,
+html[data-theme="solar-wave-light"] .token.selector,
+html[data-theme="solar-wave-light"] .token.atrule {
+  color: var(--syntax-keyword);
+}
+
+html[data-theme="solar-wave-light"] .token.function,
+html[data-theme="solar-wave-light"] .token.class-name {
+  color: var(--syntax-function);
+}
+
+html[data-theme="solar-wave-light"] .token.string,
+html[data-theme="solar-wave-light"] .token.char,
+html[data-theme="solar-wave-light"] .token.attr-value {
+  color: var(--syntax-string);
+}
+
+html[data-theme="solar-wave-light"] .token.number,
+html[data-theme="solar-wave-light"] .token.boolean,
+html[data-theme="solar-wave-light"] .token.constant {
+  color: var(--syntax-number);
+}
+
+html[data-theme="solar-wave-light"] .token.operator,
+html[data-theme="solar-wave-light"] .token.entity,
+html[data-theme="solar-wave-light"] .token.url {
+  color: var(--syntax-operator);
+}
+
+html[data-theme="solar-wave-light"] .token.property,
+html[data-theme="solar-wave-light"] .token.symbol,
+html[data-theme="solar-wave-light"] .token.builtin {
+  color: var(--syntax-property);
+}
+
+html[data-theme="solar-wave-light"] .token.tag,
+html[data-theme="solar-wave-light"] .token.attr-name,
+html[data-theme="solar-wave-light"] .token.regex,
+html[data-theme="solar-wave-light"] .token.important {
+  color: var(--syntax-type);
+}

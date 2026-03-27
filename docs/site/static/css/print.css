@@ -1,0 +1,109 @@
+html[data-theme="print"] {
+  --bg: linear-gradient(180deg, #f6f4ef 0%, #efebe3 100%);
+  --paper: rgba(255, 255, 255, 0.96);
+  --ink: #1e1e1e;
+  --muted: #6a6a6a;
+  --line: rgba(0, 0, 0, 0.14);
+  --accent: #2e4e73;
+  --accent-2: #5b5b5b;
+  --badge-bg: rgba(46, 78, 115, 0.08);
+  --code-bg: rgba(248, 248, 248, 0.98);
+  --panel-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+  --syntax-text: #1f1f1f;
+  --syntax-comment: #7a7a7a;
+  --syntax-punctuation: #4d4d4d;
+  --syntax-keyword: #2f4d73;
+  --syntax-function: #5a4a3a;
+  --syntax-string: #2f6a48;
+  --syntax-number: #7a4d2d;
+  --syntax-type: #2f4d73;
+  --syntax-operator: #585858;
+  --syntax-property: #3f3f3f;
+  --syntax-tag: #2f4d73;
+}
+
+html[data-theme="print"] body { background: var(--bg); }
+
+html[data-theme="print"] .site-header,
+html[data-theme="print"] .page-body,
+html[data-theme="print"] .example-card,
+html[data-theme="print"] .info-card,
+html[data-theme="print"] .callout-card,
+html[data-theme="print"] .feature-item,
+html[data-theme="print"] .code-directory-card,
+html[data-theme="print"] .source-browser-sidebar,
+html[data-theme="print"] .source-browser-main,
+html[data-theme="print"] .command-group,
+html[data-theme="print"] .live-demo-note {
+  background: var(--paper);
+}
+
+html[data-theme="print"] .brand {
+  text-shadow: none;
+}
+
+html[data-theme="print"] .nav-link {
+  background: transparent;
+}
+
+html[data-theme="print"] .live-demo-frame {
+  background: #fff;
+}
+
+html[data-theme="print"] code[class*="language-"],
+html[data-theme="print"] pre[class*="language-"] {
+  color: var(--syntax-text);
+}
+
+html[data-theme="print"] .token.comment,
+html[data-theme="print"] .token.prolog,
+html[data-theme="print"] .token.doctype,
+html[data-theme="print"] .token.cdata {
+  color: var(--syntax-comment);
+}
+
+html[data-theme="print"] .token.punctuation {
+  color: var(--syntax-punctuation);
+}
+
+html[data-theme="print"] .token.keyword,
+html[data-theme="print"] .token.selector,
+html[data-theme="print"] .token.atrule {
+  color: var(--syntax-keyword);
+}
+
+html[data-theme="print"] .token.function,
+html[data-theme="print"] .token.class-name {
+  color: var(--syntax-function);
+}
+
+html[data-theme="print"] .token.string,
+html[data-theme="print"] .token.char,
+html[data-theme="print"] .token.attr-value {
+  color: var(--syntax-string);
+}
+
+html[data-theme="print"] .token.number,
+html[data-theme="print"] .token.boolean,
+html[data-theme="print"] .token.constant {
+  color: var(--syntax-number);
+}
+
+html[data-theme="print"] .token.operator,
+html[data-theme="print"] .token.entity,
+html[data-theme="print"] .token.url {
+  color: var(--syntax-operator);
+}
+
+html[data-theme="print"] .token.property,
+html[data-theme="print"] .token.symbol,
+html[data-theme="print"] .token.builtin {
+  color: var(--syntax-property);
+}
+
+html[data-theme="print"] .token.tag,
+html[data-theme="print"] .token.attr-name,
+html[data-theme="print"] .token.regex,
+html[data-theme="print"] .token.important {
+  color: var(--syntax-type);
+}
