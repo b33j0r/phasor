@@ -1242,21 +1242,31 @@ pub const Renderer = struct {
         defer shader_fragment.release();
         return switch (source.binding_mode) {
             .none => .{
-                .pipeline_opaque = try createColorPipeline(
+                .pipeline_opaque = try createCustomMaterialPipeline(
                     self.device,
                     shader_vertex,
                     shader_fragment,
                     color_format,
                     depth_format,
+                    self.quad_bind_group_layout,
+                    self.scene_environment_bind_group_layout,
+                    self.shadow_bind_group_layout,
+                    source.vertex_layout,
+                    source.binding_mode,
                     false,
                     true,
                 ),
-                .pipeline_blend = try createColorPipeline(
+                .pipeline_blend = try createCustomMaterialPipeline(
                     self.device,
                     shader_vertex,
                     shader_fragment,
                     color_format,
                     depth_format,
+                    self.quad_bind_group_layout,
+                    self.scene_environment_bind_group_layout,
+                    self.shadow_bind_group_layout,
+                    source.vertex_layout,
+                    source.binding_mode,
                     true,
                     false,
                 ),
@@ -2992,17 +3002,19 @@ fn createCustomMaterialPipeline(
 ) !*wgpu.RenderPipeline {
     var bind_group_layouts = [_]*wgpu.BindGroupLayout{ bind_group_layout, shadow_bind_group_layout, scene_environment_bind_group_layout };
     const bind_group_layout_count: usize = switch (binding_mode) {
+        .none => 0,
+        .material => 1,
         .material_scene => 2,
         .material_scene_env => blk: {
             bind_group_layouts[1] = scene_environment_bind_group_layout;
             bind_group_layouts[2] = shadow_bind_group_layout;
             break :blk 3;
         },
-        else => 1,
     };
+    const no_bind_group_layouts = [_]*wgpu.BindGroupLayout{};
     const pipeline_layout = device.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
         .bind_group_layout_count = bind_group_layout_count,
-        .bind_group_layouts = bind_group_layouts[0..].ptr,
+        .bind_group_layouts = if (bind_group_layout_count > 0) bind_group_layouts[0..].ptr else no_bind_group_layouts[0..].ptr,
     }) orelse return error.PipelineLayoutFailed;
     defer pipeline_layout.release();
 
@@ -3024,6 +3036,10 @@ fn createCustomMaterialPipeline(
         .{ .format = .float32x3, .offset = @sizeOf([3]f32), .shader_location = 1 },
         .{ .format = .float32x4, .offset = @sizeOf([3]f32) * 2, .shader_location = 2 },
         .{ .format = .float32x2, .offset = @sizeOf([3]f32) * 2 + @sizeOf([4]f32), .shader_location = 3 },
+    };
+    const pos3_color4_attributes = [_]wgpu.VertexAttribute{
+        .{ .format = .float32x3, .offset = 0, .shader_location = 0 },
+        .{ .format = .float32x4, .offset = @sizeOf([3]f32), .shader_location = 1 },
     };
     const instance_attributes_default = [_]wgpu.VertexAttribute{
         .{ .format = .float32x4, .offset = 0, .shader_location = switch (vertex_layout_kind) {
@@ -3195,7 +3211,20 @@ fn createCustomMaterialPipeline(
                 .step_mode = .instance,
             },
         },
-        else => return error.PipelineCreationFailed,
+        .pos3_color4 => [_]wgpu.VertexBufferLayout{
+            .{
+                .array_stride = @sizeOf(VertexPos3Color),
+                .attribute_count = pos3_color4_attributes.len,
+                .attributes = pos3_color4_attributes[0..].ptr,
+                .step_mode = .vertex,
+            },
+            .{
+                .array_stride = @sizeOf(InstanceData),
+                .attribute_count = instance_attributes.len,
+                .attributes = instance_attributes[0..].ptr,
+                .step_mode = .instance,
+            },
+        },
     };
     const blend_state = wgpu.BlendState{
         .color = .{
