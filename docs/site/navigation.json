@@ -17,6 +17,10 @@
       "path": "getting_started.md"
     },
     {
+      "title": "ECS",
+      "path": "ecs.md"
+    },
+    {
       "title": "Phases",
       "path": "phases.md"
     },
