@@ -1,5 +1,9 @@
-pub fn setupColorGrading(commands: *ecs.Commands) !void {
-    if (commands.hasResource(render.ColorGradingSettings)) return;
+pub fn setupColorGrading(commands: *ecs.Commands, color_grading_ready: HasResource(render.ColorGradingSettings)) !void {
+    if (color_grading_ready.value) return;
+    try ensureColorGrading(commands);
+}
+
+pub fn ensureColorGrading(commands: *ecs.Commands) !void {
     try commands.insertResource(render.ColorGradingSettings{
         .grade = .filmic,
     });

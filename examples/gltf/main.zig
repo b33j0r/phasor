@@ -43,10 +43,12 @@ fn setupScene(
     build_ctx: ResOpt(render.BuildContext),
     assets_ctx: ResOpt(assets.AssetsContext),
     gltf_assets: ResMut(Assets),
+    scene_ready: HasResource(SceneReady),
+    scene_hydrated: HasResource(SceneHydrated),
 ) !void {
-    if (commands.hasResource(SceneReady)) return;
+    if (scene_ready.value) return;
     const scene_asset = &gltf_assets.ptr.flight_helmet;
-    if (!commands.hasResource(SceneHydrated)) {
+    if (!scene_hydrated.value) {
         try hydrateEmbeddedFlightHelmet(commands.allocator, scene_asset);
         try commands.insertResource(SceneHydrated{});
     }
@@ -130,9 +132,11 @@ fn debugSceneStatus(
     imported: ResOpt(assets.ImportedScene),
     queue: Res(render.RenderQueue),
     meshes: Query(.{render.MeshInstance}),
+    scene_ready: HasResource(SceneReady),
+    debug_reported: HasResource(DebugReported),
 ) !void {
-    if (!commands.hasResource(SceneReady)) return;
-    if (commands.hasResource(DebugReported)) return;
+    if (!scene_ready.value) return;
+    if (debug_reported.value) return;
 
     var mesh_count: usize = 0;
     var it = meshes.iterator();
@@ -203,6 +207,7 @@ const render = phasor.renderer;
 
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
+const HasResource = ecs.system_params.HasResource;
 const ResMut = ecs.system_params.ResMut;
 const ResOpt = ecs.system_params.ResOpt;
 const ElapsedTime = modules.TimeModule.ElapsedTime;

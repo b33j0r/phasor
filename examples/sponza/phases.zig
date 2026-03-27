@@ -9,8 +9,12 @@ pub const Loading = struct {
     pub fn enter(_: *Loading, ctx: *modules.PhasesModule.PhaseContext) !void {
         var commands = ecs.Commands.init(ctx.allocator, ctx.io, ctx.world);
         defer commands.deinit();
-        try loading.ensureSceneLoader(&commands);
-        try lighting.setupColorGrading(&commands);
+        if (!commands.hasResource(shared.SceneLoaderState)) {
+            try loading.ensureSceneLoaderPresent(&commands);
+        }
+        if (!commands.hasResource(render.ColorGradingSettings)) {
+            try lighting.ensureColorGrading(&commands);
+        }
         try modules.TimeModule.setPaused(&commands, false);
         if (!commands.isEmpty()) {
             try commands.apply();

@@ -1,6 +1,9 @@
-pub fn ensureSceneLoader(commands: *ecs.Commands) !void {
-    if (commands.hasResource(SceneLoaderState)) return;
+pub fn ensureSceneLoader(commands: *ecs.Commands, loader_ready: HasResource(SceneLoaderState)) !void {
+    if (loader_ready.value) return;
+    try ensureSceneLoaderPresent(commands);
+}
 
+pub fn ensureSceneLoaderPresent(commands: *ecs.Commands) !void {
     var loader = try SceneLoaderState.init(commands.allocator, commands.io);
     errdefer loader.deinit();
     try loader.agent.start(commands.io.*, runSceneLoader, SceneLoaderTaskContext{
@@ -18,11 +21,12 @@ pub fn ensureLoadingScreenVisuals(
     core_shaders: ResMut(render.CoreShaders),
     scene_assets: ResMut(Assets),
     screen_state: ResOpt(LoadingScreenState),
+    visuals_ready: HasResource(LoadingScreenVisualState),
     current_phase: Res(phases.SponzaPhases.CurrentPhase),
 ) !void {
     if (screen_state.ptr == null) return;
     if (current_phase.ptr.phase != .Loading) return;
-    if (commands.hasResource(LoadingScreenVisualState)) return;
+    if (visuals_ready.value) return;
 
     const build_ctx_res = build_ctx.ptr orelse return;
     try build_ctx_res.ensureCoreColorPos3Color4Shader(&core_shaders.ptr.color_pos3_color4);
@@ -84,8 +88,9 @@ pub fn advanceSceneFinalize(
     scene_assets: ResMut(Assets),
     loader: ResMut(SceneLoaderState),
     finalize_opt: ResMutOpt(SceneFinalizeState),
+    scene_ready: HasResource(SceneReady),
 ) !void {
-    if (commands.hasResource(SceneReady)) return;
+    if (scene_ready.value) return;
     if (loader.ptr.failed != null) return;
 
     const build_ctx_res = build_ctx.ptr orelse return;
@@ -755,6 +760,7 @@ const modules = phasor.modules;
 const physics = phasor.physics;
 const render = phasor.renderer;
 
+const HasResource = ecs.system_params.HasResource;
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
