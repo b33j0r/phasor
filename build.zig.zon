@@ -1,5 +1,5 @@
 .{
-    .name = .phasor_lite,
+    .name = .phasor,
     .version = "0.0.1",
     .minimum_zig_version = "0.16.0-dev.2277+e6ac1b77f",
     .dependencies = .{
@@ -21,5 +21,5 @@
         },
     },
     .paths = .{""},
-    .fingerprint = 0xff78fde222b7f152,
+    .fingerprint = 0x9ae1b1f9078cbe5d,
 }

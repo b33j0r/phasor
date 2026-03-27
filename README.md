@@ -1,128 +1,144 @@
-# `phasor-lite`
+# `phasor`
 
-ECS-first game library for Zig with native + wasm WebGPU backends.
+`phasor` is an ECS-first Zig game engine with native and browser WebGPU backends.
 
-## Quick Start
+Zig `0.16-dev` APIs are assumed throughout the codebase.
 
-Run examples:
+## What Exists Today
+
+Engine coverage in the repo includes:
+- ECS schedules, queries, resources, hierarchy, and phases
+- native and wasm WebGPU rendering
+- 2D sprite/textured-quad rendering and 3D scene examples
+- glTF scene import
+- physics integration
+- audio and metrics modules
+
+Backend parity is an explicit goal. Features added on one backend should generally exist on the other as well.
+
+## Package Name
+
+Downstream projects should depend on `phasor` as dependency name `phasor` and import it with:
+
+```zig
+const phasor = @import("phasor");
+```
+
+## Build And Run
+
+From `phasor/`:
+
+```bash
+zig build test
+```
+
+Native examples:
 
 ```bash
 zig build run-triangle
 zig build run-bouncing-ball
+zig build run-particles
 zig build run-cube
+zig build run-physics-cubes
+zig build run-gltf
+zig build run-warehouse
+zig build run-shadows
+zig build run-sponza
 zig build run-ecs
 zig build run-window
 ```
 
-Wasm builds:
+Wasm examples:
 
 ```bash
 zig build run-triangle-wasm
 zig build run-bouncing-ball-wasm
+zig build run-particles-wasm
 zig build run-cube-wasm
+zig build run-physics-cubes-wasm
+zig build run-gltf-wasm
+zig build run-warehouse-wasm
+zig build run-shadows-wasm
 ```
 
-## ECS Tutorial
+Build-only web bundles:
 
-### 1. Build an app with modules and systems
-
-From `examples/cube/main.zig`:
-
-```zig
-const App = struct {
-    pub fn configure(app: *ecs.App) !void {
-        try app.installModule(modules.TimeModule);
-        try app.installModule(modules.ParentModule);
-        try app.installModule(modules.RenderModule);
-
-        try app.addSystemTo("Startup", setupScene);
-        try app.addSystemTo("Update", spinCube);
-    }
-};
-
-pub const main = platform.main(App);
+```bash
+zig build web-triangle
+zig build web-cube
+zig build web-gltf
+zig build web-warehouse
+zig build web-shadows
 ```
 
-### 2. Spawn entities as component tuples
+Sponza assets are fetched separately:
 
-From `examples/bouncing-ball/main.zig`:
-
-```zig
-const ball_entity = try commands.createEntity(.{
-    Ball{ .radius = radius },
-    Velocity{ .v = .{ .x = 220.0, .y = 160.0 } },
-    Transform{ .translation = start },
-    MeshInstance{ .mesh_handle = outer_mesh, .color = Color.BLACK },
-});
+```bash
+zig build fetch-sponza
+zig build run-sponza
 ```
 
-### 3. Update state with typed queries and resources
+## Example Guide
 
-From `examples/bouncing-ball/main.zig`:
+- `triangle`: smallest render path
+- `bouncing-ball`: 2D motion, collisions, hierarchy
+- `particles`: particle rendering
+- `cube`: 3D transforms and hierarchy
+- `physics-cubes`: physics-backed 3D scene
+- `gltf`: glTF scene loading
+- `warehouse`: larger scene/render example
+- `shadows`: shadow pipeline work
+- `sponza`: native-only scene used for current normals/render investigation
+- `ecs`: ECS-only example with no renderer
+- `window`: minimal window/platform setup
 
-```zig
-fn integrateMotion(dt: Res(DeltaTime), query: Query(.{ Transform, Velocity })) void {
-    const step: f32 = @floatCast(dt.deref().seconds);
-    var it = query.iterator();
-    while (it.next()) |row| {
-        const transform = row.get(Transform) orelse continue;
-        const velocity = row.get(Velocity) orelse continue;
-        transform.translation.x += velocity.v.x * step;
-        transform.translation.y += velocity.v.y * step;
-    }
-}
-```
+## Web Notes
 
-### 4. Use hierarchy components for local-space transforms
-
-From `examples/cube/main.zig` and `examples/bouncing-ball/main.zig`:
-
-```zig
-_ = try commands.createEntity(.{
-    Parent{ .id = parent_entity },
-    LocalTransform{ .translation = .{ .x = 0.0, .y = 0.0, .z = 1.0 } },
-    Transform{},
-    Sprite{ .size_mode = .{ .Manual = .{ .width = 60.0, .height = 60.0 } } },
-    MaterialInstance{ .material = material },
-});
-```
-
-### 5. Use tags to scope system behavior
-
-From `examples/cube/main.zig`:
-
-```zig
-const CubeRoot = struct {};
-
-fn spinCube(elapsed: Res(ElapsedTime), query: Query(.{ Transform, CubeRoot })) void {
-    // rotate only entities explicitly tagged as cube roots
-}
-```
-
-## Examples at a Glance
-
-- `triangle`: smallest render setup
-- `bouncing-ball`: motion, collision, parent/child local transforms
-- `cube`: 3D parent hierarchy + tag-scoped rotation
-- `ecs`: pure ECS systems/events/phases (no rendering)
-- `window`: window module only
-
-## Serve WebGPU over HTTPS (LAN / Phone)
-
-WebGPU requires a secure context for non-localhost devices.
+WebGPU requires a secure context off localhost. For LAN/device testing:
 
 ```bash
 mkcert -install
 zig build run-cube-wasm -- --host 0.0.0.0 --https --no-open
 ```
 
-Browse to your LAN hostname/IP over `https://...:8443`.
+Then browse to your host machine over `https://<host>:8443`.
 
 Notes:
 - `0.0.0.0` is bind-only; do not browse to it directly.
-- HTTPS proxy requires `python3`.
-- To include a LAN IP in the cert:
+- `python3` is required for the HTTPS proxy path.
+- wasm examples now serve from their own example output trees, not a single shared top-level web directory.
 
-```bash
-mkcert -cert-file local/tls/phasor.pem -key-file local/tls/phasor-key.pem b3.local <LAN-IP> 127.0.0.1 ::1 localhost
+## Development Notes
+
+- Prefer `std.log` over `std.debug.print`.
+- Use `std.heap.c_allocator` outside entrypoint-specific setup/teardown unless a child arena is justified.
+- Root executables/examples that need verbose logs should set:
+
+```zig
+pub const std_options = phasor.common.logging.stdOptions(.debug);
 ```
+
+- Runtime diagnostics are opt-in by default:
+  - `platform.Options.install_crash_dump = false`
+  - `platform.Options.install_soak_monitor = false`
+  - `platform.Options.pause_on_gpu_error = false`
+  - `SoakMonitorSettings.enabled = false`
+
+## ECS Notes
+
+Default schedules include:
+
+```text
+WindowCreate
+AssetsLoad
+Startup
+BeforeFrame
+Update
+Render
+AfterFrame
+Shutdown
+AssetsUnload
+WindowDestroy
+```
+
+For `modules.PhasesModule`, phase-specific systems should be registered from phase `enter` with `ctx.addSystem(...)` rather than installed globally and guarded later.

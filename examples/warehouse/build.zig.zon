@@ -6,7 +6,7 @@
         .phasor = .{
             .path = "../..",
             // TIP: Delete the `.path` line and use
-            // `zig fetch --save https://github.com/b33j0r/phasor-lite#main`
+            // `zig fetch --save https://github.com/b33j0r/phasor#main`
             // to create your own independent project from this example.
         },
     },

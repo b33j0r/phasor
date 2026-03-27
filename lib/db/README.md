@@ -1,4 +1,4 @@
-# phasor-lite db
+# phasor db
 
 A compact ECS storage layer focused on readable, predictable data movement.
 
