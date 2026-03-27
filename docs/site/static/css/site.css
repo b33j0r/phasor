@@ -54,6 +54,11 @@ pre[class*="language-"] {
   text-shadow: none;
 }
 
+code[class*="language-"] {
+  padding: 0;
+  border-radius: 0;
+}
+
 .page-shell {
   max-width: var(--page-max-width);
   margin: 0 auto;
