@@ -49,6 +49,7 @@ def render_nav(navigation: list[NavigationItem], current_path: Path) -> str:
 def render_document(title: str, nav_html: str, body_html: str, current_path: Path) -> str:
     site_css = relative_href(current_path, Path("static/css/site.css"))
     theme_css = relative_href(current_path, Path("static/css/sunset-wave.css"))
+    favicon_svg = relative_href(current_path, Path("static/images/favicon.svg"))
     prism_core = relative_href(current_path, Path("static/js/prism/prism.min.js"))
     prism_zig = relative_href(current_path, Path("static/js/prism/prism-zig.min.js"))
     prism_wgsl = relative_href(current_path, Path("static/js/prism/prism-wgsl.min.js"))
@@ -64,6 +65,7 @@ def render_document(title: str, nav_html: str, body_html: str, current_path: Pat
         "  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
         "  <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n"
         "  <link href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap\" rel=\"stylesheet\">\n"
+        f"  <link rel=\"icon\" href=\"{html.escape(favicon_svg)}\" type=\"image/svg+xml\" sizes=\"any\">\n"
         f"  <link rel=\"stylesheet\" href=\"{html.escape(site_css)}\">\n"
         f"  <link rel=\"stylesheet\" href=\"{html.escape(theme_css)}\">\n"
         "</head>\n"
