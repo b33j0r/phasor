@@ -442,16 +442,17 @@ pub fn setSurfaceSize(
 }
 
 fn emitSceneMetricsSystem(
-    bus: ResMut(metrics.Bus),
+    bus_opt: ResMutOpt(metrics.Bus),
     scene_stats_mode_opt: ResOpt(render.SceneStatsMode),
     scene_stats_snapshot_opt: ResOpt(render.SceneStatsSnapshot),
 ) void {
+    const bus = bus_opt.ptr orelse return;
     const mode = scene_stats_mode_opt.ptr orelse return;
     if (!mode.enabled) return;
 
     const snapshot = if (scene_stats_snapshot_opt.ptr) |stats| stats.* else render.SceneStatsSnapshot{};
     const size = snapshot.size();
-    metrics.emitBus(true, bus.ptr, .{
+    metrics.emitBus(true, bus, .{
         .scene_mesh_count = metrics.gauge(snapshot.mesh_count),
         .scene_size_x = metrics.gauge(size.x),
         .scene_size_y = metrics.gauge(size.y),
@@ -468,6 +469,7 @@ const metrics = @import("metrics");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const ResMut = ecs.system_params.ResMut;
+const ResMutOpt = ecs.system_params.ResMutOpt;
 const ResOpt = ecs.system_params.ResOpt;
 const schedule = ecs.schedule;
 const std = @import("std");

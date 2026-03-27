@@ -67,14 +67,15 @@ fn accumulate(
 }
 
 fn emitAuthoringMetrics(
-    bus: ResMut(metrics.Bus),
+    bus_opt: ResMutOpt(metrics.Bus),
     mode_opt: ResOpt(render.SceneStatsMode),
     stats: ResMut(lighting.AuthoringStats),
 ) void {
+    const bus = bus_opt.ptr orelse return;
     const mode = mode_opt.ptr orelse return;
     if (!mode.enabled) return;
 
-    metrics.emitBus(true, bus.ptr, .{
+    metrics.emitBus(true, bus, .{
         .lights_total = metrics.gauge(stats.ptr.total_lights),
         .lights_dynamic = metrics.gauge(stats.ptr.dynamic_lights),
         .lights_point = metrics.gauge(stats.ptr.point_lights),
@@ -91,5 +92,6 @@ const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const Query = ecs.system_params.Query;
 const ResMut = ecs.system_params.ResMut;
+const ResMutOpt = ecs.system_params.ResMutOpt;
 const ResOpt = ecs.system_params.ResOpt;
 const Without = ecs.system_params.Without;

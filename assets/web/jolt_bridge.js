@@ -435,7 +435,6 @@ export function createJoltEnv(getMemoryView) {
       Jolt.destroy(linearVelocity);
       Jolt.destroy(groundNormal);
       Jolt.destroy(groundVelocity);
-      Jolt.destroy(groundBodyId);
     }
   }
 
