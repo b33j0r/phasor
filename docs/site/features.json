@@ -1,72 +1,242 @@
 {
   "features": {
-    "render-bootstrap": {
-      "title": "Render Bootstrap",
-      "summary": "Minimal native and wasm startup path for a renderable app."
+    "audio": {
+      "title": "Audio",
+      "summary": "Audio in phasor is component-driven. You attach a `SoundPlayer` with a source and playback settings, and the audio module handles the long-running state from there.",
+      "paragraphs": [
+        "That keeps the code close to the rest of your scene setup. Background music, ambient loops, and one-shot sounds all enter the world the same way as cameras, meshes, and lights, which makes it easy to reason about startup order and teardown.",
+        "The `warehouse` example is the best starting point because it uses a looping background track in a full scene. It shows the simple path first, before you add gameplay events, distance-based behavior, or multiple channels."
+      ],
+      "code_example": {
+        "path": "examples/warehouse/main.zig",
+        "start": 100,
+        "end": 107,
+        "caption": "A looping music track is just another spawned entity."
+      }
     },
     "camera": {
       "title": "Cameras",
-      "summary": "Viewport setup, layering, and camera configuration."
-    },
-    "sprites": {
-      "title": "Sprites",
-      "summary": "2D sprite and textured-quad rendering."
-    },
-    "particles": {
-      "title": "Particles",
-      "summary": "Particle geometry, update loops, and particle-focused rendering."
-    },
-    "physics": {
-      "title": "Physics",
-      "summary": "Jolt-backed rigid bodies, colliders, and character movement."
-    },
-    "renderer-3d": {
-      "title": "3D Rendering",
-      "summary": "3D meshes, transforms, and scene-facing cameras."
-    },
-    "scene-import": {
-      "title": "Scene Import",
-      "summary": "glTF and imported-scene workflows."
-    },
-    "wasm-assets": {
-      "title": "WASM Asset Strategy",
-      "summary": "Embedded/resource-aware asset loading patterns for browser builds."
-    },
-    "prepared-scene": {
-      "title": "Prepared Scene Pipeline",
-      "summary": "Background CPU preparation and staged application of large imported scenes."
-    },
-    "procedural-sky": {
-      "title": "Procedural Sky",
-      "summary": "Generated sky shading, including layered and atmospheric variants."
-    },
-    "panorama-sky": {
-      "title": "Panorama Sky",
-      "summary": "Panorama environment textures and skybox-style presentation."
-    },
-    "lighting": {
-      "title": "Lighting",
-      "summary": "Ambient, directional, point, and environment lighting."
-    },
-    "audio": {
-      "title": "Audio",
-      "summary": "Sound playback and audio module integration."
-    },
-    "fps-controller": {
-      "title": "FPS Controller",
-      "summary": "First-person movement, camera control, and character controller integration."
-    },
-    "pbr": {
-      "title": "PBR",
-      "summary": "Material workflows with metallic/roughness and scene environment lighting."
-    },
-    "normal-maps": {
-      "title": "Normal Maps",
-      "summary": "Normal-map shading and runtime tuning/debug controls."
+      "summary": "A camera decides both what gets drawn and how it gets framed. In most examples that means one scene camera for the world and one top-left viewport camera for text or metrics.",
+      "paragraphs": [
+        "The camera primitive matters early because it is the point where scene setup becomes visible. Perspective settings, viewport mode, and camera layers are the pieces you usually touch first, and they stay relevant as the scene gets more complex.",
+        "The smallest examples keep this easy to see: the `triangle` example uses a centered viewport camera, while the 3D examples add a perspective camera plus a second overlay camera. That pattern carries through the rest of the docs."
+      ],
+      "code_example": {
+        "path": "examples/triangle/main.zig",
+        "start": 21,
+        "end": 26,
+        "caption": "A minimal camera setup inserts a clear color and then spawns a viewport camera on the layer you want to see."
+      }
     },
     "color-grading": {
       "title": "Color Grading",
-      "summary": "Post-tonemap color grading and renderer tuning."
+      "summary": "Color grading lets you push the final tone of a scene without rebuilding materials. It sits near the end of the frame and is useful once lighting is already doing the heavy lifting.",
+      "paragraphs": [
+        "In practice, color grading is a tuning tool. It helps separate the broad lighting model from the final presentation pass, which is especially useful when you want one scene to support a few different moods or debug looks without reauthoring textures.",
+        "The `sponza` example treats grading as a runtime control. That makes it a good reference because you can see both the initial setup and the input-driven adjustments in one place."
+      ],
+      "code_example": {
+        "path": "examples/sponza/gameplay.zig",
+        "start": 176,
+        "end": 188,
+        "caption": "The example cycles through grading presets by updating `render.ColorGradingSettings` as a resource."
+      }
+    },
+    "fps-controller": {
+      "title": "FPS Controller",
+      "summary": "The first-person controller features combine character movement, collision, and camera placement into one reusable gameplay shape.",
+      "paragraphs": [
+        "This is the point where renderer and simulation meet. A player entity carries the controller and physics state, while a separate camera entity follows at an eye-height offset so movement and view rules stay easy to adjust independently.",
+        "The `warehouse` and `shadows` examples are the clearest references here. They show the controller inside scenes that also use lighting, skies, and collision, which is usually the combination you care about when you are prototyping an explorable space."
+      ],
+      "code_example": {
+        "path": "examples/warehouse/main.zig",
+        "start": 109,
+        "end": 146,
+        "caption": "The controller pattern uses one player entity for movement state and a separate camera entity for the view."
+      }
+    },
+    "lighting": {
+      "title": "Lighting",
+      "summary": "Lighting in phasor is scene-oriented: ambient light, exposure, environment light, and explicit light entities all work together to define the look of a space.",
+      "paragraphs": [
+        "The useful mental model is to separate base illumination from authored lights. Ambient and environment settings establish the floor, then directional or point lights give the scene shape. Once that is in place, shadows and grading become tuning tools instead of compensation.",
+        "The `shadows` and `sponza` examples are the best references because they show lighting in scenes with enough scale and material variety for the differences to be obvious. They are where you should look once a flatly lit mesh is no longer enough."
+      ],
+      "code_example": {
+        "path": "examples/shadows/main.zig",
+        "start": 135,
+        "end": 172,
+        "caption": "This setup combines environment light, shadow settings, and a shadow-casting directional light."
+      }
+    },
+    "normal-maps": {
+      "title": "Normal Maps",
+      "summary": "Normal maps add surface detail without increasing mesh density. In phasor they are part of the material-and-shader story, with runtime controls that make it easier to tune imported content.",
+      "paragraphs": [
+        "The main reason this feature deserves its own entry is that imported scenes are rarely perfect on the first pass. A scene can be technically correct and still look too sharp, too flat, or too noisy until the normal response is tuned against the rest of the lighting.",
+        "The `sponza` example exposes normal-map scale as a live setting, which makes it a good reference for both the renderer capability and the practical workflow of dialing materials into place."
+      ],
+      "code_example": {
+        "path": "examples/sponza/gameplay.zig",
+        "start": 222,
+        "end": 235,
+        "caption": "Normal-map strength is just another renderer resource, which makes it easy to cycle or tune at runtime."
+      }
+    },
+    "panorama-sky": {
+      "title": "Panorama Sky",
+      "summary": "Panorama skies wrap the scene in a texture-driven environment. They are a good fit when you already have an HDR panorama or want the sky to match a captured location.",
+      "paragraphs": [
+        "This is the fastest route to a believable backdrop because the sky geometry and follow-camera behavior are handled for you. Once the material is in place, the sky becomes part of the scene rather than a separate full-screen effect you have to manage manually.",
+        "The `warehouse` example is the most direct reference. It pairs a panorama sky with explorable geometry, audio, and first-person movement, which makes it easy to judge whether the environment feels coherent."
+      ],
+      "code_example": {
+        "path": "examples/warehouse/main.zig",
+        "start": 88,
+        "end": 98,
+        "caption": "A panorama sky is spawned as scene content on a background layer and configured to follow the camera."
+      }
+    },
+    "particles": {
+      "title": "Particles",
+      "summary": "Particles in phasor are built from explicit geometry and update systems rather than a sealed effect editor. That keeps them composable with the rest of the ECS and renderer stack.",
+      "paragraphs": [
+        "The first decision is usually the particle shape: billboard quads for soft effects, cubes or spheres for chunkier motion, and custom shaders when you need more character. From there, the update loop is yours, which makes particles a good fit for gameplay-driven effects.",
+        "The `particles` example is the reference to start from because it creates several particle geometries up front, assigns shaders explicitly, and then drives the simulation in ordinary systems."
+      ],
+      "code_example": {
+        "path": "examples/particles/main.zig",
+        "start": 74,
+        "end": 92,
+        "caption": "The particle example builds geometry and shaders explicitly, which is the core pattern behind the effect."
+      }
+    },
+    "pbr": {
+      "title": "PBR",
+      "summary": "PBR in phasor is the material path used for imported scenes that need metal, roughness, tangent-space normals, and environment response to feel convincing.",
+      "paragraphs": [
+        "This matters once simple unlit or flat color materials stop being enough. The important primitives are the shader binding mode, the vertex layout that carries tangent-space data, and the environment inputs that give reflective or rough materials something to react to.",
+        "The `sponza` example is the right place to study this because it pulls the whole stack together: imported geometry, HDR environment light, normal maps, and interactive tuning controls."
+      ],
+      "code_example": {
+        "path": "examples/sponza/shared.zig",
+        "start": 223,
+        "end": 229,
+        "caption": "The scene shader declares the PBR-oriented vertex layout and scene-environment binding mode."
+      }
+    },
+    "physics": {
+      "title": "Physics",
+      "summary": "The physics feature covers rigid bodies, colliders, fixed-step simulation, and character movement through the Jolt backend.",
+      "paragraphs": [
+        "The engine-facing primitive is the physics module configuration. That is where you decide backend, fixed timestep, gravity, and substep behavior, and the rest of the scene builds on top of that foundation.",
+        "The `physics-cubes`, `warehouse`, and `shadows` examples show the range of use cases: simple stacked bodies, walkable scenes, and first-person traversal with lighting and collision all active at once."
+      ],
+      "code_example": {
+        "path": "examples/physics-cubes/main.zig",
+        "start": 27,
+        "end": 38,
+        "caption": "A typical setup installs `PhysicsModule` early and locks in backend, timestep, and gravity."
+      }
+    },
+    "prepared-scene": {
+      "title": "Prepared Scene Pipeline",
+      "summary": "Prepared scenes exist for imported content that is too heavy to treat like a tiny demo asset. The pipeline lets you parse and precompute work before applying the result to the live world.",
+      "paragraphs": [
+        "That distinction matters for large scenes because loading is no longer just file I/O. Material overrides, collision baking, mesh layout decisions, and staged application all become part of the feature instead of ad hoc setup code scattered across startup.",
+        "The `sponza` example is the best reference because it uses the prepared-scene path exactly where it pays off: a large imported environment with lighting, collision, and renderer-specific overrides."
+      ],
+      "code_example": {
+        "path": "examples/sponza/loading.zig",
+        "start": 687,
+        "end": 735,
+        "caption": "Preparing a large scene means applying importer overrides and baking the assets before they enter the live world."
+      }
+    },
+    "procedural-sky": {
+      "title": "Procedural Sky",
+      "summary": "Procedural skies generate the background from parameters instead of a panorama texture. They are useful when you want the sky to react to time, lighting, or a chosen atmospheric model.",
+      "paragraphs": [
+        "This feature is valuable because it keeps the sky editable. You can swap algorithms, tune color and exposure against the rest of the scene, and build a look that fits stylized or dynamic environments without waiting on a new texture asset.",
+        "The `shadows` and `sponza` examples show the two strengths of the approach: procedural skies as a scene backdrop, and procedural skies as something you can tune alongside directional lighting and environment response."
+      ],
+      "code_example": {
+        "path": "examples/shadows/main.zig",
+        "start": 202,
+        "end": 215,
+        "caption": "A procedural sky chooses its algorithm and shader up front, then follows the camera as part of the scene."
+      }
+    },
+    "render-bootstrap": {
+      "title": "Render Bootstrap",
+      "summary": "Render bootstrap is the shortest path from an empty app to pixels on screen. It is the feature behind the smallest examples and the right place to start when you are checking your mental model.",
+      "paragraphs": [
+        "The important idea is that the renderer comes online through ordinary ECS setup. You install the default platform modules, register a startup system, create some renderable data, and add a camera. That is the whole shape of the first successful app.",
+        "The `triangle` example is intentionally plain because it proves that the build, module install path, scene creation, and viewport setup all work before you introduce imported assets, custom shaders, or simulation."
+      ],
+      "code_example": {
+        "path": "examples/triangle/main.zig",
+        "start": 10,
+        "end": 26,
+        "caption": "This is the smallest complete scene setup: one triangle, a clear color, and a camera."
+      }
+    },
+    "renderer-3d": {
+      "title": "3D Rendering",
+      "summary": "The 3D renderer path is built around meshes, mesh instances, materials, transforms, and a perspective camera. Those are the primitives to learn before worrying about the larger module surface.",
+      "paragraphs": [
+        "A `MeshInstance` connects geometry to material state, while the transform and layer decide where it lives and which cameras see it. Once that clicks, imported scenes and more advanced materials stop feeling like a separate system.",
+        "The `cube` and `gltf` examples are the two best entry points. `cube` is minimal and explicit, while `gltf` shows the same primitives inside a scene import workflow."
+      ],
+      "code_example": {
+        "path": "examples/cube/main.zig",
+        "start": 39,
+        "end": 59,
+        "caption": "A single mesh instance plus a perspective camera is the core 3D rendering shape."
+      }
+    },
+    "scene-import": {
+      "title": "Scene Import",
+      "summary": "Scene import is the path from authored content to live entities. It covers parsing scene data, instantiating meshes and materials, and then treating the result like ordinary scene content.",
+      "paragraphs": [
+        "That is the important boundary: once the scene is imported, the rest of your code should feel like normal ECS and renderer work. Cameras, transforms, lighting, and runtime systems do not need a separate mental model just because the content started in glTF.",
+        "The `gltf` example is the compact reference, and `sponza` is the heavyweight one. Together they show the small and large ends of the same feature."
+      ],
+      "code_example": {
+        "path": "examples/gltf/main.zig",
+        "start": 65,
+        "end": 76,
+        "caption": "Instantiating a scene turns parsed asset data into live renderer resources and entities."
+      }
+    },
+    "sprites": {
+      "title": "Sprites",
+      "summary": "Sprites cover the 2D textured-quad path. They are useful for decals, UI-adjacent elements, and lightweight scene items that do not need custom mesh data.",
+      "paragraphs": [
+        "The sprite component handles the size and color side of the primitive, while the material decides where the image comes from. That makes sprites a clean bridge between 2D presentation and the rest of the renderer rather than a separate subsystem.",
+        "The `bouncing-ball` example is a good first reference because it uses a sprite as a world-space decal attached to a moving object. That keeps the example visually simple while still proving the transform and material interactions."
+      ],
+      "code_example": {
+        "path": "examples/bouncing-ball/main.zig",
+        "start": 91,
+        "end": 111,
+        "caption": "This decal entity shows the typical sprite setup: transform, sprite sizing, material, and a camera that can see it."
+      }
+    },
+    "wasm-assets": {
+      "title": "WASM Asset Strategy",
+      "summary": "Browser builds do not get the same file-loading story as native builds, so wasm examples need an asset strategy that is explicit about what is embedded and what is served.",
+      "paragraphs": [
+        "That makes this feature more than a build toggle. Scene files, binary buffers, and images all need a path that the browser runtime can actually resolve, which is why some examples embed bytes directly and others install assets into the served web bundle.",
+        "The `gltf` example is the reference here because it hydrates an imported scene from embedded bytes on wasm, while still keeping the scene-import shape recognizable."
+      ],
+      "code_example": {
+        "path": "examples/gltf/main.zig",
+        "start": 156,
+        "end": 176,
+        "caption": "The wasm-friendly path hydrates scene buffers and images from embedded data before import."
+      }
     }
   }
 }

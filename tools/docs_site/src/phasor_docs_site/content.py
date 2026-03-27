@@ -169,12 +169,7 @@ def render_embed(
         rel_path = embed.attributes["path"]
         file_path = paths.repo_root / rel_path
         content = file_path.read_text()
-        return (
-            '<section class="code-block">'
-            f'<div class="code-label">{html.escape(rel_path)}</div>'
-            f'<pre class="language-{code_language_for_path(rel_path)}"><code class="language-{code_language_for_path(rel_path)}">{html.escape(content)}</code></pre>'
-            "</section>"
-        )
+        return render_code_block(rel_path, content)
     if embed.kind == "include_lines":
         rel_path = embed.attributes["path"]
         start_line = int(embed.attributes["start"])
@@ -182,12 +177,7 @@ def render_embed(
         file_path = paths.repo_root / rel_path
         file_lines = file_path.read_text().splitlines()
         snippet = "\n".join(file_lines[start_line - 1 : end_line])
-        return (
-            '<section class="code-block">'
-            f'<div class="code-label">{html.escape(rel_path)}:{start_line}-{end_line}</div>'
-            f'<pre class="language-{code_language_for_path(rel_path)}"><code class="language-{code_language_for_path(rel_path)}">{html.escape(snippet)}</code></pre>'
-            "</section>"
-        )
+        return render_code_block(f"{rel_path}:{start_line}-{end_line}", snippet, code_language_for_path(rel_path))
     if embed.kind == "example_grid":
         featured_only = embed.attributes.get("featured", "").lower() == "true"
         limit = int(embed.attributes["limit"]) if "limit" in embed.attributes else None
@@ -261,12 +251,23 @@ def render_embed(
     if embed.kind == "feature_catalog":
         entries = []
         for key, feature in sorted(features.items()):
+            related_examples = [
+                example
+                for example in sorted(examples, key=lambda item: (-item.detail_priority, item.title.lower(), item.name))
+                if key in example.feature_tags
+            ]
+            paragraphs = "".join(f"<p>{render_inline(paragraph)}</p>" for paragraph in feature.paragraphs)
+            snippet = render_code_example(paths, feature)
+            related = render_related_examples(related_examples)
             entries.append(
                 '<article class="feature-definition" '
                 f'id="{html.escape(feature_anchor(key))}">'
                 f'<div class="feature-tag"><code>{html.escape(key)}</code></div>'
                 f"<h2>{html.escape(feature.title)}</h2>"
-                f"<p>{html.escape(feature.summary)}</p>"
+                f'<p class="feature-summary">{render_inline(feature.summary)}</p>'
+                f"{paragraphs}"
+                f"{snippet}"
+                f"{related}"
                 "</article>"
             )
         return '<section class="feature-catalog">' + "".join(entries) + "</section>"
@@ -274,6 +275,50 @@ def render_embed(
         command = embed.attributes.get("value", "")
         return f'<pre><code>{html.escape(command)}</code></pre>'
     return f"<pre><code>{html.escape(embed.raw)}</code></pre>"
+
+
+def render_code_block(label: str, content: str, language: str | None = None) -> str:
+    resolved_language = language if language is not None else code_language_for_path(label)
+    return (
+        '<section class="code-block">'
+        f'<div class="code-label">{html.escape(label)}</div>'
+        f'<pre class="language-{resolved_language}"><code class="language-{resolved_language}">{html.escape(content)}</code></pre>'
+        "</section>"
+    )
+
+
+def render_code_example(paths: SitePaths, feature: FeatureManifestEntry) -> str:
+    code_example = feature.code_example
+    file_lines = (paths.repo_root / code_example.path).read_text().splitlines()
+    snippet = "\n".join(file_lines[code_example.start - 1 : code_example.end])
+    return (
+        '<section class="feature-code-example">'
+        f'<div class="feature-code-caption">{render_inline(code_example.caption)}</div>'
+        f"{render_code_block(f'{code_example.path}:{code_example.start}-{code_example.end}', snippet, code_language_for_path(code_example.path))}"
+        "</section>"
+    )
+
+
+def render_related_examples(examples: list[ExampleRecord]) -> str:
+    if not examples:
+        return ""
+    cards = []
+    for example in examples:
+        support = "WASM + Native" if example.wasm_supported else "Native only"
+        cards.append(
+            '<article class="related-example-card">'
+            f'<h3><a href="examples/{html.escape(example.name)}.html">{html.escape(example.title)}</a></h3>'
+            f'<p>{html.escape(example.summary)}</p>'
+            f'<div class="support">{html.escape(support)}</div>'
+            "</article>"
+        )
+    return (
+        '<section class="feature-related-examples">'
+        "<h3>Related Examples</h3>"
+        '<div class="feature-related-grid">'
+        + "".join(cards)
+        + "</div></section>"
+    )
 
 
 def render_inline(text: str) -> str:

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from .config import SitePaths
-from .models import ExampleManifestEntry, ExampleRecord, FeatureManifestEntry, NavigationItem
+from .models import ExampleManifestEntry, ExampleRecord, FeatureCodeExample, FeatureManifestEntry, NavigationItem
 
 
 MANAGED_PROJECT_RE = re.compile(
@@ -36,6 +36,13 @@ def load_feature_manifest(paths: SitePaths) -> dict[str, FeatureManifestEntry]:
         result[name] = FeatureManifestEntry(
             title=entry["title"],
             summary=entry["summary"],
+            paragraphs=list(entry["paragraphs"]),
+            code_example=FeatureCodeExample(
+                path=entry["code_example"]["path"],
+                start=int(entry["code_example"]["start"]),
+                end=int(entry["code_example"]["end"]),
+                caption=entry["code_example"]["caption"],
+            ),
         )
     return result
 

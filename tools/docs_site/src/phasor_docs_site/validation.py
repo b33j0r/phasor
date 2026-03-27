@@ -12,6 +12,34 @@ class ValidationIssue:
     message: str
 
 
+def validate_line_range(
+    issues: list[ValidationIssue],
+    paths: SitePaths,
+    *,
+    display_path: str,
+    path_attr: str,
+    start_attr: str,
+    end_attr: str,
+) -> None:
+    target = paths.repo_root / path_attr
+    if not target.is_file():
+        issues.append(ValidationIssue(f"Embed path does not exist in {display_path}: {path_attr}"))
+        return
+    try:
+        start_line = int(start_attr)
+        end_line = int(end_attr)
+    except ValueError:
+        issues.append(ValidationIssue(f"include_lines has non-integer bounds in {display_path}: {path_attr}:{start_attr}-{end_attr}"))
+        return
+    line_count = len(target.read_text().splitlines())
+    if start_line < 1 or end_line < start_line or end_line > line_count:
+        issues.append(
+            ValidationIssue(
+                f"include_lines range out of bounds in {display_path}: {path_attr}:{start_line}-{end_line}"
+            )
+        )
+
+
 def validate(paths: SitePaths) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     example_manifest = load_example_manifest(paths)
@@ -39,6 +67,18 @@ def validate(paths: SitePaths) -> list[ValidationIssue]:
             if tag not in feature_manifest:
                 issues.append(ValidationIssue(f"Unknown feature tag '{tag}' used by example '{example.name}'"))
 
+    for name, feature in sorted(feature_manifest.items()):
+        if len(feature.paragraphs) < 2:
+            issues.append(ValidationIssue(f"Feature '{name}' should have at least two paragraphs"))
+        validate_line_range(
+            issues,
+            paths,
+            display_path=f"feature manifest '{name}'",
+            path_attr=feature.code_example.path,
+            start_attr=str(feature.code_example.start),
+            end_attr=str(feature.code_example.end),
+        )
+
     for page in pages:
         for embed in page.embeds:
             if embed.kind == "include_file":
@@ -56,23 +96,14 @@ def validate(paths: SitePaths) -> list[ValidationIssue]:
                 if not path_attr or not start_attr or not end_attr:
                     issues.append(ValidationIssue(f"include_lines missing attributes in {page.relative_path}: {embed.raw}"))
                     continue
-                target = paths.repo_root / path_attr
-                if not target.is_file():
-                    issues.append(ValidationIssue(f"Embed path does not exist in {page.relative_path}: {path_attr}"))
-                    continue
-                try:
-                    start_line = int(start_attr)
-                    end_line = int(end_attr)
-                except ValueError:
-                    issues.append(ValidationIssue(f"include_lines has non-integer bounds in {page.relative_path}: {embed.raw}"))
-                    continue
-                line_count = len(target.read_text().splitlines())
-                if start_line < 1 or end_line < start_line or end_line > line_count:
-                    issues.append(
-                        ValidationIssue(
-                            f"include_lines range out of bounds in {page.relative_path}: {path_attr}:{start_line}-{end_line}"
-                        )
-                    )
+                validate_line_range(
+                    issues,
+                    paths,
+                    display_path=str(page.relative_path),
+                    path_attr=path_attr,
+                    start_attr=start_attr,
+                    end_attr=end_attr,
+                )
             elif embed.kind in {"example_grid", "overview_cards", "feature_matrix", "feature_catalog", "command_block"}:
                 continue
             else:

@@ -15,9 +15,19 @@ class ExampleManifestEntry:
 
 
 @dataclass(frozen=True)
+class FeatureCodeExample:
+    path: str
+    start: int
+    end: int
+    caption: str
+
+
+@dataclass(frozen=True)
 class FeatureManifestEntry:
     title: str
     summary: str
+    paragraphs: list[str]
+    code_example: FeatureCodeExample
 
 
 @dataclass(frozen=True)
