@@ -339,11 +339,8 @@ def render_example_page(
         f'"><code>{html.escape(tag)}</code></a></li>'
         for tag in example.feature_tags
     )
-    source_index = "".join(
-        f'<li><code>{html.escape(path)}</code></li>' for path in example.source_files
-    )
     source_browser = render_source_browser(example, current_path)
-    overview_cards = render_example_overview(example, feature_list, source_index)
+    overview_cards = render_example_overview(example, feature_list)
     return (
         "<section class=\"hero-block hero-block-example\">"
         f'<div class="eyebrow">Example</div>'
@@ -363,11 +360,9 @@ def render_example_page(
         f"{overview_cards}"
         "<article class=\"info-card example-source-card content-section\">"
         "<div class=\"section-heading-row\">"
-        "<h2>Source Walkthrough</h2>"
-        f'<a class="nav-link" href="{html.escape(relative_href(current_path, Path("code") / "examples" / example.name / "main.zig"))}">Open example code tree</a>'
+        "<h2>Source</h2>"
+        f'<a class="nav-link" href="{html.escape(relative_href(current_path, Path("code") / "examples" / example.name / "index.html"))}">Open example code tree</a>'
         "</div>"
-        "<p>The browser below includes the full example project tree. Raw file links point into the generated "
-        "<code>/code</code> copy of the repo.</p>"
         f"{source_browser}\n"
         "</article>"
         "</div>"
@@ -375,22 +370,15 @@ def render_example_page(
     )
 
 
-def render_example_overview(example: ExampleRecord, feature_list: str, source_index: str) -> str:
+def render_example_overview(example: ExampleRecord, feature_list: str) -> str:
     return (
         '<section class="example-overview-grid">'
         '<article class="info-card example-overview-card doc-aside">'
         "<h2>Build And Run</h2>\n"
-        "<p>Each command block says where it should be run so the root build graph and the standalone example project layout are both clear.</p>"
         f"{render_command_group(example)}\n"
         "</article>"
         '<article class="info-card example-overview-card doc-aside">'
-        "<h2>Highlighted Files</h2>"
-        "<p>The walkthrough starts with the files most likely to answer how the example is put together.</p>"
-        f"<ul>{source_index}</ul>"
-        "</article>"
-        '<article class="info-card example-overview-card doc-aside">'
         "<h2>Feature Coverage</h2>"
-        "<p>These tags link to the shared feature definitions page.</p>"
         f'<ul>{feature_list}</ul>'
         "</article>"
         "</section>"
@@ -481,6 +469,9 @@ def render_source_panel(example: ExampleRecord, rel_path: str, *, include_label:
 
 def render_source_browser(example: ExampleRecord, current_path: Path) -> str:
     ordered_files = list(dict.fromkeys([*example.source_files, *example.extra_files]))
+    if "main.zig" in ordered_files:
+        ordered_files.remove("main.zig")
+        ordered_files.insert(0, "main.zig")
     buttons: list[str] = []
     panes: list[str] = []
     for index, rel_path in enumerate(ordered_files):

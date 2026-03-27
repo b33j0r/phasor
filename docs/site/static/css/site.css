@@ -251,12 +251,16 @@ ul {
 
 .example-overview-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.7fr);
   gap: 16px;
 }
 
 .example-overview-card {
   align-self: start;
+}
+
+.example-overview-card ul {
+  margin: 0;
 }
 
 .example-stage-card h2,
@@ -401,6 +405,8 @@ ul {
   position: sticky;
   top: 12px;
   align-self: start;
+  max-height: min(70vh, 900px);
+  overflow: auto;
 }
 
 .source-browser-title {
@@ -590,6 +596,10 @@ ul {
   .example-grid,
   .feature-list,
   .code-directory-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .example-overview-grid {
     grid-template-columns: 1fr;
   }
 }
