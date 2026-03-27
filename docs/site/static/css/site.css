@@ -230,6 +230,79 @@ ul {
   margin: 0;
 }
 
+.source-browser {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.source-browser-sidebar,
+.source-browser-main {
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--panel-bg);
+}
+
+.source-browser-sidebar {
+  padding: 14px;
+}
+
+.source-browser-title {
+  color: var(--accent-2);
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.source-browser-files {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.source-file {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.source-file.is-active {
+  border-color: var(--accent-2);
+  background: color-mix(in srgb, var(--badge-bg) 88%, white 6%);
+}
+
+.source-browser-main {
+  padding: 16px;
+}
+
+.source-pane {
+  display: none;
+}
+
+.source-pane.is-active {
+  display: block;
+}
+
+.source-pane-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.source-pane .source-panel {
+  margin-top: 0;
+}
+
 .feature-tag {
   margin-bottom: 0.8rem;
 }
@@ -254,6 +327,10 @@ ul {
   .page-body {
     padding: 20px;
     border-radius: 22px;
+  }
+
+  .source-browser {
+    grid-template-columns: 1fr;
   }
 
   .hero-actions {

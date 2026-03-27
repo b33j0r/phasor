@@ -52,6 +52,7 @@ def render_document(title: str, nav_html: str, body_html: str, current_path: Pat
     site_css = relative_href(current_path, Path("static/css/site.css"))
     theme_css = relative_href(current_path, Path("static/css/sunset-wave.css"))
     favicon_svg = relative_href(current_path, Path("static/images/favicon.svg"))
+    site_js = relative_href(current_path, Path("static/js/site.js"))
     prism_core = relative_href(current_path, Path("static/js/prism/prism.min.js"))
     prism_zig = relative_href(current_path, Path("static/js/prism/prism-zig.min.js"))
     prism_wgsl = relative_href(current_path, Path("static/js/prism/prism-wgsl.min.js"))
@@ -87,6 +88,7 @@ def render_document(title: str, nav_html: str, body_html: str, current_path: Pat
         f"  <script src=\"{html.escape(prism_wgsl)}\"></script>\n"
         f"  <script src=\"{html.escape(prism_markdown)}\"></script>\n"
         f"  <script src=\"{html.escape(prism_json)}\"></script>\n"
+        f"  <script src=\"{html.escape(site_js)}\"></script>\n"
         "</body>\n"
         "</html>\n"
     )
@@ -205,21 +207,7 @@ def render_example_page(example: ExampleRecord, features: dict[str, FeatureManif
     source_index = "".join(
         f'<li><code>{html.escape(path)}</code></li>' for path in example.source_files
     )
-    additional_count = len(example.extra_files)
-    curated_files = "".join(render_source_panel(example, rel_path) for rel_path in example.source_files)
-    additional_section = (
-        "<section>"
-        "<h2>Project Files</h2>"
-        "<p>This example includes more project files than the highlighted walkthrough below. "
-        f"The generated source bundle also includes {additional_count} additional file"
-        f"{'' if additional_count == 1 else 's'} for reference.</p>"
-        "<div class=\"commands\">"
-        f'<a class="nav-link" href="../data/examples/{html.escape(example.name)}.json">Open source bundle JSON</a>'
-        "</div>"
-        "</section>"
-        if additional_count
-        else ""
-    )
+    source_browser = render_source_browser(example)
     return (
         "<section class=\"hero-block hero-block-example\">"
         f'<div class="eyebrow">Example</div>'
@@ -249,9 +237,10 @@ def render_example_page(example: ExampleRecord, features: dict[str, FeatureManif
         "</section>"
         "<section>"
         "<h2>Source Walkthrough</h2>\n"
-        f"{curated_files}\n"
+        "<p>The browser below includes the full example project tree. Raw file links point into the generated "
+        "<code>/code</code> copy of the repo.</p>"
+        f"{source_browser}\n"
         "</section>\n"
-        f"{additional_section}\n"
     )
 
 
@@ -265,13 +254,51 @@ def render_feature_item(tag: str, feature: FeatureManifestEntry) -> str:
     )
 
 
-def render_source_panel(example: ExampleRecord, rel_path: str) -> str:
+def render_source_panel(example: ExampleRecord, rel_path: str, *, include_label: bool = True) -> str:
     content = (example.directory / rel_path).read_text()
     language = code_language_for_path(rel_path)
+    label_html = f"<div class=\"code-label\">{html.escape(rel_path)}</div>" if include_label else ""
     return (
         "<section class=\"source-panel\">"
-        f"<div class=\"code-label\">{html.escape(rel_path)}</div>"
+        f"{label_html}"
         f'<pre class="language-{language}"><code class="language-{language}">{html.escape(content)}</code></pre>'
+        "</section>"
+    )
+
+
+def render_source_browser(example: ExampleRecord) -> str:
+    ordered_files = list(dict.fromkeys([*example.source_files, *example.extra_files]))
+    buttons: list[str] = []
+    panes: list[str] = []
+    for index, rel_path in enumerate(ordered_files):
+        active_class = " is-active" if index == 0 else ""
+        item_id = f"file-{index}"
+        raw_href = f"/code/examples/{example.name}/{rel_path}"
+        buttons.append(
+            '<button type="button" class="source-file'
+            f'{active_class}" data-source-target="{html.escape(item_id)}">'
+            f"{html.escape(rel_path)}"
+            "</button>"
+        )
+        panes.append(
+            '<article class="source-pane'
+            f'{active_class}" data-source-pane="{html.escape(item_id)}">'
+            '<div class="source-pane-header">'
+            f'<div class="code-label">{html.escape(rel_path)}</div>'
+            f'<a class="nav-link" href="{html.escape(raw_href)}">Raw file</a>'
+            "</div>"
+            + render_source_panel(example, rel_path, include_label=False)
+            + "</article>"
+        )
+    return (
+        '<section class="source-browser" data-source-browser>'
+        '<aside class="source-browser-sidebar">'
+        '<div class="source-browser-title">Files</div>'
+        f'<div class="source-browser-files">{"".join(buttons)}</div>'
+        "</aside>"
+        '<div class="source-browser-main">'
+        f'{"".join(panes)}'
+        "</div>"
         "</section>"
     )
 
