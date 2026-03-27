@@ -205,9 +205,10 @@ def render_embed(
                     f'<img src="{screenshot_path}" alt="{html.escape(example.title)} screenshot" loading="lazy">'
                     "</a>"
                 )
+            card_class = "example-card has-media" if media_html else "example-card"
             return (
-                '<article class="example-card">'
-                f"{media_html}"
+                f'<article class="{card_class}">'
+                '<div class="example-card-body">'
                 f'<div class="eyebrow">Example</div>'
                 f'<h3><a href="examples/{html.escape(example.name)}.html">{html.escape(example.title)}</a></h3>'
                 f'<p>{html.escape(example.summary)}</p>'
@@ -218,6 +219,8 @@ def render_embed(
                 f'<code>{html.escape(example.run_step)}</code>'
                 "</div>"
                 f'<div class="commands"><a class="nav-link" href="examples/{html.escape(example.name)}.html">Open example</a></div>'
+                "</div>"
+                f"{media_html}"
                 "</article>"
             )
 
