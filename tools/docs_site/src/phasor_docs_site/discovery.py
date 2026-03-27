@@ -71,6 +71,8 @@ def discover_examples(paths: SitePaths, manifests: dict[str, ExampleManifestEntr
                 wasm_supported=wasm_supported_text == "true",
                 run_step=f"zig build run-{name}",
                 web_step=f"zig build web-{name}" if wasm_supported_text == "true" else None,
+                local_run_step="zig build run",
+                local_web_step="zig build web" if wasm_supported_text == "true" else None,
                 title=manifest.title if manifest else name,
                 summary=manifest.summary if manifest else f"{name} example",
                 feature_tags=feature_tags,
@@ -79,6 +81,7 @@ def discover_examples(paths: SitePaths, manifests: dict[str, ExampleManifestEntr
                 screenshots=manifest.screenshots if manifest else [],
                 extra_files=extra_files,
                 all_source_files=discovered_files,
+                live_demo_path=discover_live_demo_path(name, example_dir, wasm_supported_text == "true"),
             )
         )
     records.sort(key=lambda item: item.name)
@@ -93,6 +96,16 @@ def discover_example_files(example_dir: Path) -> list[str]:
         and not any(part in {".zig-cache", "zig-out", "zig-pkg", ".git"} for part in path.relative_to(example_dir).parts)
         and path.suffix in {".zig", ".wgsl", ".md", ".zon"}
     )
+
+
+def discover_live_demo_path(name: str, example_dir: Path, wasm_supported: bool) -> str | None:
+    if not wasm_supported:
+        return None
+    web_root = example_dir / "zig-out" / "web"
+    index_path = web_root / "index.html"
+    if not index_path.is_file():
+        return None
+    return f"live/examples/{name}/index.html"
 
 
 def infer_example_feature_tags(name: str, example_dir: Path) -> list[str]:

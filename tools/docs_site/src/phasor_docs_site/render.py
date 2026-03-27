@@ -19,6 +19,7 @@ def render_site(
     output_root.mkdir(parents=True, exist_ok=True)
     copy_static_assets(output_root, Path(__file__).resolve().parents[4] / "docs" / "site" / "static")
     copy_code_tree(repo_root, output_root)
+    copy_live_examples(examples, output_root)
     write_search_index(output_root, pages, examples)
 
     for page in pages:
@@ -132,6 +133,22 @@ def copy_code_tree(repo_root: Path, output_root: Path) -> None:
         shutil.copy2(source_path, target_path)
 
 
+def copy_live_examples(examples: list[ExampleRecord], output_root: Path) -> None:
+    live_root = output_root / "live" / "examples"
+    if live_root.exists():
+        shutil.rmtree(live_root)
+    live_root.mkdir(parents=True, exist_ok=True)
+
+    for example in examples:
+        if not example.live_demo_path:
+            continue
+        source_root = example.directory / "zig-out" / "web"
+        if not source_root.is_dir():
+            continue
+        target_root = live_root / example.name
+        shutil.copytree(source_root, target_root)
+
+
 def write_search_index(output_root: Path, pages: list[PageRecord], examples: list[ExampleRecord]) -> None:
     payload = {
         "pages": [
@@ -216,6 +233,10 @@ def render_example_page(example: ExampleRecord, features: dict[str, FeatureManif
         "</section>\n"
         "<section class=\"info-grid\">"
         "<article class=\"info-card\">"
+        "<h2>Live Demo</h2>\n"
+        f"{render_live_demo(example)}\n"
+        "</article>"
+        "<article class=\"info-card\">"
         "<h2>Build And Run</h2>\n"
         "<p>Each command block says where it should be run so the root build graph and the standalone example project layout are both clear.</p>"
         f"{render_command_group(example)}\n"
@@ -243,10 +264,11 @@ def render_example_page(example: ExampleRecord, features: dict[str, FeatureManif
 def render_command_group(example: ExampleRecord) -> str:
     local_dir = f"examples/{example.name}"
     root_commands = [example.run_step]
-    local_commands = ["zig build run"]
+    local_commands = [example.local_run_step]
     if example.web_step:
         root_commands.append(example.web_step)
-        local_commands.append("zig build web")
+        if example.local_web_step:
+            local_commands.append(example.local_web_step)
 
     def render_command_block(title: str, location: str, commands: list[str]) -> str:
         items = "".join(
@@ -268,6 +290,31 @@ def render_command_group(example: ExampleRecord) -> str:
         + render_command_block("From Repo Root", "cwd: /Users/brian/Projects/phasor/phasor", root_commands)
         + render_command_block("From Example Directory", f"cwd: {local_dir}", local_commands)
         + "</div>"
+    )
+
+
+def render_live_demo(example: ExampleRecord) -> str:
+    if example.live_demo_path:
+        return (
+            '<div class="live-demo-frame">'
+            f'<iframe src="/{html.escape(example.live_demo_path)}" title="{html.escape(example.title)} live demo" loading="lazy"></iframe>'
+            "</div>"
+        )
+    if example.wasm_supported:
+        return (
+            '<div class="live-demo-note">'
+            "<p>This example supports wasm, but the live bundle is not in the docs build yet.</p>"
+            "<p>Build it first from the repo root with "
+            f"<code>{html.escape(example.web_step or '')}</code>"
+            " or from the example directory with "
+            f"<code>{html.escape(example.local_web_step or '')}</code>."
+            "</p>"
+            "</div>"
+        )
+    return (
+        '<div class="live-demo-note">'
+        "<p>This example is native-only, so the docs page focuses on commands, source, and feature coverage.</p>"
+        "</div>"
     )
 
 

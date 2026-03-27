@@ -18,9 +18,12 @@ def build_example_index(examples: list[ExampleRecord], output_root: Path) -> Pat
                 "wasm_supported": example.wasm_supported,
                 "run_step": example.run_step,
                 "web_step": example.web_step,
+                "local_run_step": example.local_run_step,
+                "local_web_step": example.local_web_step,
                 "feature_tags": example.feature_tags,
                 "source_files": example.source_files,
                 "extra_files": example.extra_files,
+                "live_demo_path": example.live_demo_path,
                 "bundle_path": f"examples/{example.name}.json",
                 "detail_path": f"examples/{example.name}.html",
             }
@@ -52,6 +55,9 @@ def build_example_bundles(examples: list[ExampleRecord], output_root: Path) -> l
             "wasm_supported": example.wasm_supported,
             "run_step": example.run_step,
             "web_step": example.web_step,
+            "local_run_step": example.local_run_step,
+            "local_web_step": example.local_web_step,
+            "live_demo_path": example.live_demo_path,
             "feature_tags": example.feature_tags,
             "files": files,
         }

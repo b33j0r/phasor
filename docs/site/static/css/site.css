@@ -255,6 +255,33 @@ ul {
   margin-top: 18px;
 }
 
+.live-demo-frame,
+.live-demo-note {
+  margin-top: 12px;
+}
+
+.live-demo-frame {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--code-bg) 92%, black 8%);
+}
+
+.live-demo-frame iframe {
+  display: block;
+  width: 100%;
+  min-height: 480px;
+  border: 0;
+  background: #000;
+}
+
+.live-demo-note {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--panel-bg) 88%, white 3%);
+}
+
 .code-block .code-label,
 .source-panel .code-label {
   font-family: "IBM Plex Mono", monospace;

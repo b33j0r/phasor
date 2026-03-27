@@ -27,6 +27,8 @@ class ExampleRecord:
     wasm_supported: bool
     run_step: str
     web_step: str | None
+    local_run_step: str
+    local_web_step: str | None
     title: str
     summary: str
     feature_tags: list[str]
@@ -35,6 +37,7 @@ class ExampleRecord:
     screenshots: list[str] = field(default_factory=list)
     extra_files: list[str] = field(default_factory=list)
     all_source_files: list[str] = field(default_factory=list)
+    live_demo_path: str | None = None
 
 
 @dataclass(frozen=True)
