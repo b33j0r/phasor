@@ -152,9 +152,9 @@ pub const managed_child_projects = [_]ManagedChildProject{
 };
 
 pub fn addManagedChildProjects(b: *std.Build, projects: []const ManagedChildProject) *std.Build.Step {
-    const web_examples_step = b.step(
-        "web-examples",
-        "Build every wasm-capable example web bundle used by the docs site",
+    const build_wasm_examples_step = b.step(
+        "build-wasm-examples",
+        "Build every wasm-capable example bundle used by the docs site",
     );
 
     for (projects) |project| {
@@ -183,15 +183,15 @@ pub fn addManagedChildProjects(b: *std.Build, projects: []const ManagedChildProj
             false,
         );
         if (project.enable_wasm) {
-            const web_step_name = b.fmt("web-{s}", .{project.name});
+            const build_wasm_step_name = b.fmt("build-{s}-wasm", .{project.name});
             addForwardedExampleStep(
                 b,
-                web_step_name,
-                b.fmt("Build the {s} web bundle", .{project.name}),
+                build_wasm_step_name,
+                b.fmt("Build the {s} wasm bundle", .{project.name}),
                 &.{ "build", "web" },
                 project.dir,
             );
-            web_examples_step.dependOn(&b.top_level_steps.get(web_step_name).?.step);
+            build_wasm_examples_step.dependOn(&b.top_level_steps.get(build_wasm_step_name).?.step);
             addForwardedExampleRunStep(
                 b,
                 b.fmt("run-{s}-wasm", .{project.name}),
@@ -202,5 +202,5 @@ pub fn addManagedChildProjects(b: *std.Build, projects: []const ManagedChildProj
         }
     }
 
-    return web_examples_step;
+    return build_wasm_examples_step;
 }

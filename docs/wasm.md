@@ -22,6 +22,6 @@ The wasm path does not assume a native-style filesystem read for the FlightHelme
 
 ## Build Commands
 
-{{ command_block value="zig build web-gltf" }}
-
 {{ command_block value="zig build run-gltf" }}
+
+{{ command_block value="zig build run-gltf-wasm" }}

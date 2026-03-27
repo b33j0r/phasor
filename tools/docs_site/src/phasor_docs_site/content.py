@@ -17,6 +17,8 @@ def load_pages(paths: SitePaths) -> list[PageRecord]:
     for source_path in sorted(paths.docs_root.rglob("*.md")):
         if source_path.is_relative_to(paths.site_root):
             continue
+        if source_path.is_relative_to(paths.output_root):
+            continue
         body = source_path.read_text()
         embeds = parse_embeds(body)
         title = extract_title(body, source_path)

@@ -16,6 +16,8 @@ def render_site(
     features: dict[str, FeatureManifestEntry],
     navigation: list[NavigationItem],
 ) -> Path:
+    if output_root.exists():
+        shutil.rmtree(output_root, ignore_errors=True)
     output_root.mkdir(parents=True, exist_ok=True)
     copy_static_assets(output_root, Path(__file__).resolve().parents[4] / "docs" / "site" / "static")
     code_files = copy_code_tree(repo_root, output_root)
@@ -388,10 +390,10 @@ def render_command_group(example: ExampleRecord) -> str:
     local_dir = f"examples/{example.name}"
     root_commands = [example.run_step]
     local_commands = [example.local_run_step]
-    if example.web_step:
-        root_commands.append(example.web_step)
-        if example.local_web_step:
-            local_commands.append(example.local_web_step)
+    if example.wasm_run_step:
+        root_commands.append(example.wasm_run_step)
+        if example.local_wasm_run_step:
+            local_commands.append(example.local_wasm_run_step)
 
     def render_command_block(title: str, location: str, commands: list[str]) -> str:
         items = "".join(
@@ -428,10 +430,10 @@ def render_live_demo(example: ExampleRecord, current_path: Path) -> str:
         return (
             '<div class="live-demo-note doc-aside">'
             "<p>This example supports wasm, but the live bundle is not in the docs build yet.</p>"
-            "<p>Build it first from the repo root with "
-            f"<code>{html.escape(example.web_step or '')}</code>"
+            "<p>Run it first from the repo root with "
+            f"<code>{html.escape(example.wasm_run_step or '')}</code>"
             " or from the example directory with "
-            f"<code>{html.escape(example.local_web_step or '')}</code>."
+            f"<code>{html.escape(example.local_wasm_run_step or '')}</code>."
             "</p>"
             "</div>"
         )

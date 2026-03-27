@@ -20,10 +20,10 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    const web_examples_step = build_examples.addManagedChildProjects(ctx.b, &build_examples.managed_child_projects);
+    const build_wasm_examples_step = build_examples.addManagedChildProjects(ctx.b, &build_examples.managed_child_projects);
     build_examples.addEcsQueryCacheBenchmark(&ctx, engine.phasor.module);
 
-    build_docs.addDocsSiteSteps(b, web_examples_step);
+    build_docs.addDocsSiteSteps(b, build_wasm_examples_step);
 
     const test_step = b.step("test", "Run tests");
     const test_slow_step = b.step("test-slow", "Run tests including slow dependency suites");

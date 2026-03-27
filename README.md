@@ -61,14 +61,14 @@ zig build run-warehouse-wasm
 zig build run-shadows-wasm
 ```
 
-Build-only web bundles:
+Build-only wasm bundles:
 
 ```bash
-zig build web-triangle
-zig build web-cube
-zig build web-gltf
-zig build web-warehouse
-zig build web-shadows
+zig build build-triangle-wasm
+zig build build-cube-wasm
+zig build build-gltf-wasm
+zig build build-warehouse-wasm
+zig build build-shadows-wasm
 ```
 
 Sponza assets are fetched separately:

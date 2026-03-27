@@ -36,9 +36,11 @@ class ExampleRecord:
     directory: Path
     wasm_supported: bool
     run_step: str
-    web_step: str | None
+    wasm_build_step: str | None
+    wasm_run_step: str | None
     local_run_step: str
-    local_web_step: str | None
+    local_wasm_build_step: str | None
+    local_wasm_run_step: str | None
     title: str
     summary: str
     feature_tags: list[str]

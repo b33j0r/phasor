@@ -12,9 +12,9 @@ The `triangle` example is small enough to read top to bottom. It installs the de
 
 {{ command_block value="zig build run-triangle" }}
 
-For a browser build:
+For the browser:
 
-{{ command_block value="zig build web-triangle" }}
+{{ command_block value="zig build run-triangle-wasm" }}
 
 ## What To Change First
 
