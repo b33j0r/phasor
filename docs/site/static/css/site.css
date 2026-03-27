@@ -163,6 +163,14 @@ code[class*="language-"] {
   font-weight: 600;
 }
 
+.theme-picker-label {
+  flex: 0 0 auto;
+}
+
+.theme-picker-control {
+  flex: 0 0 auto;
+}
+
 .theme-picker select {
   min-width: 208px;
   padding: 8px 12px;
@@ -764,6 +772,12 @@ ul {
     justify-content: space-between;
   }
 
+  .theme-picker-control {
+    flex: 1 1 auto;
+    display: flex;
+    justify-content: flex-end;
+  }
+
   .theme-picker select {
     min-width: 0;
     max-width: 240px;
@@ -790,6 +804,10 @@ ul {
   .theme-picker {
     display: grid;
     gap: 6px;
+    justify-content: stretch;
+  }
+
+  .theme-picker-control {
     justify-content: stretch;
   }
 
