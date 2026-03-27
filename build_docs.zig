@@ -27,6 +27,23 @@ pub fn addDocsSiteSteps(b: *std.Build, build_wasm_examples_step: *std.Build.Step
     docs_site_step.dependOn(build_wasm_examples_step);
     docs_site_step.dependOn(&docs_generate.step);
 
+    const docs_capture = b.addSystemCommand(&.{
+        "uv",
+        "run",
+        "phasor-docs-site",
+        "capture-screenshots",
+    });
+    docs_capture.setCwd(b.path("."));
+    if (b.args) |args| {
+        docs_capture.addArgs(args);
+    }
+    const docs_screenshots_step = b.step(
+        "docs-screenshots",
+        "Build wasm example bundles and refresh checked-in docs screenshots",
+    );
+    docs_screenshots_step.dependOn(build_wasm_examples_step);
+    docs_screenshots_step.dependOn(&docs_capture.step);
+
     const audit_systems = b.addSystemCommand(&.{
         "uv",
         "run",

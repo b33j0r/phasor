@@ -22,11 +22,26 @@ def load_example_manifest(paths: SitePaths) -> dict[str, ExampleManifestEntry]:
             title=entry["title"],
             summary=entry["summary"],
             feature_tags=list(entry["feature_tags"]),
-            screenshots=list(entry.get("screenshots", [])),
+            screenshots=resolve_example_screenshots(paths, name, list(entry.get("screenshots", []))),
             source_files=list(entry["source_files"]),
             detail_priority=int(entry.get("detail_priority", 0)),
         )
     return result
+
+
+def resolve_example_screenshots(paths: SitePaths, name: str, configured: list[str]) -> list[str]:
+    if configured:
+        return configured
+
+    discovered: list[str] = []
+    static_root = paths.site_root / "static"
+    screenshot_dir = static_root / "images" / "examples"
+    for suffix in (".png", ".webp", ".jpg", ".jpeg"):
+        candidate = screenshot_dir / f"{name}{suffix}"
+        if candidate.is_file():
+            relative_path = Path("static") / candidate.relative_to(static_root)
+            discovered.append(relative_path.as_posix())
+    return discovered
 
 
 def load_feature_manifest(paths: SitePaths) -> dict[str, FeatureManifestEntry]:
@@ -87,7 +102,7 @@ def discover_examples(paths: SitePaths, manifests: dict[str, ExampleManifestEntr
                 feature_tags=feature_tags,
                 source_files=highlighted_files,
                 detail_priority=manifest.detail_priority if manifest else 0,
-                screenshots=manifest.screenshots if manifest else [],
+                screenshots=manifest.screenshots if manifest else resolve_example_screenshots(paths, name, []),
                 extra_files=extra_files,
                 all_source_files=discovered_files,
                 live_demo_path=discover_live_demo_path(name, example_dir, wasm_supported_text == "true"),

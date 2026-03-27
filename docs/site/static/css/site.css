@@ -293,6 +293,23 @@ ul {
   text-decoration: none;
 }
 
+.example-card-media {
+  display: block;
+  margin: calc(var(--panel-padding) * -1) calc(var(--panel-padding) * -1) 1rem;
+  border-radius: calc(var(--panel-radius) - 2px) calc(var(--panel-radius) - 2px) 22px 22px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-bg) 80%, black 8%);
+}
+
+.example-card-media img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  object-position: center;
+}
+
 .badges {
   display: flex;
   flex-wrap: wrap;

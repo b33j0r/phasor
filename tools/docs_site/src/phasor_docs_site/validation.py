@@ -71,6 +71,11 @@ def validate(paths: SitePaths) -> list[ValidationIssue]:
             if tag not in feature_manifest:
                 issues.append(ValidationIssue(f"Unknown feature tag '{tag}' used by example '{example.name}'"))
 
+        for screenshot in example.screenshots:
+            target = paths.site_root / screenshot
+            if not target.is_file():
+                issues.append(ValidationIssue(f"Missing screenshot for example '{example.name}': {screenshot}"))
+
     for name, feature in sorted(feature_manifest.items()):
         if len(feature.paragraphs) < 2:
             issues.append(ValidationIssue(f"Feature '{name}' should have at least two paragraphs"))

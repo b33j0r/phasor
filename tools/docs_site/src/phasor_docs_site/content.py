@@ -197,8 +197,17 @@ def render_embed(
         def render_example_card(example: ExampleRecord) -> str:
             badge_html = "".join(render_feature_badge(tag, feature_href(tag)) for tag in example.feature_tags)
             support = "WASM + Native" if example.wasm_supported else "Native only"
+            media_html = ""
+            if example.screenshots:
+                screenshot_path = html.escape(example.screenshots[0])
+                media_html = (
+                    f'<a class="example-card-media" href="examples/{html.escape(example.name)}.html">'
+                    f'<img src="{screenshot_path}" alt="{html.escape(example.title)} screenshot" loading="lazy">'
+                    "</a>"
+                )
             return (
                 '<article class="example-card">'
+                f"{media_html}"
                 f'<div class="eyebrow">Example</div>'
                 f'<h3><a href="examples/{html.escape(example.name)}.html">{html.escape(example.title)}</a></h3>'
                 f'<p>{html.escape(example.summary)}</p>'

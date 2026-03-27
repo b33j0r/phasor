@@ -8,6 +8,7 @@ from pathlib import Path
 import uvicorn
 
 from .audit import run_system_audit, write_system_audit
+from .capture import capture_example_screenshots
 from .config import detect_paths
 from .content import load_pages, render_pages
 from .discovery import discover_examples, load_example_manifest, load_feature_manifest, load_navigation
@@ -25,6 +26,19 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("validate", help="Validate manifests, embeds, and discovered examples")
     subparsers.add_parser("generate", help="Generate the docs site scaffold and machine-readable example index")
     subparsers.add_parser("audit-systems", help="Audit registered systems, their params, and hidden data access patterns")
+    capture_parser = subparsers.add_parser(
+        "capture-screenshots",
+        help="Capture example screenshots from built wasm live demos into docs/site/static/images/examples",
+    )
+    capture_parser.add_argument("--example", action="append", default=[], help="Capture only the named example")
+    capture_parser.add_argument("--chrome-bin", type=Path, default=None, help="Path to a Chrome or Chromium executable")
+    capture_parser.add_argument("--host", default="127.0.0.1")
+    capture_parser.add_argument("--port", type=int, default=8765)
+    capture_parser.add_argument("--width", type=int, default=1600)
+    capture_parser.add_argument("--height", type=int, default=1000)
+    capture_parser.add_argument("--settle", type=float, default=4.0, help="Seconds to wait after navigation before capture")
+    capture_parser.add_argument("--headed", action="store_true", help="Launch a visible browser instead of headless mode")
+    capture_parser.add_argument("--chrome-arg", action="append", default=[], help="Extra Chrome arguments for capture")
     serve_parser = subparsers.add_parser("serve", help="Generate and serve the docs site with a FastAPI static server")
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8011)
@@ -76,6 +90,39 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(report.findings)} system findings, "
             f"{len(report.lifecycle_findings)} lifecycle findings"
         )
+        return 0
+
+    if args.command == "capture-screenshots":
+        generate_code = main([
+            *(["--repo-root", str(args.repo_root)] if args.repo_root else []),
+            *(["--output", str(args.output)] if args.output else []),
+            "generate",
+        ])
+        if generate_code != 0:
+            return generate_code
+        manifest = load_example_manifest(paths)
+        examples = discover_examples(paths, manifest)
+        count = capture_example_screenshots(
+            paths,
+            examples,
+            only_examples=args.example,
+            chrome_bin=args.chrome_bin,
+            host=args.host,
+            port=args.port,
+            viewport_width=args.width,
+            viewport_height=args.height,
+            settle_seconds=args.settle,
+            headed=args.headed,
+            extra_chrome_args=args.chrome_arg,
+        )
+        refresh_code = main([
+            *(["--repo-root", str(args.repo_root)] if args.repo_root else []),
+            *(["--output", str(args.output)] if args.output else []),
+            "generate",
+        ])
+        if refresh_code != 0:
+            return refresh_code
+        print(f"captured screenshots: {count}")
         return 0
 
     if args.command == "serve":

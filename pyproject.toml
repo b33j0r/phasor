@@ -10,7 +10,8 @@ readme = "tools/docs_site/README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.116.0",
-  "uvicorn>=0.35.0"
+  "uvicorn>=0.35.0",
+  "websocket-client>=1.8.0"
 ]
 
 [project.scripts]
