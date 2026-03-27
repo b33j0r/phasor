@@ -49,6 +49,30 @@ def validate(paths: SitePaths) -> list[ValidationIssue]:
                 target = paths.repo_root / path_attr
                 if not target.is_file():
                     issues.append(ValidationIssue(f"Embed path does not exist in {page.relative_path}: {path_attr}"))
+            elif embed.kind == "include_lines":
+                path_attr = embed.attributes.get("path")
+                start_attr = embed.attributes.get("start")
+                end_attr = embed.attributes.get("end")
+                if not path_attr or not start_attr or not end_attr:
+                    issues.append(ValidationIssue(f"include_lines missing attributes in {page.relative_path}: {embed.raw}"))
+                    continue
+                target = paths.repo_root / path_attr
+                if not target.is_file():
+                    issues.append(ValidationIssue(f"Embed path does not exist in {page.relative_path}: {path_attr}"))
+                    continue
+                try:
+                    start_line = int(start_attr)
+                    end_line = int(end_attr)
+                except ValueError:
+                    issues.append(ValidationIssue(f"include_lines has non-integer bounds in {page.relative_path}: {embed.raw}"))
+                    continue
+                line_count = len(target.read_text().splitlines())
+                if start_line < 1 or end_line < start_line or end_line > line_count:
+                    issues.append(
+                        ValidationIssue(
+                            f"include_lines range out of bounds in {page.relative_path}: {path_attr}:{start_line}-{end_line}"
+                        )
+                    )
             elif embed.kind in {"example_grid", "overview_cards", "feature_matrix", "command_block"}:
                 continue
             else:

@@ -175,6 +175,19 @@ def render_embed(
             f'<pre class="language-{code_language_for_path(rel_path)}"><code class="language-{code_language_for_path(rel_path)}">{html.escape(content)}</code></pre>'
             "</section>"
         )
+    if embed.kind == "include_lines":
+        rel_path = embed.attributes["path"]
+        start_line = int(embed.attributes["start"])
+        end_line = int(embed.attributes["end"])
+        file_path = paths.repo_root / rel_path
+        file_lines = file_path.read_text().splitlines()
+        snippet = "\n".join(file_lines[start_line - 1 : end_line])
+        return (
+            '<section class="code-block">'
+            f'<div class="code-label">{html.escape(rel_path)}:{start_line}-{end_line}</div>'
+            f'<pre class="language-{code_language_for_path(rel_path)}"><code class="language-{code_language_for_path(rel_path)}">{html.escape(snippet)}</code></pre>'
+            "</section>"
+        )
     if embed.kind == "example_grid":
         featured_only = embed.attributes.get("featured", "").lower() == "true"
         limit = int(embed.attributes["limit"]) if "limit" in embed.attributes else None

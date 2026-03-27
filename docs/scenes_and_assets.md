@@ -1,11 +1,21 @@
 # Scenes And Assets
 
-This part of the engine covers the path from authored content to something the renderer can draw.
+This part of the engine covers the path from authored content to runtime entities and renderables.
 
-That usually means three layers of concern:
+For most projects, that means three layers of concern:
 
-- how assets are loaded or embedded
-- how imported scene data becomes runtime entities and renderables
-- how large scenes are prepared, staged, and applied without turning startup into one long blocking step
+- where the source data comes from
+- how imported data becomes ECS entities and meshes
+- whether scene preparation happens eagerly or as a staged workflow
 
-The `gltf` and `sponza` examples are the best current anchors for this section.
+## Importing A Scene
+
+The `gltf` example shows the direct path. A scene asset becomes parsed scene data, then `ImportedScene.instantiate` turns that data into runtime entities under a pivot entity.
+
+{{ include_lines path="examples/gltf/main.zig" start="47" end="77" }}
+
+## What To Read Next
+
+- `gltf` for the direct import path
+- `sponza` for the prepared-scene and large-scene workflow
+- `wasm` for the browser-specific asset packaging constraints

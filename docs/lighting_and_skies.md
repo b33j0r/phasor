@@ -1,10 +1,25 @@
 # Lighting And Skies
 
-Lighting in `phasor` is not separate from the rest of scene setup. Cameras, imported meshes, environment maps, sky selection, and material choice all shape the final result together.
+Lighting in `phasor` sits inside scene setup rather than off to the side. Cameras, materials, environment light, sky choice, and shadow settings all contribute to the final frame.
 
-The examples cover two sky workflows directly:
+The examples currently show two sky workflows directly.
 
-- panorama skies for image-based environments
-- procedural skies for generated atmosphere and time-of-day driven scenes
+## Panorama Sky
 
-`warehouse`, `shadows`, and `sponza` are the main references here because they show those systems in context instead of in isolation.
+The `warehouse` example uses a panorama texture as a sky entity that follows the camera and sits on its own layer behind the rest of the scene.
+
+{{ include_lines path="examples/warehouse/main.zig" start="87" end="107" }}
+
+## Procedural Sky
+
+The `shadows` example uses `ProceduralSky` together with directional lighting, exposure settings, environment light, and shadow-map configuration.
+
+{{ include_lines path="examples/shadows/main.zig" start="115" end="172" }}
+
+{{ include_lines path="examples/shadows/main.zig" start="202" end="215" }}
+
+## Main Reference Examples
+
+- `warehouse` for panorama sky, audio, and first-person movement
+- `shadows` for procedural sky, lighting, and shadows
+- `sponza` for the deeper renderer tuning path

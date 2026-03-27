@@ -9,6 +9,10 @@
       "path": "examples.md"
     },
     {
+      "title": "Getting Started",
+      "path": "getting_started.md"
+    },
+    {
       "title": "Renderer",
       "path": "renderer.md"
     },
