@@ -1,5 +1,6 @@
-const common = @import("common");
-const ecs = @import("ecs");
+const phasor = @import("phasor");
+const common = phasor.common;
+const ecs = phasor.ecs;
 const components = @import("components.zig");
 
 pub const RayCast = struct {

@@ -1,0 +1,16 @@
+.{
+    .name = .phasor_physics,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.16.0-dev.2277+e6ac1b77f",
+    .dependencies = .{
+        .phasor = .{
+            .path = "../..",
+        },
+        .jolt = .{
+            .url = "https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.5.0.tar.gz",
+            .hash = "N-V-__8AAAPKDAINa53XiVzIJ2I4V3AAjPxzQ_bJ9TD7TOOS",
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0x8cf1ba7d847ce9ce,
+}

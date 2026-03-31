@@ -42,7 +42,7 @@ pub const SceneSpawnPlan = struct {
     scene_size: Vec3,
 };
 
-pub const FpsPhysics = modules.FpsPhysicsModule(Player);
+pub const FpsPhysics = physics.FpsPhysicsModule(Player);
 pub const FpsController = FpsPhysics.FpsController;
 
 pub const sponza_scene_path = "assets/sponza/glTF/Sponza.gltf";
@@ -247,7 +247,7 @@ const phasor = @import("phasor");
 const assets = phasor.assets;
 const common = phasor.common;
 const modules = phasor.modules;
-const physics = phasor.physics;
+const physics = @import("phasor_physics");
 const lighting = phasor.lighting;
 
 const Quat = common.Quat;

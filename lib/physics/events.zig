@@ -1,5 +1,6 @@
-const ecs = @import("ecs");
-const common = @import("common");
+const phasor = @import("phasor");
+const ecs = phasor.ecs;
+const common = phasor.common;
 
 pub const ContactBegan = struct {
     a: ecs.Entity.Id,

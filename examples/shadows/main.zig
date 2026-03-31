@@ -4,7 +4,7 @@ const Player = struct {};
 const PlayerCamera = struct {};
 const SunLight = struct {};
 
-const FpsPhysics = modules.FpsPhysicsModule(Player);
+const FpsPhysics = physics.FpsPhysicsModule(Player);
 const FpsController = FpsPhysics.FpsController;
 
 const DayNightCycle = struct {
@@ -64,7 +64,7 @@ const App = struct {
             },
         });
         try app.installModule(FpsPhysics{});
-        try app.installModule(modules.FpsKeyBindingModule{});
+        try app.installModule(physics.FpsKeyBindingModule{});
         try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
             .font_size = 24.0,
@@ -597,7 +597,7 @@ const phasor = @import("phasor");
 
 const ecs = phasor.ecs;
 const modules = phasor.modules;
-const physics = phasor.physics;
+const physics = @import("phasor_physics");
 const render = phasor.renderer;
 const common = phasor.common;
 const platform = phasor.platform;

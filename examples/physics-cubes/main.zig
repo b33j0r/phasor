@@ -297,7 +297,7 @@ const modules = phasor.modules;
 const assets = phasor.assets;
 const common = phasor.common;
 const render = phasor.renderer;
-const physics = phasor.physics;
+const physics = @import("phasor_physics");
 const platform = phasor.platform;
 
 const DeltaTime = modules.TimeModule.DeltaTime;

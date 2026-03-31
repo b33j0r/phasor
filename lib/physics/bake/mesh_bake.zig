@@ -1,5 +1,6 @@
 const std = @import("std");
-const common = @import("common");
+const phasor = @import("phasor");
+const common = phasor.common;
 const components = @import("../components.zig");
 const mesh_formats = @import("mesh_formats.zig");
 

@@ -757,7 +757,7 @@ const assets = phasor.assets;
 const common = phasor.common;
 const ecs = phasor.ecs;
 const modules = phasor.modules;
-const physics = phasor.physics;
+const physics = @import("phasor_physics");
 const render = phasor.renderer;
 
 const HasResource = ecs.system_params.HasResource;

@@ -45,12 +45,17 @@ pub fn buildExample(b: *std.Build, options: BuildOptions) void {
         .optimize = optimize,
     });
     const phasor = phasor_dep.module("phasor");
+    const phasor_physics = phasor_dep.module("phasor_physics");
 
     var native_imports: std.ArrayList(std.Build.Module.Import) = .empty;
     defer native_imports.deinit(b.allocator);
     native_imports.append(b.allocator, .{
         .name = "phasor",
         .module = phasor,
+    }) catch unreachable;
+    native_imports.append(b.allocator, .{
+        .name = "phasor_physics",
+        .module = phasor_physics,
     }) catch unreachable;
     appendExtraModules(b, native_target, optimize, phasor_dep, options.extra_modules, &native_imports);
 
@@ -144,12 +149,17 @@ fn addWebBundle(
         .optimize = optimize,
     });
     const wasm_phasor = wasm_phasor_dep.module("phasor");
+    const wasm_phasor_physics = wasm_phasor_dep.module("phasor_physics");
 
     var wasm_imports: std.ArrayList(std.Build.Module.Import) = .empty;
     defer wasm_imports.deinit(b.allocator);
     wasm_imports.append(b.allocator, .{
         .name = "phasor",
         .module = wasm_phasor,
+    }) catch unreachable;
+    wasm_imports.append(b.allocator, .{
+        .name = "phasor_physics",
+        .module = wasm_phasor_physics,
     }) catch unreachable;
     appendExtraModules(b, wasm_target, optimize, wasm_phasor_dep, options.extra_modules, &wasm_imports);
 

@@ -1,6 +1,4 @@
 const std = @import("std");
-const jolt_sources = @import("deps/jolt_sources.zig");
-
 pub const BuildContext = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -382,28 +380,6 @@ const MetricsModule = struct {
     }
 };
 
-const PhysicsModuleLib = struct {
-    module: *std.Build.Module,
-    tests: *std.Build.Step.Compile,
-
-    const Deps = struct {
-        common: *std.Build.Module,
-        ecs: *std.Build.Module,
-    };
-
-    fn build(ctx: *const BuildContext, deps: Deps) PhysicsModuleLib {
-        const bundle = ctx.moduleBundlePublic("physics", "lib/physics/root.zig", &.{
-            .{ .name = "common", .module = deps.common },
-            .{ .name = "ecs", .module = deps.ecs },
-        });
-
-        if (!ctx.target.result.cpu.arch.isWasm()) {
-            addJoltSources(ctx, bundle.module);
-        }
-        return .{ .module = bundle.module, .tests = bundle.tests };
-    }
-};
-
 const GuiModuleLib = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
@@ -424,36 +400,6 @@ const GuiModuleLib = struct {
     }
 };
 
-fn addJoltSources(ctx: *const BuildContext, module: *std.Build.Module) void {
-    module.addIncludePath(ctx.b.path("deps/jolt"));
-    module.addIncludePath(ctx.b.path("deps/physics_jolt_c"));
-    module.linkSystemLibrary("c++", .{});
-    module.addCSourceFiles(.{
-        .root = ctx.b.path(""),
-        .files = jolt_sources.files,
-        .flags = &.{
-            "-std=c++17",
-            "-DJPH_OBJECT_LAYER_BITS=32",
-            "-DJPH_USE_STD_VECTOR",
-            "-DCPP_EXCEPTIONS_ENABLED=0",
-            "-DCPP_RTTI_ENABLED=0",
-        },
-        .language = .cpp,
-    });
-    module.addCSourceFiles(.{
-        .root = ctx.b.path(""),
-        .files = &.{"deps/physics_jolt_c/physics_jolt_c.cpp"},
-        .flags = &.{
-            "-std=c++17",
-            "-DJPH_OBJECT_LAYER_BITS=32",
-            "-DJPH_USE_STD_VECTOR",
-            "-DCPP_EXCEPTIONS_ENABLED=0",
-            "-DCPP_RTTI_ENABLED=0",
-        },
-        .language = .cpp,
-    });
-}
-
 const ModulesModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
@@ -462,7 +408,6 @@ const ModulesModule = struct {
         common: *std.Build.Module,
         db: *std.Build.Module,
         ecs: *std.Build.Module,
-        physics: *std.Build.Module,
         lighting: *std.Build.Module,
         gui: *std.Build.Module,
         assets: *std.Build.Module,
@@ -482,7 +427,6 @@ const ModulesModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
-        imports.append(ctx.b.allocator, .{ .name = "physics", .module = deps.physics }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "lighting", .module = deps.lighting }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "gui", .module = deps.gui }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
@@ -518,7 +462,6 @@ const PhasorModule = struct {
         ecs: *std.Build.Module,
         graph: *std.Build.Module,
         metrics: *std.Build.Module,
-        physics: *std.Build.Module,
         lighting: *std.Build.Module,
         modules: *std.Build.Module,
         platform: *std.Build.Module,
@@ -540,7 +483,6 @@ const PhasorModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "graph", .module = deps.graph }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
-        imports.append(ctx.b.allocator, .{ .name = "physics", .module = deps.physics }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "lighting", .module = deps.lighting }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "platform", .module = deps.platform }) catch unreachable;
@@ -711,7 +653,6 @@ pub const Engine = struct {
     miniaudio: ?MiniaudioModule,
     fastnoise: FastNoiseModule,
     ecs: EcsModule,
-    physics: PhysicsModuleLib,
     lighting: LightingModuleLib,
     metrics: MetricsModule,
     wasm_support: WasmSupportModule,
@@ -741,10 +682,6 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .common = common.module,
         .db = db.module,
         .graph = graph.module,
-    });
-    const physics = PhysicsModuleLib.build(ctx, .{
-        .common = common.module,
-        .ecs = ecs.module,
     });
     const lighting = LightingModuleLib.build(ctx, .{
         .common = common.module,
@@ -782,7 +719,6 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .common = common.module,
         .db = db.module,
         .ecs = ecs.module,
-        .physics = physics.module,
         .lighting = lighting.module,
         .gui = gui.module,
         .assets = assets.module,
@@ -809,7 +745,6 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .ecs = ecs.module,
         .graph = graph.module,
         .metrics = metrics.module,
-        .physics = physics.module,
         .lighting = lighting.module,
         .modules = modules.module,
         .platform = platform.module,
@@ -831,7 +766,6 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .miniaudio = miniaudio,
         .fastnoise = fastnoise,
         .ecs = ecs,
-        .physics = physics,
         .lighting = lighting,
         .metrics = metrics,
         .wasm_support = wasm_support,

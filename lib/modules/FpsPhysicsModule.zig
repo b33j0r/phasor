@@ -388,10 +388,10 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
 }
 
 const std = @import("std");
-const ecs = @import("ecs");
-const common = @import("common");
+const phasor = @import("phasor");
+const ecs = phasor.ecs;
+const common = phasor.common;
 const physics = @import("physics");
-const modules = @import("root.zig");
 
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
@@ -400,4 +400,4 @@ const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
 const Vec3 = common.Vec3;
 const Quat = common.Quat;
-const TimeModule = modules.TimeModule;
+const TimeModule = phasor.modules.TimeModule;

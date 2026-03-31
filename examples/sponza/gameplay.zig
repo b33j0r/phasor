@@ -610,7 +610,7 @@ const ecs = phasor.ecs;
 const lighting = phasor.lighting;
 const metrics = phasor.metrics;
 const modules = phasor.modules;
-const physics = phasor.physics;
+const physics = @import("phasor_physics");
 const render = phasor.renderer;
 
 const Query = ecs.system_params.Query;
