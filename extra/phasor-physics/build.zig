@@ -14,33 +14,41 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const is_wasm = target.result.cpu.arch.isWasm();
-    const phasor = phasor_dep.module("phasor");
+    const common = phasor_dep.module("common");
+    const ecs = phasor_dep.module("ecs");
+    const modules = phasor_dep.module("modules");
 
     const physics = b.createModule(.{
-        .root_source_file = phasor_dep.path("lib/physics/root.zig"),
+        .root_source_file = b.path("lib/physics/root.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "phasor", .module = phasor }},
+        .imports = &.{
+            .{ .name = "common", .module = common },
+            .{ .name = "ecs", .module = ecs },
+        },
     });
     if (!is_wasm) {
         addJoltSources(b, jolt_dep, physics);
     }
 
     const fps_physics = b.createModule(.{
-        .root_source_file = phasor_dep.path("lib/modules/FpsPhysicsModule.zig"),
+        .root_source_file = b.path("lib/modules/FpsPhysicsModule.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "phasor", .module = phasor },
+            .{ .name = "common", .module = common },
+            .{ .name = "ecs", .module = ecs },
+            .{ .name = "modules", .module = modules },
             .{ .name = "physics", .module = physics },
         },
     });
     const fps_key_binding = b.createModule(.{
-        .root_source_file = phasor_dep.path("lib/modules/FpsKeyBindingModule.zig"),
+        .root_source_file = b.path("lib/modules/FpsKeyBindingModule.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "phasor", .module = phasor },
+            .{ .name = "ecs", .module = ecs },
+            .{ .name = "modules", .module = modules },
             .{ .name = "fps_physics", .module = fps_physics },
         },
     });

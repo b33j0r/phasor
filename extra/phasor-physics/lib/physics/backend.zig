@@ -1,6 +1,5 @@
 const std = @import("std");
-const phasor = @import("phasor");
-const ecs = phasor.ecs;
+const ecs = @import("ecs");
 const resources = @import("resources.zig");
 const queries = @import("queries.zig");
 const null_backend = @import("backends/null.zig");

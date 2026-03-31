@@ -19,10 +19,6 @@
             .url = "git+https://github.com/b33j0r/wgpu_native_zig#4115c0834f2e239b3f44d7dc0754329285ba97a7",
             .hash = "wgpu_native_zig-6.5.0-B9jeDMl0AwA-sYZyuXuijsLLJwJmjVGcxNWfMoWVCaL6",
         },
-        .jolt = .{
-            .url = "https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.5.0.tar.gz",
-            .hash = "N-V-__8AAAPKDAINa53XiVzIJ2I4V3AAjPxzQ_bJ9TD7TOOS",
-        },
     },
     .paths = .{""},
     .fingerprint = 0x9ae1b1f9078cbe5d,

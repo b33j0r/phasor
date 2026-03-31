@@ -1,6 +1,5 @@
 const std = @import("std");
-const phasor = @import("phasor");
-const common = phasor.common;
+const common = @import("common");
 
 pub const magic: u32 = 0x314D4850; // PHM1
 pub const version: u16 = 1;

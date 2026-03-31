@@ -1,6 +1,5 @@
-const phasor = @import("phasor");
-const common = phasor.common;
-const ecs = phasor.ecs;
+const common = @import("common");
+const ecs = @import("ecs");
 
 pub const Material = struct {
     friction: f32 = 0.5,

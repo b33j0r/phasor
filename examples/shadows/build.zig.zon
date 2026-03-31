@@ -9,6 +9,9 @@
             // `zig fetch --save https://github.com/b33j0r/phasor#main`
             // to create your own independent project from this example.
         },
+        .phasor_physics = .{
+            .path = "../../extra/phasor-physics",
+        },
     },
     .paths = .{""},
     .fingerprint = 0x5ea4e5fca6607dbe,

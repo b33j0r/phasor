@@ -44,8 +44,12 @@ pub fn buildExample(b: *std.Build, options: BuildOptions) void {
         .target = native_target,
         .optimize = optimize,
     });
+    const phasor_physics_dep = b.dependency("phasor_physics", .{
+        .target = native_target,
+        .optimize = optimize,
+    });
     const phasor = phasor_dep.module("phasor");
-    const phasor_physics = phasor_dep.module("phasor_physics");
+    const phasor_physics = phasor_physics_dep.module("phasor_physics");
 
     var native_imports: std.ArrayList(std.Build.Module.Import) = .empty;
     defer native_imports.deinit(b.allocator);
@@ -148,8 +152,12 @@ fn addWebBundle(
         .target = wasm_target,
         .optimize = optimize,
     });
+    const wasm_phasor_physics_dep = b.dependency("phasor_physics", .{
+        .target = wasm_target,
+        .optimize = optimize,
+    });
     const wasm_phasor = wasm_phasor_dep.module("phasor");
-    const wasm_phasor_physics = wasm_phasor_dep.module("phasor_physics");
+    const wasm_phasor_physics = wasm_phasor_physics_dep.module("phasor_physics");
 
     var wasm_imports: std.ArrayList(std.Build.Module.Import) = .empty;
     defer wasm_imports.deinit(b.allocator);

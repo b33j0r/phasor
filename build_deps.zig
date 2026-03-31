@@ -58,7 +58,7 @@ const CommonModule = struct {
     tests: *std.Build.Step.Compile,
 
     fn build(ctx: *const BuildContext) CommonModule {
-        const bundle = ctx.moduleBundle("lib/common/root.zig", &.{});
+        const bundle = ctx.moduleBundlePublic("common", "lib/common/root.zig", &.{});
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -91,7 +91,7 @@ const EcsModule = struct {
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) EcsModule {
-        const bundle = ctx.moduleBundle("lib/ecs/root.zig", &.{
+        const bundle = ctx.moduleBundlePublic("ecs", "lib/ecs/root.zig", &.{
             .{ .name = "common", .module = deps.common },
             .{ .name = "db", .module = deps.db },
             .{ .name = "graph", .module = deps.graph },
@@ -447,7 +447,7 @@ const ModulesModule = struct {
             imports.append(ctx.b.allocator, .{ .name = "wasm", .module = wasm_mod }) catch unreachable;
         }
 
-        const bundle = ctx.moduleBundle("lib/modules/root.zig", imports.items);
+        const bundle = ctx.moduleBundlePublic("modules", "lib/modules/root.zig", imports.items);
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
