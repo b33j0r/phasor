@@ -36,7 +36,7 @@ fn extractTypeIdSets(comptime Parts: anytype) ExtractedSets {
         }
 
         if (count == 0) break :blk [_]meta.TypeId{};
-        var slice = tmp[0..count];
+        const slice = tmp[0..count];
         std.sort.pdq(meta.TypeId, slice, {}, std.sort.asc(meta.TypeId));
 
         var i: usize = 1;
@@ -67,7 +67,7 @@ fn extractTypeIdSets(comptime Parts: anytype) ExtractedSets {
         }
 
         if (count == 0) break :blk [_]meta.TypeId{};
-        var slice = tmp[0..count];
+        const slice = tmp[0..count];
         std.sort.pdq(meta.TypeId, slice, {}, std.sort.asc(meta.TypeId));
 
         var i: usize = 1;
@@ -98,7 +98,7 @@ fn extractTypeIdSets(comptime Parts: anytype) ExtractedSets {
         }
 
         if (count == 0) break :blk [_]meta.TypeId{};
-        var slice = tmp[0..count];
+        const slice = tmp[0..count];
         std.sort.pdq(meta.TypeId, slice, {}, std.sort.asc(meta.TypeId));
 
         var i: usize = 1;

@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
     const is_wasm = target.result.cpu.arch.isWasm();
     const common = phasor_dep.module("common");
     const ecs = phasor_dep.module("ecs");
-    const modules = phasor_dep.module("modules");
+    const physics_fps_support = phasor_dep.module("physics_fps_support");
 
     const physics = b.createModule(.{
         .root_source_file = b.path("lib/physics/root.zig"),
@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "common", .module = common },
             .{ .name = "ecs", .module = ecs },
-            .{ .name = "modules", .module = modules },
+            .{ .name = "physics_fps_support", .module = physics_fps_support },
             .{ .name = "physics", .module = physics },
         },
     });
@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "ecs", .module = ecs },
-            .{ .name = "modules", .module = modules },
+            .{ .name = "physics_fps_support", .module = physics_fps_support },
             .{ .name = "fps_physics", .module = fps_physics },
         },
     });
@@ -59,6 +59,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "physics", .module = physics },
+        },
+    });
+    const phasor_physics_fps = b.addModule("phasor_physics_fps", .{
+        .root_source_file = b.path("fps.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
             .{ .name = "fps_physics", .module = fps_physics },
             .{ .name = "fps_key_binding", .module = fps_key_binding },
         },
@@ -72,6 +79,10 @@ pub fn build(b: *std.Build) void {
     const package_tests = b.addTest(.{ .root_module = phasor_physics });
     const run_package_tests = b.addRunArtifact(package_tests);
     test_step.dependOn(&run_package_tests.step);
+
+    const fps_package_tests = b.addTest(.{ .root_module = phasor_physics_fps });
+    const run_fps_package_tests = b.addRunArtifact(fps_package_tests);
+    test_step.dependOn(&run_fps_package_tests.step);
 }
 
 fn addJoltSources(

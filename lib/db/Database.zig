@@ -272,7 +272,7 @@ pub fn removeComponents(self: *Self, entity_id: Entity.Id, comptime Types: anyty
     const remove_ids = meta.typeIdSet(Types).items;
     if (!schemaContainsAll(src_table.schema.items, remove_ids)) return Error.ComponentMissing;
 
-    var remaining_ids = try diffTypeIds(self.allocator, src_table.schema.items, remove_ids);
+    const remaining_ids = try diffTypeIds(self.allocator, src_table.schema.items, remove_ids);
     defer self.allocator.free(remaining_ids);
 
     if (remaining_ids.len == src_table.schema.items.len) return;

@@ -2,8 +2,6 @@ const core_physics = @import("physics");
 
 test "import tests" {
     _ = core_physics;
-    _ = FpsPhysicsModule;
-    _ = FpsKeyBindingModule;
 }
 
 pub const components = core_physics.components;
@@ -58,8 +56,3 @@ pub const units = core_physics.units;
 
 pub const PhysicsModule = core_physics.PhysicsModule;
 pub const PhysicsSchedules = core_physics.PhysicsSchedules;
-
-pub const FpsControlInput = @import("fps_physics").FpsControlInput;
-pub const FpsPhysicsModule = @import("fps_physics").FpsPhysicsModule;
-pub const FpsKeyBindings = @import("fps_key_binding").FpsKeyBindings;
-pub const FpsKeyBindingModule = @import("fps_key_binding").FpsKeyBindingModule;

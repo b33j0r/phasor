@@ -101,7 +101,7 @@ fn isKeyBindingDown(keys: *const InputModule.Keyboard, key: InputModule.Key) boo
 
 // Imports
 const ecs = @import("ecs");
-const modules = @import("modules");
+const support = @import("physics_fps_support");
 const FpsControlInput = @import("fps_physics").FpsControlInput;
 
 const AppCommands = ecs.AppCommands;
@@ -109,5 +109,5 @@ const Commands = ecs.Commands;
 const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
 const ResOpt = ecs.system_params.ResOpt;
-const InputModule = modules.InputModule;
-const TimeModule = modules.TimeModule;
+const InputModule = support.InputModule;
+const TimeModule = support.TimeModule;

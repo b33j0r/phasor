@@ -25,6 +25,4 @@ pub const c = if (builtin.target.cpu.arch.isWasm())
         pub extern fn stbi_image_free(retval_from_stbi_load: ?*anyopaque) void;
     }
 else
-    @cImport({
-        @cInclude("stb_image.h");
-    });
+    @import("stb_image_c");

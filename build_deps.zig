@@ -1,4 +1,22 @@
 const std = @import("std");
+
+fn translatedCModule(
+    ctx: *const BuildContext,
+    root_source_file: std.Build.LazyPath,
+    include_paths: []const std.Build.LazyPath,
+    macros: []const struct { name: []const u8, value: ?[]const u8 },
+) *std.Build.Module {
+    const translate_c = ctx.b.addTranslateC(.{
+        .root_source_file = root_source_file,
+        .target = ctx.target,
+        .optimize = ctx.optimize,
+        .link_libc = true,
+    });
+    for (include_paths) |include_path| translate_c.addIncludePath(include_path);
+    for (macros) |macro| translate_c.defineCMacro(macro.name, macro.value);
+    return translate_c.createModule();
+}
+
 pub const BuildContext = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -120,11 +138,24 @@ const GlfwModule = struct {
             .optimize = ctx.optimize,
         });
         const glfw_include = glfw_dep.path("include");
+        const glfw_c = translatedCModule(
+            ctx,
+            ctx.b.path("deps/glfw/root.h"),
+            &.{glfw_include},
+            if (ctx.target.result.os.tag.isDarwin())
+                &.{.{ .name = "_GLFW_COCOA", .value = "1" }}
+            else
+                &.{},
+        );
 
         const glfw_mod = ctx.b.createModule(.{
             .root_source_file = ctx.b.path("deps/glfw/root.zig"),
             .target = ctx.target,
             .optimize = ctx.optimize,
+            .imports = &.{.{
+                .name = "glfw_c",
+                .module = glfw_c,
+            }},
         });
         glfw_mod.addIncludePath(glfw_include);
         if (ctx.target.result.os.tag.isDarwin()) {
@@ -195,12 +226,22 @@ const StbModule = struct {
             .optimize = ctx.optimize,
         });
         const stb_include = stb_dep.path("");
+        const stb_c = translatedCModule(
+            ctx,
+            ctx.b.path("deps/stb_truetype/root.h"),
+            &.{stb_include},
+            &.{},
+        );
 
         const stb_mod = ctx.b.createModule(.{
             .root_source_file = ctx.b.path("deps/stb_truetype/root.zig"),
             .target = ctx.target,
             .optimize = ctx.optimize,
             .link_libc = true,
+            .imports = &.{.{
+                .name = "stb_truetype_c",
+                .module = stb_c,
+            }},
         });
         stb_mod.addIncludePath(stb_include);
         stb_mod.addCSourceFiles(.{
@@ -225,12 +266,22 @@ const StbImageModule = struct {
             .optimize = ctx.optimize,
         });
         const stb_include = stb_dep.path("");
+        const stb_image_c = translatedCModule(
+            ctx,
+            ctx.b.path("deps/stb_image/root.h"),
+            &.{stb_include},
+            &.{},
+        );
 
         const stb_image_mod = ctx.b.createModule(.{
             .root_source_file = ctx.b.path("deps/stb_image/root.zig"),
             .target = ctx.target,
             .optimize = ctx.optimize,
             .link_libc = true,
+            .imports = &.{.{
+                .name = "stb_image_c",
+                .module = stb_image_c,
+            }},
         });
         stb_image_mod.addIncludePath(stb_include);
         stb_image_mod.addCSourceFiles(.{
@@ -254,12 +305,22 @@ const CgltfModule = struct {
             .target = ctx.target,
             .optimize = ctx.optimize,
         });
+        const cgltf_c = translatedCModule(
+            ctx,
+            ctx.b.path("deps/cgltf/root.h"),
+            &.{cgltf_dep.path("")},
+            &.{},
+        );
 
         const cgltf_mod = ctx.b.createModule(.{
             .root_source_file = ctx.b.path("deps/cgltf/root.zig"),
             .target = ctx.target,
             .optimize = ctx.optimize,
             .link_libc = true,
+            .imports = &.{.{
+                .name = "cgltf_c",
+                .module = cgltf_c,
+            }},
         });
         cgltf_mod.addIncludePath(cgltf_dep.path(""));
         cgltf_mod.addCSourceFiles(.{
@@ -317,11 +378,21 @@ const MiniaudioModule = struct {
     tests: *std.Build.Step.Compile,
 
     fn build(ctx: *const BuildContext) MiniaudioModule {
+        const miniaudio_c = translatedCModule(
+            ctx,
+            ctx.b.path("deps/miniaudio/root.h"),
+            &.{ctx.b.path("deps/miniaudio")},
+            &.{},
+        );
         const miniaudio_mod = ctx.b.createModule(.{
             .root_source_file = ctx.b.path("deps/miniaudio/root.zig"),
             .target = ctx.target,
             .optimize = ctx.optimize,
             .link_libc = true,
+            .imports = &.{.{
+                .name = "miniaudio_c",
+                .module = miniaudio_c,
+            }},
         });
         miniaudio_mod.addIncludePath(ctx.b.path("deps/miniaudio"));
         miniaudio_mod.addCSourceFiles(.{
@@ -448,6 +519,22 @@ const ModulesModule = struct {
         }
 
         const bundle = ctx.moduleBundlePublic("modules", "lib/modules/root.zig", imports.items);
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
+const PhysicsFpsSupportModule = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    const Deps = struct {
+        modules: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) PhysicsFpsSupportModule {
+        const bundle = ctx.moduleBundlePublic("physics_fps_support", "lib/support/physics_fps.zig", &.{
+            .{ .name = "modules", .module = deps.modules },
+        });
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -662,6 +749,7 @@ pub const Engine = struct {
     audio: AudioModule,
     window: ?WindowModule,
     modules: ModulesModule,
+    physics_fps_support: PhysicsFpsSupportModule,
     platform: PlatformModule,
     phasor: PhasorModule,
 };
@@ -731,6 +819,9 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .window = if (!is_wasm) window.?.module else null,
         .wasm = if (is_wasm) wasm_support.module else null,
     });
+    const physics_fps_support = PhysicsFpsSupportModule.build(ctx, .{
+        .modules = modules.module,
+    });
     const platform = PlatformModule.build(ctx, .{
         .common = common.module,
         .ecs = ecs.module,
@@ -775,6 +866,7 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .audio = audio,
         .window = window,
         .modules = modules,
+        .physics_fps_support = physics_fps_support,
         .platform = platform,
         .phasor = phasor,
     };

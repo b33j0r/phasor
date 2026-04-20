@@ -1,5 +1,3 @@
 //! Thin C wrapper for stb_truetype.
 
-pub const c = @cImport({
-    @cInclude("stb_truetype.h");
-});
+pub const c = @import("stb_truetype_c");

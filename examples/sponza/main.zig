@@ -60,7 +60,7 @@ const App = struct {
             },
         });
         try app.installModule(FpsPhysics{});
-        try app.installModule(physics.FpsKeyBindingModule{});
+        try app.installModule(physics_fps.FpsKeyBindingModule{});
         try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
             .font_size = 22.0,
@@ -92,6 +92,7 @@ const common = phasor.common;
 const ecs = phasor.ecs;
 const modules = phasor.modules;
 const physics = @import("phasor_physics");
+const physics_fps = @import("phasor_physics_fps");
 const platform = phasor.platform;
 const render = phasor.renderer;
 const Color = common.Color;

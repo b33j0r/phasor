@@ -1,6 +1,6 @@
 const Player = struct {};
 const PlayerCamera = struct {};
-const FpsPhysics = physics.FpsPhysicsModule(Player);
+const FpsPhysics = physics_fps.FpsPhysicsModule(Player);
 const FpsController = FpsPhysics.FpsController;
 
 const UvSamplingMode = union(enum) {
@@ -41,7 +41,7 @@ const App = struct {
             },
         });
         try app.installModule(FpsPhysics{});
-        try app.installModule(physics.FpsKeyBindingModule{});
+        try app.installModule(physics_fps.FpsKeyBindingModule{});
         try app.installModule(modules.AssetsModule(Assets));
         try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
             .font_size = 24.0,
@@ -799,6 +799,7 @@ const phasor = @import("phasor");
 const ecs = phasor.ecs;
 const modules = phasor.modules;
 const physics = @import("phasor_physics");
+const physics_fps = @import("phasor_physics_fps");
 const render = phasor.renderer;
 const common = phasor.common;
 const platform = phasor.platform;

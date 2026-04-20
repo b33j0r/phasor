@@ -44,6 +44,7 @@ pub fn build(b: *std.Build) void {
             engine.renderer.tests,
             engine.assets.tests,
             engine.phasor.tests,
+            engine.physics_fps_support.tests,
             engine.wasm_support.tests,
         });
     } else {
@@ -64,6 +65,7 @@ pub fn build(b: *std.Build) void {
             engine.renderer.tests,
             engine.assets.tests,
             engine.phasor.tests,
+            engine.physics_fps_support.tests,
             engine.wasm_support.tests,
             engine.window.?.tests,
         });
