@@ -80,6 +80,57 @@ The ECS example defines an `ExitRequested` event, sends it from one system, then
 
 That split matters. One system decides that the countdown has finished. Another system owns the state transition that follows. The event keeps that handoff explicit without introducing hidden coupling between the two systems.
 
+## Parallel System Execution
+
+Systems within the same schedule can run in parallel when their data access
+patterns do not conflict. The engine analyzes each system's parameter signature
+at compile time to build an access descriptor:
+
+| Parameter | Access |
+|---|---|
+| `Res(T)` / `ResOpt(T)` / `HasResource(T)` | shared read of resource `T` |
+| `ResMut(T)` / `ResMutOpt(T)` | exclusive write of resource `T` |
+| `Query(...)` / `GroupBy(...)` | shared component read |
+| `*Commands` / `WorldRef` | exclusive world access |
+
+Two systems conflict when one writes a resource the other reads or writes,
+or when either requires exclusive world access. Systems that do not conflict
+are grouped into the same batch and run concurrently via `std.Io.Group`.
+Conflicting systems are placed in later batches, preserving the declared
+registration order.
+
+Enable parallel execution through `App.InitConfig`:
+
+```zig
+var app = try ecs.App.initWithConfig(allocator, &init.io, .{
+    .parallel_systems = true,
+});
+```
+
+When `parallel_systems` is `false` (the default), systems run sequentially
+in registration order — identical to the behavior before this feature.
+
+### Design principles
+
+- **Signature is the contract.** A system's parameters fully describe its
+  data dependencies. The scheduler never needs runtime annotations or manual
+  ordering hints.
+- **Declared order is the tiebreaker.** When two systems conflict, the one
+  registered first always runs in an earlier batch.
+- **Commands are deferred.** Each system in a parallel batch gets its own
+  `Commands` buffer. After the batch completes, all command buffers are
+  applied sequentially in declared order, so structural mutations (entity
+  creation, component changes) are never concurrent.
+- **Single-system batches skip concurrency overhead.** If a batch contains
+  only one system, it runs directly on the calling thread.
+
+### When it helps
+
+Parallel execution benefits workloads with multiple CPU-heavy systems that
+operate on independent resources. If most of your systems touch the same
+mutable state or use `*Commands`, the scheduler will serialize them anyway
+and the overhead of batching is negligible.
+
 ## Mental Model
 
 Start with this checklist:
@@ -89,5 +140,6 @@ Start with this checklist:
 - write systems whose params declare exactly what they need
 - use queries for persistent entity data
 - use events for short-lived messages
+- enable `parallel_systems` when your schedule has independent CPU-bound work
 
 Once that feels natural, the next layer is [Phases](phases.md). Phases keep the same ECS model, but add structured mode transitions and phase-owned system registration on top of it.

@@ -6,6 +6,7 @@ command_channel: ?common.Channel(CommandBatch) = null,
 command_queue_capacity: usize = 64,
 startup_run: bool = false,
 shutdown_run: bool = false,
+parallel_systems: bool = false,
 
 const Self = @This();
 
@@ -21,6 +22,10 @@ pub fn error_message(err: Error) []const u8 {
 
 pub const InitConfig = struct {
     command_queue_capacity: usize = 64,
+    /// Enable parallel execution of non-conflicting systems within a schedule.
+    /// When true, systems whose data access patterns don't conflict are run
+    /// concurrently via `std.Io.Group`. Requires a threaded Io backend.
+    parallel_systems: bool = false,
 };
 
 pub fn init(allocator: std.mem.Allocator, io: *const std.Io) !Self {
@@ -35,6 +40,7 @@ pub fn initWithConfig(allocator: std.mem.Allocator, io: *const std.Io, config: I
         .schedule_manager = try schedule_mod.ScheduleManager.init(allocator),
         .command_channel = null,
         .command_queue_capacity = config.command_queue_capacity,
+        .parallel_systems = config.parallel_systems,
     };
 }
 
@@ -191,22 +197,14 @@ fn runScheduleInternal(
     schedule_ptr: *schedule_mod.Schedule,
     command_channel: *common.Channel(CommandBatch),
 ) !void {
-    const system_order = try schedule_ptr.systemOrder(self.allocator);
-    for (system_order) |system_index| {
-        const node = schedule_ptr.systemNodeAt(system_index);
-        if (!node.enabled) continue;
-
-        var commands = Commands.init(self.allocator, self.io, &self.world);
-        defer commands.deinit();
-
-        try node.system.run(&commands);
-        if (!commands.isEmpty()) {
-            try commands.flushToChannel(command_channel);
-            var batch = try command_channel.recv();
-            defer batch.deinit();
-            try batch.apply(&self.world);
-        }
-    }
+    try parallel_executor.executeSchedule(
+        self.allocator,
+        self.io,
+        &self.world,
+        schedule_ptr,
+        command_channel,
+        self.parallel_systems,
+    );
 }
 
 // Imports
@@ -217,6 +215,7 @@ const schedule_mod = @import("schedule.zig");
 const AppCommands = @import("AppCommands.zig").AppCommands;
 const Module = @import("Module.zig");
 const resources = @import("resources.zig");
+const parallel_executor = @import("parallel_executor.zig");
 const Commands = @import("Commands.zig");
 const CommandBatch = @import("Commands.zig").CommandBatch;
 const log = std.log.scoped(.ecs_app);

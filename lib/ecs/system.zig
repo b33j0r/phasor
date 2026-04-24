@@ -2,6 +2,7 @@ pub const System = struct {
     run: *const fn (commands: *Commands) anyerror!void,
     register: *const fn (world: *World) anyerror!void,
     unregister: *const fn (world: *World) anyerror!void,
+    access: system_access.AccessDescriptor,
 
     pub fn from(comptime system_fn: anytype) !System {
         const fn_type = @TypeOf(system_fn);
@@ -74,11 +75,13 @@ pub const System = struct {
             .run = runFn,
             .register = registerFn,
             .unregister = unregisterFn,
+            .access = comptime system_access.analyzeAccess(system_fn),
         };
     }
 };
 
 // Imports
 const std = @import("std");
+const system_access = @import("system_access.zig");
 const Commands = @import("Commands.zig");
 const World = @import("World.zig");
