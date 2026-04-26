@@ -121,6 +121,8 @@ pub const SceneFinalizeState = struct {
     allocator: std.mem.Allocator,
     payload: LoadedScenePayload,
     stage: FinalizeStage = .inspect_bake,
+    started_ns: i96 = 0,
+    stage_started_ns: i96 = 0,
     root_translation: Vec3 = .{},
     scene_size: Vec3 = .{},
     scene_root: ?u64 = null,

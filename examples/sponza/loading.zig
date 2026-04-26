@@ -117,6 +117,8 @@ pub fn advanceSceneFinalize(
             try commands.insertResource(SceneFinalizeState{
                 .allocator = commands.allocator,
                 .payload = payload,
+                .started_ns = nowNs(commands.io.*),
+                .stage_started_ns = nowNs(commands.io.*),
                 .root_translation = root_translation,
                 .scene_size = bounds.size(),
             });
@@ -130,6 +132,7 @@ pub fn advanceSceneFinalize(
         .inspect_bake => {
             loader.ptr.progress = .{ .label = "5/7 validating collision bake", .fraction = 0.58 };
             try logCollisionBakeStats(commands.allocator, finalize.payload.bake);
+            logFinalizeStage(finalize, commands.io.*, "inspect collision bake");
             finalize.stage = .create_scene_root;
         },
         .create_scene_root => {
@@ -161,6 +164,7 @@ pub fn advanceSceneFinalize(
                 },
                 render.Layer(-1){},
             });
+            logFinalizeStage(finalize, commands.io.*, "create scene root");
             finalize.stage = .parse_collision;
         },
         .parse_collision => {
@@ -170,6 +174,7 @@ pub fn advanceSceneFinalize(
                 finalize.payload.bake.collision_blob,
             );
             finalize.next_collision_mesh = 0;
+            logFinalizeStage(finalize, commands.io.*, "parse collision blob");
             finalize.stage = .instantiate_collision;
         },
         .instantiate_collision => {
@@ -209,6 +214,7 @@ pub fn advanceSceneFinalize(
             }
 
             if (finalize.next_collision_mesh >= total_meshes) {
+                logFinalizeStage(finalize, commands.io.*, "instantiate collision bodies");
                 finalize.stage = .instantiate_scene;
             }
         },
@@ -236,6 +242,7 @@ pub fn advanceSceneFinalize(
 
             const imported = try finalize.payload.prepared_scene.completeApply(apply);
             finalize.scene_apply = null;
+            logFinalizeStage(finalize, commands.io.*, "upload render scene");
             try commands.insertResource(imported);
             try commands.insertResource(SceneSpawnPlan{
                 .scene_size = finalize.scene_size,
@@ -244,6 +251,7 @@ pub fn advanceSceneFinalize(
             try commands.insertResource(MouseCapture{ .enabled = true });
             try commands.insertResource(ClearColor{ .color = Color.rgb(8, 10, 14) });
             loader.ptr.progress = .{ .label = "Ready", .fraction = 1.0 };
+            std.log.info("sponza finalize/upload complete in {d:.2} ms", .{elapsedMs(nowNs(commands.io.*) - finalize.started_ns)});
             try commands.insertResource(phases.SponzaPhases.NextPhase{ .phase = .{ .InGame = .{ .Playing = .{} } } });
             _ = commands.removeResource(SceneFinalizeState);
         },
@@ -687,6 +695,9 @@ fn runSceneLoader(
     outbox: common.Channel(SceneLoaderMessage).Sender,
     ctx: SceneLoaderTaskContext,
 ) anyerror!void {
+    const total_start_ns = nowNs(task_io);
+    var step_start_ns = total_start_ns;
+
     // Reusable importer overrides: alpha-masked materials (cloth/foliage/cutouts) default to dielectric behavior.
     // This avoids metallic-channel dominance on masked surfaces when source assets encode aggressive MR textures.
     const material_overrides = [_]assets.PreparedImportedScene.MaterialOverride{
@@ -722,10 +733,12 @@ fn runSceneLoader(
     try outbox.send(.{ .progress = .{ .label = "2/7 parsing glTF scene", .fraction = 0.20 } });
     var scene_data = try assets.gltf.parseFromFile(ctx.allocator, resolved_z);
     errdefer scene_data.deinit();
+    std.log.info("sponza loader parse glTF: {d:.2} ms", .{elapsedMs(lapNs(task_io, &step_start_ns))});
 
     try outbox.send(.{ .progress = .{ .label = "3/7 baking collision meshes", .fraction = 0.34 } });
     const bake = try bakeSceneCollision(ctx.allocator, &scene_data);
     errdefer ctx.allocator.free(bake.collision_blob);
+    std.log.info("sponza loader collision bake: {d:.2} ms", .{elapsedMs(lapNs(task_io, &step_start_ns))});
 
     try outbox.send(.{ .progress = .{ .label = "4/7 preparing render assets", .fraction = 0.50 } });
     var prepared_scene = try assets.PreparedImportedScene.prepare(
@@ -740,11 +753,37 @@ fn runSceneLoader(
     );
     errdefer prepared_scene.deinit();
     scene_data.deinit();
+    std.log.info(
+        "sponza loader render prepare: {d:.2} ms (textures={}, primitives={})",
+        .{ elapsedMs(lapNs(task_io, &step_start_ns)), prepared_scene.textures.len, prepared_scene.primitives.len },
+    );
 
     try outbox.send(.{ .ready = .{
         .prepared_scene = prepared_scene,
         .bake = bake,
     } });
+    std.log.info("sponza loader background total: {d:.2} ms", .{elapsedMs(nowNs(task_io) - total_start_ns)});
+}
+
+fn nowNs(io: std.Io) i96 {
+    return std.Io.Clock.awake.now(io).nanoseconds;
+}
+
+fn lapNs(io: std.Io, start_ns: *i96) i96 {
+    const end_ns = nowNs(io);
+    const elapsed_ns = end_ns - start_ns.*;
+    start_ns.* = end_ns;
+    return elapsed_ns;
+}
+
+fn logFinalizeStage(finalize: *SceneFinalizeState, io: std.Io, label: []const u8) void {
+    const end_ns = nowNs(io);
+    std.log.info("sponza finalize {s}: {d:.2} ms", .{ label, elapsedMs(end_ns - finalize.stage_started_ns) });
+    finalize.stage_started_ns = end_ns;
+}
+
+fn elapsedMs(ns: i96) f64 {
+    return @as(f64, @floatFromInt(ns)) / std.time.ns_per_ms;
 }
 
 // Imports

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const sponza_api_url = "https://api.github.com/repos/KhronosGroup/glTF-Sample-Assets/contents/Models/Sponza/glTF?ref=main";
 const sponza_cache_dir = "assets/sponza/glTF";
+const sponza_manifest_path = sponza_cache_dir ++ "/Sponza.gltf";
 const user_agent = "phasor-fetch-sponza";
 
 const ApiEntry = struct {
@@ -19,6 +20,10 @@ pub fn main(init: std.process.Init) !void {
     if (!try parseArgs(init, &options)) return;
 
     try std.Io.Dir.cwd().createDirPath(init.io, sponza_cache_dir);
+    if (!options.refresh and try cachedAssetTreeReady(init)) {
+        std.log.info("Sponza cache ready at {s} (using local cache)", .{sponza_cache_dir});
+        return;
+    }
 
     var client: std.http.Client = .{
         .allocator = init.gpa,
@@ -139,5 +144,56 @@ fn downloadFile(
 
 fn fileExists(init: std.process.Init, path: []const u8) bool {
     std.Io.Dir.cwd().access(init.io, path, .{}) catch return false;
+    return true;
+}
+
+fn cachedAssetTreeReady(init: std.process.Init) !bool {
+    if (!fileExists(init, sponza_manifest_path)) return false;
+
+    const manifest_bytes = std.Io.Dir.cwd().readFileAlloc(
+        init.io,
+        sponza_manifest_path,
+        init.gpa,
+        std.Io.Limit.limited(16 * 1024 * 1024),
+    ) catch return false;
+    defer init.gpa.free(manifest_bytes);
+
+    const parsed = std.json.parseFromSlice(std.json.Value, init.gpa, manifest_bytes, .{}) catch return false;
+    defer parsed.deinit();
+
+    const root_object = switch (parsed.value) {
+        .object => |object| object,
+        else => return false,
+    };
+
+    if (!try referencedUrisExist(init, root_object.get("buffers"))) return false;
+    if (!try referencedUrisExist(init, root_object.get("images"))) return false;
+    return true;
+}
+
+fn referencedUrisExist(init: std.process.Init, value_opt: ?std.json.Value) !bool {
+    const value = value_opt orelse return true;
+    const items = switch (value) {
+        .array => |array| array.items,
+        else => return true,
+    };
+
+    for (items) |item| {
+        const object = switch (item) {
+            .object => |object| object,
+            else => continue,
+        };
+        const uri_value = object.get("uri") orelse continue;
+        const uri = switch (uri_value) {
+            .string => |string| string,
+            else => continue,
+        };
+        if (std.mem.startsWith(u8, uri, "data:")) continue;
+        if (std.mem.indexOfScalar(u8, uri, ':') != null) return false;
+
+        const path = try std.fs.path.join(init.gpa, &.{ sponza_cache_dir, uri });
+        defer init.gpa.free(path);
+        if (!fileExists(init, path)) return false;
+    }
     return true;
 }
