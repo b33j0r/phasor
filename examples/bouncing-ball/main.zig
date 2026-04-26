@@ -33,6 +33,12 @@ const App = struct {
             .width = 800,
             .height = 600,
         },
+        .vsync = false,
+    };
+
+    pub const appOptions = ecs.App.InitConfig{
+        .command_queue_capacity = 64,
+        .parallel_systems = true,
     };
 
     pub fn configure(app: *ecs.App) !void {

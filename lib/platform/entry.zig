@@ -25,7 +25,9 @@ pub const Options = struct {
 
 pub fn EntryPoint(comptime AppSpec: type) type {
     return struct {
-        const options: Options = if (@hasDecl(AppSpec, "options")) AppSpec.options else Options{};
+        const platform_options: Options = if (@hasDecl(AppSpec, "options")) AppSpec.options else Options{};
+        const app_options = if (@hasDecl(AppSpec, "appOptions")) AppSpec.appOptions else ecs.App.InitConfig{};
+
         const wasm = if (is_wasm) @import("wasm") else struct {
             pub fn io() std.Io {
                 return undefined;
@@ -50,7 +52,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
         fn nativeMain(init: std.process.Init) !u8 {
             const allocator = std.heap.c_allocator;
 
-            var app = try ecs.App.init(allocator, &init.io);
+            var app = try ecs.App.init(allocator, &init.io, app_options);
             defer app.deinit();
 
             try setupApp(&app);
@@ -74,7 +76,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             errdefer allocator.destroy(runner);
 
             runner.io = wasm.io();
-            runner.app = ecs.App.init(allocator, &runner.io) catch |err| {
+            runner.app = ecs.App.init(allocator, &runner.io, app_options) catch |err| {
                 wasm_last_error = @errorName(err);
                 return 0;
             };
@@ -94,27 +96,27 @@ pub fn EntryPoint(comptime AppSpec: type) type {
 
         pub fn wasmVsyncEnabled() callconv(.c) bool {
             if (!is_wasm) return true;
-            return options.vsync orelse true;
+            return platform_options.vsync orelse true;
         }
 
         pub fn wasmFullscreenEnabled() callconv(.c) bool {
             if (!is_wasm) return false;
-            return options.fullscreen;
+            return platform_options.fullscreen;
         }
 
         pub fn wasmPauseOnGpuErrorEnabled() callconv(.c) bool {
             if (!is_wasm) return false;
-            return options.pause_on_gpu_error;
+            return platform_options.pause_on_gpu_error;
         }
 
         pub fn wasmWindowTitlePtr() callconv(.c) [*]const u8 {
             if (!is_wasm) return @ptrFromInt(0);
-            return options.window.title.ptr;
+            return platform_options.window.title.ptr;
         }
 
         pub fn wasmWindowTitleLen() callconv(.c) usize {
             if (!is_wasm) return 0;
-            return options.window.title.len;
+            return platform_options.window.title.len;
         }
 
         pub fn wasmFrame(handle: u32) callconv(.c) void {
@@ -218,22 +220,22 @@ pub fn EntryPoint(comptime AppSpec: type) type {
                 @compileError("EntryPoint expects AppSpec.configure(app: *ecs.App) !void");
             }
 
-            if (!is_wasm and options.install_window_module) {
-                try installWindowModule(app, options.window);
+            if (!is_wasm and platform_options.install_window_module) {
+                try installWindowModule(app, platform_options.window);
             }
 
-            if (options.vsync) |vsync| {
+            if (platform_options.vsync) |vsync| {
                 try installVsyncResource(app, vsync);
             }
 
-            if (options.auto_surface) {
+            if (platform_options.auto_surface) {
                 try app.addSystemTo(schedule.DefaultSchedule.WindowCreate, setupSurface);
             }
 
-            if (options.install_crash_dump) {
+            if (platform_options.install_crash_dump) {
                 try app.installModule(modules.CrashDumpModule);
             }
-            if (options.install_soak_monitor) {
+            if (platform_options.install_soak_monitor) {
                 try app.installModule(modules.SoakMonitorModule);
             }
 
@@ -280,7 +282,7 @@ pub fn EntryPoint(comptime AppSpec: type) type {
             if (commands.hasResource(RenderSurface)) return;
 
             if (is_wasm) {
-                const surface = render.surface_canvas.fromCanvasId(options.canvas_id);
+                const surface = render.surface_canvas.fromCanvasId(platform_options.canvas_id);
                 try commands.insertResource(RenderSurface{ .target = surface });
             } else {
                 const window = @import("window");

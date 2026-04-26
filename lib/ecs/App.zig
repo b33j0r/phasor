@@ -28,11 +28,7 @@ pub const InitConfig = struct {
     parallel_systems: bool = false,
 };
 
-pub fn init(allocator: std.mem.Allocator, io: *const std.Io) !Self {
-    return try initWithConfig(allocator, io, .{});
-}
-
-pub fn initWithConfig(allocator: std.mem.Allocator, io: *const std.Io, config: InitConfig) !Self {
+pub fn init(allocator: std.mem.Allocator, io: *const std.Io, config: InitConfig) !Self {
     return .{
         .allocator = allocator,
         .io = io,
