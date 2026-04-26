@@ -1,6 +1,7 @@
-/// Parallel system executor for the ECS scheduler.
+/// System executors for the ECS scheduler.
 ///
-/// Analyzes system access patterns to determine which systems can safely run
+/// `SerialExecutor` runs systems in registration order. `ParallelExecutor`
+/// analyzes system access patterns to determine which systems can safely run
 /// concurrently, then executes them in parallel batches using `std.Io.Group`.
 ///
 /// Systems are partitioned into ordered batches where:
@@ -13,20 +14,71 @@
 ///
 /// After each batch completes, all deferred commands are applied sequentially
 /// before the next batch begins.
-
 const std = @import("std");
-const system_mod = @import("system.zig");
 const system_access = @import("system_access.zig");
 const schedule_mod = @import("schedule.zig");
 const Commands = @import("Commands.zig");
 const World = @import("World.zig");
 const common = @import("common");
 
-const System = system_mod.System;
 const AccessDescriptor = system_access.AccessDescriptor;
 const CommandBatch = Commands.CommandBatch;
 
-const log = std.log.scoped(.parallel_executor);
+const log = std.log.scoped(.system_executor);
+
+pub const Context = struct {
+    allocator: std.mem.Allocator,
+    io: *const std.Io,
+    world: *World,
+    schedule: *schedule_mod.Schedule,
+    command_channel: *common.Channel(CommandBatch),
+};
+
+pub const Executor = struct {
+    executeFn: *const fn (Context) anyerror!void,
+
+    pub fn init(comptime parallel_systems: bool) Executor {
+        return .{
+            .executeFn = if (parallel_systems)
+                ParallelExecutor.execute
+            else
+                SerialExecutor.execute,
+        };
+    }
+
+    pub fn execute(self: Executor, context: Context) !void {
+        try self.executeFn(context);
+    }
+};
+
+pub const SerialExecutor = struct {
+    pub fn execute(context: Context) !void {
+        const system_order = try context.schedule.systemOrder(context.allocator);
+        for (system_order) |system_index| {
+            try runSystemAndApplyCommands(context, system_index);
+        }
+    }
+};
+
+pub const ParallelExecutor = struct {
+    pub fn execute(context: Context) !void {
+        const system_order = try context.schedule.systemOrder(context.allocator);
+        if (system_order.len == 0) return;
+
+        const batches = try computeBatches(context.allocator, context.schedule, system_order);
+        defer freeBatches(context.allocator, batches);
+
+        for (batches) |batch| {
+            if (batch.indices.len == 0) continue;
+
+            if (batch.indices.len == 1) {
+                try runSystemAndApplyCommands(context, batch.indices[0]);
+            } else {
+                try executeBatchConcurrent(context, batch);
+            }
+        }
+    }
+};
 
 /// A batch of system indices that can safely run concurrently.
 pub const SystemBatch = struct {
@@ -144,116 +196,48 @@ pub fn freeBatches(allocator: std.mem.Allocator, batches: []SystemBatch) void {
     allocator.free(batches);
 }
 
-/// Result of running a system, used for collecting errors from concurrent tasks.
-const SystemResult = struct {
-    index: usize,
-    err: ?anyerror,
-};
-
-/// Execute a schedule's systems in parallel batches.
-///
-/// Systems within each batch run concurrently via `Io.Group`. After each batch
-/// completes, deferred commands from all systems in the batch are applied
-/// sequentially in declared order.
-///
-/// Falls back to sequential execution when `parallel = false` or when there's
-/// only one system in a batch.
-pub fn executeSchedule(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
-    world: *World,
-    schedule: *schedule_mod.Schedule,
-    command_channel: *common.Channel(CommandBatch),
-    parallel: bool,
-) !void {
-    const system_order = try schedule.systemOrder(allocator);
-    if (system_order.len == 0) return;
-
-    if (!parallel) {
-        return executeSequential(allocator, io, world, schedule, system_order, command_channel);
-    }
-
-    const batches = try computeBatches(allocator, schedule, system_order);
-    defer freeBatches(allocator, batches);
-
-    for (batches) |batch| {
-        if (batch.indices.len == 0) continue;
-
-        if (batch.indices.len == 1) {
-            // Single system: run directly without concurrency overhead.
-            try executeSingleSystem(allocator, io, world, schedule, batch.indices[0], command_channel);
-        } else {
-            try executeBatchConcurrent(allocator, io, world, schedule, batch, command_channel);
-        }
-    }
-}
-
-fn executeSequential(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
-    world: *World,
-    schedule: *schedule_mod.Schedule,
-    system_order: []const usize,
-    command_channel: *common.Channel(CommandBatch),
-) !void {
-    for (system_order) |system_index| {
-        try executeSingleSystem(allocator, io, world, schedule, system_index, command_channel);
-    }
-}
-
-fn executeSingleSystem(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
-    world: *World,
-    schedule: *schedule_mod.Schedule,
-    system_index: usize,
-    command_channel: *common.Channel(CommandBatch),
-) !void {
-    const node = schedule.systemNodeAt(system_index);
+fn runSystemAndApplyCommands(context: Context, system_index: usize) !void {
+    const node = context.schedule.systemNodeAt(system_index);
     if (!node.enabled) return;
 
-    var commands = Commands.init(allocator, io, world);
+    var commands = Commands.init(context.allocator, context.io, context.world);
     defer commands.deinit();
 
     try node.system.run(&commands);
     if (!commands.isEmpty()) {
-        try commands.flushToChannel(command_channel);
-        var batch = try command_channel.recv();
+        try commands.flushToChannel(context.command_channel);
+        var batch = try context.command_channel.recv();
         defer batch.deinit();
-        try batch.apply(world);
+        try batch.apply(context.world);
     }
 }
 
 fn executeBatchConcurrent(
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
-    world: *World,
-    schedule: *schedule_mod.Schedule,
+    context: Context,
     batch: SystemBatch,
-    command_channel: *common.Channel(CommandBatch),
 ) !void {
     const n = batch.indices.len;
 
     // Pre-allocate Commands for each system in the batch.
-    var commands_list = try allocator.alloc(Commands, n);
+    var commands_list = try context.allocator.alloc(Commands, n);
     defer {
         for (commands_list) |*cmds| cmds.deinit();
-        allocator.free(commands_list);
+        context.allocator.free(commands_list);
     }
     for (commands_list) |*cmds| {
-        cmds.* = Commands.init(allocator, io, world);
+        cmds.* = Commands.init(context.allocator, context.io, context.world);
     }
 
     // Collect errors from concurrent tasks.
-    var errors = try allocator.alloc(?anyerror, n);
-    defer allocator.free(errors);
+    var errors = try context.allocator.alloc(?anyerror, n);
+    defer context.allocator.free(errors);
     for (errors) |*e| e.* = null;
 
     // Run all systems concurrently using Io.Group.
     var group: std.Io.Group = .init;
 
     for (batch.indices, 0..) |system_index, i| {
-        const node = schedule.systemNodeAt(system_index);
+        const node = context.schedule.systemNodeAt(system_index);
         if (!node.enabled) continue;
 
         const run_fn = node.system.run;
@@ -262,13 +246,13 @@ fn executeBatchConcurrent(
 
         // Use group.concurrent() to spawn on a real thread.
         // Fall back to group.async() if we can't get concurrency.
-        group.concurrent(io.*, runSystemTask, .{ run_fn, cmds_ptr, err_ptr }) catch {
-            group.async(io.*, runSystemTask, .{ run_fn, cmds_ptr, err_ptr });
+        group.concurrent(context.io.*, runSystemTask, .{ run_fn, cmds_ptr, err_ptr }) catch {
+            group.async(context.io.*, runSystemTask, .{ run_fn, cmds_ptr, err_ptr });
         };
     }
 
     // Wait for all tasks to complete.
-    group.await(io.*) catch {};
+    group.await(context.io.*) catch {};
 
     // Check for errors.
     var first_err: ?anyerror = null;
@@ -279,10 +263,10 @@ fn executeBatchConcurrent(
     // Apply commands in declared order.
     for (commands_list) |*cmds| {
         if (!cmds.isEmpty()) {
-            try cmds.flushToChannel(command_channel);
-            var cmd_batch = try command_channel.recv();
+            try cmds.flushToChannel(context.command_channel);
+            var cmd_batch = try context.command_channel.recv();
             defer cmd_batch.deinit();
-            try cmd_batch.apply(world);
+            try cmd_batch.apply(context.world);
         }
     }
 
@@ -454,7 +438,7 @@ test "computeBatches: exclusive system gets own batch" {
     try testing.expectEqual(@as(usize, 1), batches[2].indices.len);
 }
 
-test "executeSchedule: sequential execution preserves resource mutations" {
+test "SerialExecutor preserves resource mutations" {
     const allocator = testing.allocator;
     var io_impl = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
     defer io_impl.deinit();
@@ -485,13 +469,19 @@ test "executeSchedule: sequential execution preserves resource mutations" {
     var channel = try common.Channel(CommandBatch).init(allocator, &io, 64);
     defer channel.deinit();
 
-    try executeSchedule(allocator, &io, &world, sched, &channel, false);
+    try SerialExecutor.execute(.{
+        .allocator = allocator,
+        .io = &io,
+        .world = &world,
+        .schedule = sched,
+        .command_channel = &channel,
+    });
 
     const score = world.getResource(Score).?;
     try testing.expectEqual(@as(u32, 15), score.value);
 }
 
-test "executeSchedule: parallel execution with independent systems" {
+test "ParallelExecutor runs independent systems" {
     const allocator = testing.allocator;
     var io_impl = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
     defer io_impl.deinit();
@@ -523,13 +513,19 @@ test "executeSchedule: parallel execution with independent systems" {
     var channel = try common.Channel(CommandBatch).init(allocator, &io, 64);
     defer channel.deinit();
 
-    try executeSchedule(allocator, &io, &world, sched, &channel, true);
+    try ParallelExecutor.execute(.{
+        .allocator = allocator,
+        .io = &io,
+        .world = &world,
+        .schedule = sched,
+        .command_channel = &channel,
+    });
 
     try testing.expectEqual(@as(u32, 110), world.getResource(Health).?.hp);
     try testing.expectEqual(@as(u32, 55), world.getResource(Mana).?.mp);
 }
 
-test "executeSchedule: parallel preserves order for conflicting systems" {
+test "ParallelExecutor preserves order for conflicting systems" {
     const allocator = testing.allocator;
     var io_impl = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
     defer io_impl.deinit();
@@ -561,13 +557,19 @@ test "executeSchedule: parallel preserves order for conflicting systems" {
     var channel = try common.Channel(CommandBatch).init(allocator, &io, 64);
     defer channel.deinit();
 
-    try executeSchedule(allocator, &io, &world, sched, &channel, true);
+    try ParallelExecutor.execute(.{
+        .allocator = allocator,
+        .io = &io,
+        .world = &world,
+        .schedule = sched,
+        .command_channel = &channel,
+    });
 
     // multiply: 0 * 2 + 1 = 1, then add_three: 1 + 3 = 4
     try testing.expectEqual(@as(u32, 4), world.getResource(Score).?.value);
 }
 
-test "executeSchedule: parallel speedup with CPU-heavy independent systems" {
+test "ParallelExecutor speedup with CPU-heavy independent systems" {
     const allocator = testing.allocator;
     var io_impl = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
     defer io_impl.deinit();
@@ -623,7 +625,13 @@ test "executeSchedule: parallel speedup with CPU-heavy independent systems" {
         defer channel.deinit();
 
         const t0 = nowNs();
-        try executeSchedule(allocator, &io, &world, sched, &channel, false);
+        try SerialExecutor.execute(.{
+            .allocator = allocator,
+            .io = &io,
+            .world = &world,
+            .schedule = sched,
+            .command_channel = &channel,
+        });
         const seq_ns = nowNs() - t0;
 
         // --- Parallel run ---
@@ -646,7 +654,13 @@ test "executeSchedule: parallel speedup with CPU-heavy independent systems" {
         defer channel2.deinit();
 
         const t1 = nowNs();
-        try executeSchedule(allocator, &io, &world2, sched2, &channel2, true);
+        try ParallelExecutor.execute(.{
+            .allocator = allocator,
+            .io = &io,
+            .world = &world2,
+            .schedule = sched2,
+            .command_channel = &channel2,
+        });
         const par_ns = nowNs() - t1;
 
         // Verify correctness: both runs produce the same results.

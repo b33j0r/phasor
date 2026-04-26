@@ -6,7 +6,7 @@ command_channel: ?common.Channel(CommandBatch) = null,
 command_queue_capacity: usize = 64,
 startup_run: bool = false,
 shutdown_run: bool = false,
-parallel_systems: bool = false,
+schedule_executor: executor_mod.Executor,
 
 const Self = @This();
 
@@ -28,7 +28,7 @@ pub const InitConfig = struct {
     parallel_systems: bool = false,
 };
 
-pub fn init(allocator: std.mem.Allocator, io: *const std.Io, config: InitConfig) !Self {
+pub fn init(allocator: std.mem.Allocator, io: *const std.Io, comptime config: InitConfig) !Self {
     return .{
         .allocator = allocator,
         .io = io,
@@ -36,7 +36,7 @@ pub fn init(allocator: std.mem.Allocator, io: *const std.Io, config: InitConfig)
         .schedule_manager = try schedule_mod.ScheduleManager.init(allocator),
         .command_channel = null,
         .command_queue_capacity = config.command_queue_capacity,
-        .parallel_systems = config.parallel_systems,
+        .schedule_executor = executor_mod.Executor.init(config.parallel_systems),
     };
 }
 
@@ -193,14 +193,13 @@ fn runScheduleInternal(
     schedule_ptr: *schedule_mod.Schedule,
     command_channel: *common.Channel(CommandBatch),
 ) !void {
-    try parallel_executor.executeSchedule(
-        self.allocator,
-        self.io,
-        &self.world,
-        schedule_ptr,
-        command_channel,
-        self.parallel_systems,
-    );
+    try self.schedule_executor.execute(.{
+        .allocator = self.allocator,
+        .io = self.io,
+        .world = &self.world,
+        .schedule = schedule_ptr,
+        .command_channel = command_channel,
+    });
 }
 
 // Imports
@@ -211,7 +210,7 @@ const schedule_mod = @import("schedule.zig");
 const AppCommands = @import("AppCommands.zig").AppCommands;
 const Module = @import("Module.zig");
 const resources = @import("resources.zig");
-const parallel_executor = @import("parallel_executor.zig");
+const executor_mod = @import("system_executor.zig");
 const Commands = @import("Commands.zig");
 const CommandBatch = @import("Commands.zig").CommandBatch;
 const log = std.log.scoped(.ecs_app);

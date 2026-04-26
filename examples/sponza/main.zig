@@ -29,12 +29,17 @@ const sponza_metric_lines = [_]modules.MetricLine{
 
 const App = struct {
     pub const options = platform.Options{
-        .vsync = true,
+        .vsync = false,
         .window = .{
             .title = "Sponza",
             .width = 1440,
             .height = 900,
         },
+    };
+
+    pub const appOptions = ecs.App.InitConfig{
+        .command_queue_capacity = 256,
+        .parallel_systems = true,
     };
 
     pub fn configure(app: *ecs.App) !void {

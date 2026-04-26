@@ -11,7 +11,7 @@ test "import tests" {
     _ = schedule;
     _ = system;
     _ = system_access;
-    _ = parallel_executor;
+    _ = system_executor;
     _ = system_params;
     _ = events;
     _ = Module;
@@ -28,7 +28,7 @@ pub const World = @import("World.zig");
 pub const schedule = @import("schedule.zig");
 pub const system = @import("system.zig");
 pub const system_access = @import("system_access.zig");
-pub const parallel_executor = @import("parallel_executor.zig");
+pub const system_executor = @import("system_executor.zig");
 pub const system_params = @import("system_params.zig");
 pub const events = @import("events.zig");
 pub const Module = @import("Module.zig");
