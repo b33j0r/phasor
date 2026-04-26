@@ -17,5 +17,6 @@ pub fn build(b: *std.Build) void {
             .tool_source = "fetch_sponza.zig",
         },
         .enable_wasm = false,
+        .enable_physics = true,
     });
 }

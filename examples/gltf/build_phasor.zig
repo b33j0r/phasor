@@ -1,11 +1,23 @@
 const std = @import("std");
 
+// Local copy of Phasor's example build helper.
+//
+// This file is intentionally copied into each example project instead of
+// symlinked, so the example remains self-contained when used as a starting
+// point for a new project.
+//
+// To use physics modules, add the `phasor_physics` dependency to build.zig.zon
+// and set `.enable_physics = true` in build.zig.
+// To update this helper, copy a newer build_phasor.zig from a current Phasor
+// example and review local edits before replacing it.
+
 pub const BuildOptions = struct {
     name: []const u8,
     root_source: []const u8,
     asset_dirs: []const InstallDir = &.{},
     fetch: ?FetchOptions = null,
     enable_wasm: bool = true,
+    enable_physics: bool = false,
     extra_modules: []const ExtraModule = &.{},
 };
 
@@ -52,6 +64,9 @@ pub fn buildExample(b: *std.Build, options: BuildOptions) void {
         .name = "phasor",
         .module = phasor,
     }) catch unreachable;
+    if (options.enable_physics) {
+        appendPhysicsModules(b, native_target, optimize, &native_imports);
+    }
     appendExtraModules(b, native_target, optimize, phasor_dep, options.extra_modules, &native_imports);
 
     const app_mod = b.createModule(.{
@@ -151,6 +166,9 @@ fn addWebBundle(
         .name = "phasor",
         .module = wasm_phasor,
     }) catch unreachable;
+    if (options.enable_physics) {
+        appendPhysicsModules(b, wasm_target, optimize, &wasm_imports);
+    }
     appendExtraModules(b, wasm_target, optimize, wasm_phasor_dep, options.extra_modules, &wasm_imports);
 
     const wasm_mod = b.createModule(.{
@@ -335,4 +353,24 @@ fn appendExtraModules(
             .module = module,
         }) catch unreachable;
     }
+}
+
+fn appendPhysicsModules(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    imports: *std.ArrayList(std.Build.Module.Import),
+) void {
+    const physics_dep = b.dependency("phasor_physics", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    imports.append(b.allocator, .{
+        .name = "phasor_physics",
+        .module = physics_dep.module("phasor_physics"),
+    }) catch unreachable;
+    imports.append(b.allocator, .{
+        .name = "phasor_physics_fps",
+        .module = physics_dep.module("phasor_physics_fps"),
+    }) catch unreachable;
 }

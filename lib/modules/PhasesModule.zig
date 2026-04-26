@@ -353,7 +353,7 @@ test "phase transitions run enter/exit hooks in order" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var app = try ecs.App.init(allocator, &io);
+    var app = try ecs.App.init(allocator, &io, .{});
     defer app.deinit();
 
     try app.world.insertResource(LogBuffer.init(allocator));

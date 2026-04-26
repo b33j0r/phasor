@@ -21,3 +21,4 @@ For the browser:
 - replace the startup scene with your own entities
 - keep one camera and one layer until you need more structure
 - use the example `build.zig` and `build.zig.zon` as the starting project shape
+- keep the example `build_phasor.zig` as a local copy in your project; set `.enable_physics = true` in `build.zig` only when your `build.zig.zon` includes the `phasor_physics` dependency

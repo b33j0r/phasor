@@ -1,7 +1,7 @@
 pub fn main(init: std.process.Init) !u8 {
     const allocator = std.heap.c_allocator;
 
-    var app = try EcsApp.init(allocator, &init.io);
+    var app = try EcsApp.init(allocator, &init.io, .{});
     defer app.deinit();
 
     var commands = ecs.Commands.init(allocator, app.io, &app.world);

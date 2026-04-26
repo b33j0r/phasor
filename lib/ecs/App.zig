@@ -41,7 +41,7 @@ pub fn init(allocator: std.mem.Allocator, io: *const std.Io, config: InitConfig)
 }
 
 pub fn default(allocator: std.mem.Allocator, io: *const std.Io) !Self {
-    return init(allocator, io);
+    return init(allocator, io, .{});
 }
 
 pub fn deinit(self: *Self) void {

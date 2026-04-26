@@ -92,6 +92,8 @@ zig build run-sponza
 - `ecs`: ECS-only example with no renderer
 - `window`: minimal window/platform setup
 
+Each example keeps its own copy of `build_phasor.zig` so it can be copied into a new project without following repo-local symlinks. The helper has one optional physics path: examples that import `phasor_physics` set `.enable_physics = true` in `build.zig` and include the `phasor_physics` dependency in `build.zig.zon`; examples that do not use physics leave the default off.
+
 ## Web Notes
 
 WebGPU requires a secure context off localhost. For LAN/device testing:

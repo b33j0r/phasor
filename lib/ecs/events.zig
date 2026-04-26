@@ -183,7 +183,7 @@ test "events send and receive through system params" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var app = try App.init(allocator, &io);
+    var app = try App.init(allocator, &io, .{});
     defer app.deinit();
 
     try app.world.registerEvent(app.io, u32, 8);
@@ -212,7 +212,7 @@ test "events fan out to multiple readers" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var app = try App.init(allocator, &io);
+    var app = try App.init(allocator, &io, .{});
     defer app.deinit();
 
     try app.world.registerEvent(app.io, u32, 4);
@@ -256,7 +256,7 @@ test "events trySend reports full queues" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var app = try App.init(allocator, &io);
+    var app = try App.init(allocator, &io, .{});
     defer app.deinit();
 
     try app.world.registerEvent(app.io, u32, 1);

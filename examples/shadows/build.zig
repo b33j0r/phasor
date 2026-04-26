@@ -6,5 +6,6 @@ pub fn build(b: *std.Build) void {
         .name = "shadows",
         .root_source = "main.zig",
         .enable_wasm = true,
+        .enable_physics = true,
     });
 }
