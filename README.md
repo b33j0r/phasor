@@ -121,10 +121,9 @@ pub const std_options = phasor.common.logging.stdOptions(.debug);
 ```
 
 - Runtime diagnostics are opt-in by default:
-  - `platform.Options.install_crash_dump = false`
-  - `platform.Options.install_soak_monitor = false`
-  - `platform.Options.pause_on_gpu_error = false`
+  - `CrashDumpSettings.enabled = false`
   - `SoakMonitorSettings.enabled = false`
+  - `platform.RuntimePlatformSettings.pause_on_gpu_error = false`
 
 ## ECS Notes
 

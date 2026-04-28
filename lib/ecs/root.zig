@@ -4,7 +4,6 @@ pub const CommandBatch = Commands.CommandBatch;
 
 test "import tests" {
     _ = App;
-    _ = Runtime;
     _ = AppCommands;
     _ = Commands;
     _ = Command;
@@ -21,7 +20,6 @@ test "import tests" {
 
 // Imports
 pub const App = @import("App.zig");
-pub const Runtime = App;
 pub const AppCommands = @import("AppCommands.zig").AppCommands;
 pub const Command = @import("Command.zig");
 pub const Commands = @import("Commands.zig");

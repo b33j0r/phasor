@@ -99,10 +99,10 @@ are grouped into the same batch and run concurrently via `std.Io.Group`.
 Conflicting systems are placed in later batches, preserving the declared
 registration order.
 
-Enable parallel execution through `App.InitConfig`:
+Enable parallel execution through `App.AppConfig`:
 
 ```zig
-var app = try ecs.App.initWithConfig(allocator, &init.io, .{
+var app = try ecs.App.init(allocator, &init.io, .{
     .parallel_systems = true,
 });
 ```

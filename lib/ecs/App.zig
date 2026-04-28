@@ -28,8 +28,6 @@ pub const AppConfig = struct {
     parallel_systems: bool = false,
 };
 
-pub const InitConfig = AppConfig;
-
 pub fn init(allocator: std.mem.Allocator, io: *const std.Io, comptime config: AppConfig) !Self {
     return .{
         .allocator = allocator,
