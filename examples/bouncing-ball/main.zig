@@ -26,35 +26,32 @@ const Assets = struct {
     },
 };
 
-const App = struct {
-    pub const options = platform.Options{
-        .window = .{
-            .title = "Phasor - Bouncing Ball",
-            .width = 800,
-            .height = 600,
-        },
-        .vsync = false,
-    };
-
-    pub const appOptions = ecs.App.InitConfig{
+pub fn main(init: std.process.Init) !u8 {
+    var app = try App.init(&init, .{
         .command_queue_capacity = 64,
         .parallel_systems = true,
-    };
+    });
+    defer app.deinit();
 
-    pub fn configure(app: *ecs.App) !void {
-        try platform.installDefaultModules(app);
-        try app.installModule(modules.ParentModule);
-        try app.installModule(modules.AssetsModule(Assets));
-        try app.installModule(modules.MetricsModule{ .font_size = 24.0 });
+    try app.insertResource(platform.WindowSettings{
+        .title = "Phasor - Bouncing Ball",
+        .width = 800,
+        .height = 600,
+    });
+    try app.insertResource(render.VSync{ .enabled = false });
 
-        try app.addSystemTo("Startup", setupScene);
-        try app.addSystemTo("Update", integrateMotion);
-        try app.addSystemTo("Update", bounceBall);
-        try app.addSystemTo("Update", spinDecalLocal);
-    }
-};
+    try app.installDefaultModules();
+    try app.installModule(modules.ParentModule);
+    try app.installModule(modules.AssetsModule(Assets));
+    try app.installModule(modules.MetricsModule{ .font_size = 24.0 });
 
-pub const main = platform.main(App);
+    try app.addSystemTo("Startup", setupScene);
+    try app.addSystemTo("Update", integrateMotion);
+    try app.addSystemTo("Update", bounceBall);
+    try app.addSystemTo("Update", spinDecalLocal);
+
+    return try app.run();
+}
 
 fn setupScene(
     commands: *ecs.Commands,
@@ -206,6 +203,7 @@ fn resolveBounds(
 }
 
 // Imports
+const std = @import("std");
 const phasor = @import("phasor");
 
 const ecs = phasor.ecs;
@@ -214,6 +212,7 @@ const render = phasor.renderer;
 const assets = phasor.assets;
 const common = phasor.common;
 const platform = phasor.platform;
+const App = phasor.App;
 
 const RenderState = modules.RenderModule.RenderState;
 const ViewportSize = modules.RenderModule.ViewportSize;

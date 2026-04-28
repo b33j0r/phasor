@@ -20,7 +20,7 @@ pub fn error_message(err: Error) []const u8 {
     };
 }
 
-pub const InitConfig = struct {
+pub const AppConfig = struct {
     command_queue_capacity: usize = 64,
     /// Enable parallel execution of non-conflicting systems within a schedule.
     /// When true, systems whose data access patterns don't conflict are run
@@ -28,7 +28,9 @@ pub const InitConfig = struct {
     parallel_systems: bool = false,
 };
 
-pub fn init(allocator: std.mem.Allocator, io: *const std.Io, comptime config: InitConfig) !Self {
+pub const InitConfig = AppConfig;
+
+pub fn init(allocator: std.mem.Allocator, io: *const std.Io, comptime config: AppConfig) !Self {
     return .{
         .allocator = allocator,
         .io = io,
@@ -89,6 +91,26 @@ pub fn installModule(self: *Self, comptime module: anytype) !void {
     if (!commands.isEmpty()) {
         try commands.apply();
     }
+}
+
+pub fn insertResource(self: *Self, resource: anytype) !void {
+    try self.world.insertResource(resource);
+}
+
+pub fn getResource(self: *Self, comptime T: type) ?*const T {
+    return self.world.getResource(T);
+}
+
+pub fn getResourceMut(self: *Self, comptime T: type) ?*T {
+    return self.world.getResourceMut(T);
+}
+
+pub fn removeResource(self: *Self, comptime T: type) bool {
+    return self.world.removeResource(T);
+}
+
+pub fn hasResource(self: *Self, comptime T: type) bool {
+    return self.world.hasResource(T);
 }
 
 pub fn uninstallModule(self: *Self, comptime module: anytype) !void {

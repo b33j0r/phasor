@@ -30,5 +30,7 @@ pub const gui = @import("gui");
 pub const assets = @import("assets");
 pub const audio = @import("audio");
 
+pub const App = platform.RuntimeApp;
+pub const RuntimeBuilder = platform.RuntimeBuilder;
 pub const Sound = assets.Sound;
 pub const SoundPlayer = audio.SoundPlayer;
