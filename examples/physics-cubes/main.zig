@@ -15,50 +15,46 @@ const SpawnState = struct {
     }
 };
 
-const App = struct {
-    pub const options = platform.Options{
-        .window = .{
-            .title = "Phasor - Physics Cubes",
-            .width = 1280,
-            .height = 800,
-        },
-    };
-
-    pub fn configure(app: *ecs.App) !void {
-        try platform.installDefaultModules(app);
-        try app.installModule(modules.ParentModule);
-        try app.installModule(modules.AssetsModule(Assets));
-        try app.installModule(physics.PhysicsModule{
-            .config = .{
-                .backend = .Jolt,
-                .fixed_dt = 1.0 / 60.0,
-                .max_substeps = 8,
-                .gravity = .{ .x = 0.0, .y = -9.81, .z = 0.0 },
-            },
-        });
-        try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
-            .font_size = 24.0,
-            .text_color = Color.WHITE,
-        });
-
-        try app.addSystemTo("Startup", setupScene);
-        try app.addSystemTo("Update", spawnCubes);
-    }
-};
+const App = phasor.App;
 
 pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 var g_demo_config = DemoConfig{};
 
-fn nativeMain(init: std.process.Init) !u8 {
+pub fn main(init: std.process.Init) !u8 {
     g_demo_config = .{};
-    if (!try parseArgs(init, &g_demo_config)) return 0;
+    if (!is_wasm and !try parseArgs(init, &g_demo_config)) return 0;
 
-    const entry = platform.main(App);
-    return try entry(init);
+    var app = try App.default(&init);
+    defer app.deinit();
+
+    try app.insertResource(platform.WindowSettings{
+        .title = "Phasor - Physics Cubes",
+        .width = 1280,
+        .height = 800,
+    });
+
+    try app.installDefaultModules();
+    try app.installModule(modules.ParentModule);
+    try app.installModule(modules.AssetsModule(Assets));
+    try app.installModule(physics.PhysicsModule{
+        .config = .{
+            .backend = .Jolt,
+            .fixed_dt = 1.0 / 60.0,
+            .max_substeps = 8,
+            .gravity = .{ .x = 0.0, .y = -9.81, .z = 0.0 },
+        },
+    });
+    try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
+        .font_size = 24.0,
+        .text_color = Color.WHITE,
+    });
+
+    try app.addSystemTo("Startup", setupScene);
+    try app.addSystemTo("Update", spawnCubes);
+
+    return try app.run();
 }
-
-pub const main = if (is_wasm) platform.main(App) else nativeMain;
 
 fn setupScene(
     commands: *ecs.Commands,

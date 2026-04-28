@@ -46,30 +46,31 @@ const SceneAssets = struct {
     smoke_geometry: render.ResolvedParticleGeometry = undefined,
 };
 
-const App = struct {
-    pub const options = platform.Options{
-        .vsync = true,
-        .window = .{
-            .title = "Phasor - Particles",
-            .width = 1400,
-            .height = 900,
-        },
-    };
+const App = phasor.App;
 
-    pub fn configure(app: *ecs.App) !void {
-        try platform.installDefaultModules(app);
-        try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
-            .font_size = 26.0,
-            .text_color = Color.WHITE,
-        });
+pub fn main(init: std.process.Init) !u8 {
+    var app = try App.default(&init);
+    defer app.deinit();
 
-        try app.addSystemTo("Startup", setupScene);
-        try app.addSystemTo("Update", updateCamera);
-        try app.addSystemTo("Update", updateParticles);
-    }
-};
+    try app.insertResource(platform.WindowSettings{
+        .title = "Phasor - Particles",
+        .width = 1400,
+        .height = 900,
+    });
+    try app.insertResource(render.VSync{ .enabled = true });
 
-pub const main = platform.main(App);
+    try app.installDefaultModules();
+    try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
+        .font_size = 26.0,
+        .text_color = Color.WHITE,
+    });
+
+    try app.addSystemTo("Startup", setupScene);
+    try app.addSystemTo("Update", updateCamera);
+    try app.addSystemTo("Update", updateParticles);
+
+    return try app.run();
+}
 
 fn setupScene(commands: *ecs.Commands, build_ctx: ResMut(render.BuildContext)) !void {
     const build = build_ctx.ptr;

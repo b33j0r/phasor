@@ -10,33 +10,34 @@ const SceneReady = struct {};
 const SceneHydrated = struct {};
 const DebugReported = struct {};
 
-const App = struct {
-    pub const options = platform.Options{
-        .window = .{
-            .title = "Phasor - glTF",
-            .width = 1280,
-            .height = 900,
-        },
-    };
+const App = phasor.App;
 
-    pub fn configure(app: *ecs.App) !void {
-        try platform.installDefaultModules(app);
-        try app.installModule(modules.ParentModule);
-        try app.installModule(modules.AssetsModule(Assets));
-        try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
-            .font_size = 28.0,
-            .text_color = Color.WHITE,
-        });
+pub fn main(init: std.process.Init) !u8 {
+    var app = try App.default(&init);
+    defer app.deinit();
 
-        try app.addSystemTo("Startup", setupScene);
-        try app.addSystemTo("BeforeFrame", setupScene);
-        try app.addSystemTo("Update", updatePivot);
-        try app.addSystemTo("AfterFrame", debugSceneStatus);
-        try app.addSystemTo("Shutdown", unloadImportedScene);
-    }
-};
+    try app.insertResource(platform.WindowSettings{
+        .title = "Phasor - glTF",
+        .width = 1280,
+        .height = 900,
+    });
 
-pub const main = platform.main(App);
+    try app.installDefaultModules();
+    try app.installModule(modules.ParentModule);
+    try app.installModule(modules.AssetsModule(Assets));
+    try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
+        .font_size = 28.0,
+        .text_color = Color.WHITE,
+    });
+
+    try app.addSystemTo("Startup", setupScene);
+    try app.addSystemTo("BeforeFrame", setupScene);
+    try app.addSystemTo("Update", updatePivot);
+    try app.addSystemTo("AfterFrame", debugSceneStatus);
+    try app.addSystemTo("Shutdown", unloadImportedScene);
+
+    return try app.run();
+}
 
 fn setupScene(
     commands: *ecs.Commands,

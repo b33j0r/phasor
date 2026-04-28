@@ -109,12 +109,10 @@ const AppPhases = union(enum) {
 const Phases = modules.PhasesModule.Definition(AppPhases, AppPhases{ .Boot = .{} });
 
 pub fn main(init: std.process.Init) !u8 {
-    const allocator = std.heap.c_allocator;
-
-    var app = try ecs.App.init(allocator, &init.io, .{});
+    var app = try phasor.App.default(&init);
     defer app.deinit();
 
-    var commands = ecs.Commands.init(allocator, app.io, &app.world);
+    var commands = app.commands();
     defer commands.deinit();
     try commands.registerEvent(ExitRequested, 8);
     if (!commands.isEmpty()) {

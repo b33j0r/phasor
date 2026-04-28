@@ -1,11 +1,14 @@
-const App = struct {
-    pub fn configure(app: *ecs.App) !void {
-        try platform.installDefaultModules(app);
-        try app.addSystemTo("Startup", setupScene);
-    }
-};
+const App = phasor.App;
 
-pub const main = platform.main(App);
+pub fn main(init: std.process.Init) !u8 {
+    var app = try App.default(&init);
+    defer app.deinit();
+
+    try app.installDefaultModules();
+    try app.addSystemTo("Startup", setupScene);
+
+    return try app.run();
+}
 
 fn setupScene(commands: *ecs.Commands) !void {
     _ = try commands.createEntity(.{
@@ -27,13 +30,12 @@ fn setupScene(commands: *ecs.Commands) !void {
 }
 
 // Imports
+const std = @import("std");
 const phasor = @import("phasor");
 
 const ecs = phasor.ecs;
-const modules = phasor.modules;
 const render = phasor.renderer;
 const common = phasor.common;
-const platform = phasor.platform;
 
 const Transform = common.Transform;
 const Camera3d = common.Camera3d;

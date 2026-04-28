@@ -1,10 +1,8 @@
 pub fn main(init: std.process.Init) !u8 {
-    const allocator = std.heap.c_allocator;
-
-    var app = try EcsApp.init(allocator, &init.io, .{});
+    var app = try phasor.App.default(&init);
     defer app.deinit();
 
-    var commands = ecs.Commands.init(allocator, app.io, &app.world);
+    var commands = app.commands();
     defer commands.deinit();
 
     try commands.insertResource(WindowSettings{
@@ -24,5 +22,4 @@ const phasor = @import("phasor");
 const ecs = phasor.ecs;
 const window = phasor.window;
 
-const EcsApp = ecs.App;
 const WindowSettings = window.WindowSettings;

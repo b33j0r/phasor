@@ -27,65 +27,65 @@ const sponza_metric_lines = [_]modules.MetricLine{
     ),
 };
 
-const App = struct {
-    pub const options = platform.Options{
-        .vsync = false,
-        .window = .{
-            .title = "Sponza",
-            .width = 1440,
-            .height = 900,
-        },
-    };
+const App = phasor.App;
 
-    pub const appOptions = ecs.App.InitConfig{
+pub fn main(init: std.process.Init) !u8 {
+    var app = try App.init(&init, .{
         .command_queue_capacity = 256,
         .parallel_systems = true,
-    };
+    });
+    defer app.deinit();
 
-    pub fn configure(app: *ecs.App) !void {
-        try platform.installDefaultModules(app);
-        var commands = ecs.Commands.init(app.allocator, app.io, &app.world);
-        defer commands.deinit();
-        try commands.insertResource(render.ShadowMode.off);
-        try commands.insertResource(render.EnvironmentSpecularMode.on);
-        try commands.insertResource(render.NormalMapScale{ .multiplier = 1.0 });
-        try commands.insertResource(render.SceneDebugView.off);
-        try commands.insertResource(render.SceneStatsMode{ .enabled = true });
-        if (!commands.isEmpty()) try commands.apply();
-        try app.installModule(phases.SponzaPhases);
-        try app.installModule(modules.ParentModule);
-        try app.installModule(modules.SkyModule);
-        try app.installModule(modules.LightingModule);
-        try app.installModule(physics.PhysicsModule{
-            .config = .{
-                .backend = .Jolt,
-                .fixed_dt = 1.0 / 60.0,
-                .max_substeps = 8,
-                .gravity = .{ .x = 0.0, .y = -18.0, .z = 0.0 },
-            },
-        });
-        try app.installModule(FpsPhysics{});
-        try app.installModule(physics_fps.FpsKeyBindingModule{});
-        try app.installModule(modules.AssetsModule(Assets));
-        try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
-            .font_size = 22.0,
-            .text_color = Color.WHITE,
-            .buffer_capacity = 768,
-            .extra_builtin_lines = &.{
-                modules.builtinLine(.mouse_look),
-                modules.builtinLine(.scene_stats),
-                modules.builtinLine(.light_stats),
-                modules.builtinLineWithExtraText(.color_grade, "(C)"),
-            },
-            .extra_lines = &sponza_metric_lines,
-        });
-        try app.addSystemTo(ecs.schedule.DefaultSchedule.Shutdown, loading.unloadImportedScene);
-    }
-};
+    try app.insertResource(platform.WindowSettings{
+        .title = "Sponza",
+        .width = 1440,
+        .height = 900,
+    });
+    try app.insertResource(render.VSync{ .enabled = false });
 
-pub const main = platform.main(App);
+    try app.installDefaultModules();
+    var commands = app.commands();
+    defer commands.deinit();
+    try commands.insertResource(render.ShadowMode.off);
+    try commands.insertResource(render.EnvironmentSpecularMode.on);
+    try commands.insertResource(render.NormalMapScale{ .multiplier = 1.0 });
+    try commands.insertResource(render.SceneDebugView.off);
+    try commands.insertResource(render.SceneStatsMode{ .enabled = true });
+    if (!commands.isEmpty()) try commands.apply();
+    try app.installModule(phases.SponzaPhases);
+    try app.installModule(modules.ParentModule);
+    try app.installModule(modules.SkyModule);
+    try app.installModule(modules.LightingModule);
+    try app.installModule(physics.PhysicsModule{
+        .config = .{
+            .backend = .Jolt,
+            .fixed_dt = 1.0 / 60.0,
+            .max_substeps = 8,
+            .gravity = .{ .x = 0.0, .y = -18.0, .z = 0.0 },
+        },
+    });
+    try app.installModule(FpsPhysics{});
+    try app.installModule(physics_fps.FpsKeyBindingModule{});
+    try app.installModule(modules.AssetsModule(Assets));
+    try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
+        .font_size = 22.0,
+        .text_color = Color.WHITE,
+        .buffer_capacity = 768,
+        .extra_builtin_lines = &.{
+            modules.builtinLine(.mouse_look),
+            modules.builtinLine(.scene_stats),
+            modules.builtinLine(.light_stats),
+            modules.builtinLineWithExtraText(.color_grade, "(C)"),
+        },
+        .extra_lines = &sponza_metric_lines,
+    });
+    try app.addSystemTo(ecs.schedule.DefaultSchedule.Shutdown, loading.unloadImportedScene);
+
+    return try app.run();
+}
 
 // Imports
+const std = @import("std");
 const phasor = @import("phasor");
 const phases = @import("phases.zig");
 const loading = @import("loading.zig");

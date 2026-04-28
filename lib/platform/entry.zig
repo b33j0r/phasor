@@ -557,6 +557,8 @@ fn exportRootMainWasm() void {
     @export(&rootWasmWindowTitleLen, .{ .name = "wasmWindowTitleLen" });
     @export(&rootWasmFrame, .{ .name = "wasmFrame" });
     @export(&rootWasmResize, .{ .name = "wasmResize" });
+    @export(&rootWasmOnDeviceLost, .{ .name = "wasmOnDeviceLost" });
+    @export(&rootWasmOnDeviceRestored, .{ .name = "wasmOnDeviceRestored" });
     @export(&rootWasmDeinit, .{ .name = "wasmDeinit" });
     @export(&rootWasmLastErrorPtr, .{ .name = "wasmLastErrorPtr" });
     @export(&rootWasmLastErrorLen, .{ .name = "wasmLastErrorLen" });
@@ -649,6 +651,24 @@ fn rootWasmResize(
         framebuffer_width,
         framebuffer_height,
     );
+    _ = commands.apply() catch {};
+}
+
+fn rootWasmOnDeviceLost(handle: u32) callconv(.c) void {
+    if (!is_wasm) return;
+    const runner = decodeRootWasmRunnerHandle(handle) orelse return;
+    var commands = ecs.Commands.init(runner.app.allocator, runner.app.io, &runner.app.world);
+    defer commands.deinit();
+    modules.RenderModule.signalDeviceLost(&commands);
+    _ = commands.apply() catch {};
+}
+
+fn rootWasmOnDeviceRestored(handle: u32) callconv(.c) void {
+    if (!is_wasm) return;
+    const runner = decodeRootWasmRunnerHandle(handle) orelse return;
+    var commands = ecs.Commands.init(runner.app.allocator, runner.app.io, &runner.app.world);
+    defer commands.deinit();
+    modules.RenderModule.signalDeviceRestored(&commands);
     _ = commands.apply() catch {};
 }
 

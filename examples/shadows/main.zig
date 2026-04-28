@@ -38,51 +38,52 @@ const DayNightState = struct {
     exposure_max: f32,
 };
 
-const App = struct {
-    pub const options = platform.Options{
-        .vsync = true,
-        .window = .{
-            .title = "Phasor - Shadows",
-            .width = 1440,
-            .height = 900,
+const App = phasor.App;
+
+pub fn main(init: std.process.Init) !u8 {
+    var app = try App.default(&init);
+    defer app.deinit();
+
+    try app.insertResource(platform.WindowSettings{
+        .title = "Phasor - Shadows",
+        .width = 1440,
+        .height = 900,
+    });
+    try app.insertResource(render.VSync{ .enabled = true });
+
+    try app.installModule(modules.SkyModule);
+    try app.addSystemTo("BeforeFrame", updateDayNightCycle);
+    try app.addSystemTo("BeforeFrame", updateProceduralSkyMeshParams);
+
+    try app.installDefaultModules();
+    try app.installModule(modules.LightingModule);
+    try app.installModule(physics.PhysicsModule{
+        .config = .{
+            .backend = .Jolt,
+            .fixed_dt = 1.0 / 60.0,
+            .max_substeps = 8,
+            .gravity = .{ .x = 0.0, .y = -18.0, .z = 0.0 },
         },
-    };
+    });
+    try app.installModule(FpsPhysics{});
+    try app.installModule(physics_fps.FpsKeyBindingModule{});
+    try app.installModule(modules.AssetsModule(Assets));
+    try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
+        .font_size = 24.0,
+        .text_color = Color.WHITE,
+        .extra_builtin_lines = &.{
+            modules.builtinLine(.mouse_look),
+            modules.builtinLine(.scene_stats),
+            modules.builtinLine(.light_stats),
+        },
+    });
 
-    pub fn configure(app: *ecs.App) !void {
-        try app.installModule(modules.SkyModule);
-        try app.addSystemTo("BeforeFrame", updateDayNightCycle);
-        try app.addSystemTo("BeforeFrame", updateProceduralSkyMeshParams);
+    try app.addSystemTo("Startup", setupScene);
+    try app.addSystemTo("Update", updateMouseCaptureToggle);
+    try app.addSystemTo("Update", updatePlayerCamera);
 
-        try platform.installDefaultModules(app);
-        try app.installModule(modules.LightingModule);
-        try app.installModule(physics.PhysicsModule{
-            .config = .{
-                .backend = .Jolt,
-                .fixed_dt = 1.0 / 60.0,
-                .max_substeps = 8,
-                .gravity = .{ .x = 0.0, .y = -18.0, .z = 0.0 },
-            },
-        });
-        try app.installModule(FpsPhysics{});
-        try app.installModule(physics_fps.FpsKeyBindingModule{});
-        try app.installModule(modules.AssetsModule(Assets));
-        try app.installModule(modules.MetricsModuleLayered(render.Layer(1000)){
-            .font_size = 24.0,
-            .text_color = Color.WHITE,
-            .extra_builtin_lines = &.{
-                modules.builtinLine(.mouse_look),
-                modules.builtinLine(.scene_stats),
-                modules.builtinLine(.light_stats),
-            },
-        });
-
-        try app.addSystemTo("Startup", setupScene);
-        try app.addSystemTo("Update", updateMouseCaptureToggle);
-        try app.addSystemTo("Update", updatePlayerCamera);
-    }
-};
-
-pub const main = platform.main(App);
+    return try app.run();
+}
 
 fn setupScene(
     commands: *ecs.Commands,
