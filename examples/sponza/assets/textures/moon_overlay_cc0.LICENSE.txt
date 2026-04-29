@@ -1,5 +1,0 @@
-Moon overlay texture for procedural sky.
-Source: https://opengameart.org/content/moon-overlay
-Direct file: https://opengameart.org/sites/default/files/moon_overlay.png
-License: CC0 1.0 Universal (Public Domain Dedication)
-Downloaded: 2026-03-18
