@@ -11,8 +11,6 @@ pub const RunTime = struct {
     seconds: f64 = 0.0,
 };
 
-pub const Paused = common.Paused;
-
 pub const SimulationDeltaTime = struct {
     seconds: f64 = 0.0,
 };
@@ -139,3 +137,5 @@ const WasmImports = if (builtin.target.cpu.arch.isWasm()) struct {
         return 0.0;
     }
 };
+
+pub const Paused = common.Paused;

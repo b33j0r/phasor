@@ -27,7 +27,6 @@ const AudioState = struct {
     }
 };
 
-const SoundInstanceNative = Native.SoundInstance;
 const SoundInstanceWeb = struct {
     handle: u32,
 };
@@ -36,7 +35,7 @@ fn initSystem(audio_state: ResMut(AudioState)) !void {
     try Native.init(audio_state.ptr);
 }
 
-fn shutdownSystem(audio_state: ResMut(AudioState), instances: Query(.{ SoundInstanceNative })) !void {
+fn shutdownSystem(audio_state: ResMut(AudioState), instances: Query(.{SoundInstanceNative})) !void {
     Native.shutdown(audio_state.ptr, instances);
 }
 
@@ -123,7 +122,7 @@ const Native = if (builtin.target.cpu.arch.isWasm()) struct {
 
     fn init(_: *AudioState) !void {}
 
-    fn shutdown(_: *AudioState, _: Query(.{ SoundInstance })) void {}
+    fn shutdown(_: *AudioState, _: Query(.{SoundInstance})) void {}
 
     fn start(_: audio.SoundPlayer, _: *AudioState, _: assets.AssetsContext) !?SoundInstance {
         return null;
@@ -152,7 +151,7 @@ const Native = if (builtin.target.cpu.arch.isWasm()) struct {
         audio_state.initialized = true;
     }
 
-    fn shutdown(audio_state: *AudioState, instances: Query(.{ SoundInstance })) void {
+    fn shutdown(audio_state: *AudioState, instances: Query(.{SoundInstance})) void {
         var it = instances.iterator();
         while (it.next()) |row| {
             const inst = row.get(SoundInstance) orelse continue;
@@ -279,3 +278,5 @@ const Commands = ecs.Commands;
 const Query = ecs.system_params.Query;
 const ResMut = ecs.system_params.ResMut;
 const ResOpt = ecs.system_params.ResOpt;
+
+const SoundInstanceNative = Native.SoundInstance;

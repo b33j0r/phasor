@@ -4,9 +4,6 @@ const Player = struct {};
 const PlayerCamera = struct {};
 const SunLight = struct {};
 
-const FpsPhysics = physics_fps.FpsPhysicsModule(Player);
-const FpsController = FpsPhysics.FpsController;
-
 const DayNightCycle = struct {
     start_hour: f32 = 17.0,
     day_length_seconds: f32 = 24.0,
@@ -37,8 +34,6 @@ const DayNightState = struct {
     exposure_min: f32,
     exposure_max: f32,
 };
-
-const App = phasor.App;
 
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.default(&init);
@@ -624,3 +619,7 @@ const ElapsedTime = modules.TimeModule.ElapsedTime;
 
 const MeshInstance = render.MeshInstance;
 const CameraLayer = render.CameraLayer;
+
+const FpsPhysics = physics_fps.FpsPhysicsModule(Player);
+const FpsController = FpsPhysics.FpsController;
+const App = phasor.App;

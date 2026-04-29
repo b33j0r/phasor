@@ -266,11 +266,11 @@ test "commands flush batches through common channel" {
     try std.testing.expectEqual(@as(u32, 42), world.getResource(Marker).?.value);
 }
 
-const Entity = db.Entity;
-
 // Imports
 const std = @import("std");
 const common = @import("common");
 const db = @import("db");
 const Command = @import("Command.zig");
 const World = @import("World.zig");
+
+const Entity = db.Entity;

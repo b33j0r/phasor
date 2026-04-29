@@ -46,8 +46,6 @@ const SceneAssets = struct {
     smoke_geometry: render.ResolvedParticleGeometry = undefined,
 };
 
-const App = phasor.App;
-
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.default(&init);
     defer app.deinit();
@@ -485,3 +483,5 @@ const Transform = common.Transform;
 const Camera3d = common.Camera3d;
 const ClearColor = common.ClearColor;
 const CameraLayer = render.CameraLayer;
+
+const App = phasor.App;

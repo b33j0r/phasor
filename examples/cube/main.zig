@@ -1,7 +1,5 @@
 const CubeRoot = struct {};
 
-const App = phasor.App;
-
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.default(&init);
     defer app.deinit();
@@ -134,8 +132,10 @@ const render = phasor.renderer;
 const common = phasor.common;
 const platform = phasor.platform;
 const assets = phasor.assets;
+const App = phasor.App;
 
 const ElapsedTime = modules.TimeModule.ElapsedTime;
+
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
@@ -145,4 +145,5 @@ const Color = common.Color;
 const Transform = common.Transform;
 const Camera3d = common.Camera3d;
 const ClearColor = common.ClearColor;
+
 const CameraLayer = render.CameraLayer;

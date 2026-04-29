@@ -27,8 +27,6 @@ const sponza_metric_lines = [_]modules.MetricLine{
     ),
 };
 
-const App = phasor.App;
-
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.init(&init, .{
         .command_queue_capacity = 256,
@@ -101,3 +99,5 @@ const physics_fps = @import("phasor_physics_fps");
 const platform = phasor.platform;
 const render = phasor.renderer;
 const Color = common.Color;
+
+const App = phasor.App;

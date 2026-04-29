@@ -1,23 +1,4 @@
 //! ECS render module that manages renderer lifecycle and delegates frame stages.
-const render_types = @import("render/types.zig");
-const render_prepare = @import("render/prepare.zig");
-const render_extract = @import("render/extract.zig");
-const render_submit = @import("render/submit.zig");
-const render_shadows = @import("render/shadows.zig");
-
-pub const RenderSurface = render_types.RenderSurface;
-pub const RenderState = render_types.RenderState;
-pub const ViewportSize = render_types.ViewportSize;
-pub const FramebufferSize = render_types.FramebufferSize;
-pub const RenderRecovery = render_types.RenderRecovery;
-pub const SpriteMeshCache = render_types.SpriteMeshCache;
-pub const LayerCameras = render_types.LayerCameras;
-pub const LayerCamera = render_types.LayerCamera;
-pub const LayerViewports = render_types.LayerViewports;
-pub const ExtractedSceneLighting = render_types.ExtractedSceneLighting;
-pub const ShadowSettings = render_types.ShadowSettings;
-pub const ShadowTechnique = render_shadows.ShadowTechnique;
-
 pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(common.ClearColor)) {
         try commands.insertResource(common.ClearColor{});
@@ -466,11 +447,30 @@ const ecs = @import("ecs");
 const render = @import("render");
 const assets = @import("assets");
 const metrics = @import("metrics");
+const render_types = @import("render/types.zig");
+const render_prepare = @import("render/prepare.zig");
+const render_extract = @import("render/extract.zig");
+const render_submit = @import("render/submit.zig");
+const render_shadows = @import("render/shadows.zig");
+const std = @import("std");
+
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const ResMut = ecs.system_params.ResMut;
 const ResMutOpt = ecs.system_params.ResMutOpt;
 const ResOpt = ecs.system_params.ResOpt;
 const schedule = ecs.schedule;
-const std = @import("std");
 const log = std.log.scoped(.render_module);
+
+pub const RenderSurface = render_types.RenderSurface;
+pub const RenderState = render_types.RenderState;
+pub const ViewportSize = render_types.ViewportSize;
+pub const FramebufferSize = render_types.FramebufferSize;
+pub const RenderRecovery = render_types.RenderRecovery;
+pub const SpriteMeshCache = render_types.SpriteMeshCache;
+pub const LayerCameras = render_types.LayerCameras;
+pub const LayerCamera = render_types.LayerCamera;
+pub const LayerViewports = render_types.LayerViewports;
+pub const ExtractedSceneLighting = render_types.ExtractedSceneLighting;
+pub const ShadowSettings = render_types.ShadowSettings;
+pub const ShadowTechnique = render_shadows.ShadowTechnique;

@@ -348,9 +348,6 @@ const SystemNode = struct {
     enabled: bool = true,
 };
 
-const ScheduleGraph = graph.csr.Graph(Schedule, void);
-const SystemGraph = graph.csr.Graph(SystemNode, void);
-
 // Imports
 const std = @import("std");
 const graph = @import("graph");
@@ -442,3 +439,6 @@ test "schedule removes system by disabling node" {
 }
 
 const Commands = @import("Commands.zig");
+
+const ScheduleGraph = graph.csr.Graph(Schedule, void);
+const SystemGraph = graph.csr.Graph(SystemNode, void);

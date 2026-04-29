@@ -266,15 +266,6 @@ fn drawShadowCasters(
     }
 }
 
-const BatchKey = types.BatchKey;
-const BatchItem = types.BatchItem;
-const ShaderBatchKey = types.ShaderBatchKey;
-const TexturedShaderBatchKey = types.TexturedShaderBatchKey;
-const ShaderBatchItem = types.ShaderBatchItem;
-const TexturedShaderBatchItem = types.TexturedShaderBatchItem;
-const PostProcessPassItem = types.PostProcessPassItem;
-const BlendItem = types.BlendItem;
-
 const LayerFilter = struct {
     min_layer: ?i32 = null,
     max_layer: ?i32 = null,
@@ -982,3 +973,12 @@ const Query = system_params.Query;
 const ResMut = system_params.ResMut;
 const ResOpt = system_params.ResOpt;
 const Without = system_params.Without;
+
+const BatchKey = types.BatchKey;
+const BatchItem = types.BatchItem;
+const ShaderBatchKey = types.ShaderBatchKey;
+const TexturedShaderBatchKey = types.TexturedShaderBatchKey;
+const ShaderBatchItem = types.ShaderBatchItem;
+const TexturedShaderBatchItem = types.TexturedShaderBatchItem;
+const PostProcessPassItem = types.PostProcessPassItem;
+const BlendItem = types.BlendItem;

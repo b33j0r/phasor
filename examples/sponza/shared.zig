@@ -42,9 +42,6 @@ pub const SceneSpawnPlan = struct {
     scene_size: Vec3,
 };
 
-pub const FpsPhysics = physics_fps.FpsPhysicsModule(Player);
-pub const FpsController = FpsPhysics.FpsController;
-
 pub const sponza_scene_path = "assets/sponza/glTF/Sponza.gltf";
 pub const sponza_panorama_bytes = @embedFile("assets/hdr/furstenstein_2k.hdr");
 pub const sponza_moon_overlay_bytes = @embedFile("assets/textures/moon_overlay_cc0.png");
@@ -101,8 +98,6 @@ pub const SceneLoaderMessage = union(enum) {
     ready: LoadedScenePayload,
     failed: []const u8,
 };
-
-pub const SceneLoader = common.Agent(SceneLoaderCommand, SceneLoaderMessage);
 
 pub const SceneLoaderTaskContext = struct {
     allocator: std.mem.Allocator,
@@ -255,3 +250,7 @@ const lighting = phasor.lighting;
 
 const Quat = common.Quat;
 const Vec3 = common.Vec3;
+
+pub const FpsPhysics = physics_fps.FpsPhysicsModule(Player);
+pub const FpsController = FpsPhysics.FpsController;
+pub const SceneLoader = common.Agent(SceneLoaderCommand, SceneLoaderMessage);

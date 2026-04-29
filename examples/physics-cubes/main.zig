@@ -15,8 +15,6 @@ const SpawnState = struct {
     }
 };
 
-const App = phasor.App;
-
 pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 var g_demo_config = DemoConfig{};
@@ -308,3 +306,5 @@ const Transform = common.Transform;
 const Camera3d = common.Camera3d;
 const ClearColor = common.ClearColor;
 const CameraLayer = render.CameraLayer;
+
+const App = phasor.App;

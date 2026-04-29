@@ -1,16 +1,9 @@
-const builtin = @import("builtin");
-const std = @import("std");
-const phasor = @import("phasor");
-const embedded_assets = @import("gltf_embedded_assets");
-
 pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 const GltfPivot = struct {};
 const SceneReady = struct {};
 const SceneHydrated = struct {};
 const DebugReported = struct {};
-
-const App = phasor.App;
 
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.default(&init);
@@ -199,12 +192,19 @@ fn embeddedFlightHelmetImage(uri: []const u8) ?[]const u8 {
     return null;
 }
 
+// Imports
+const builtin = @import("builtin");
+const std = @import("std");
+const phasor = @import("phasor");
+const embedded_assets = @import("gltf_embedded_assets");
+
 const ecs = phasor.ecs;
 const assets = phasor.assets;
 const common = phasor.common;
 const modules = phasor.modules;
 const platform = phasor.platform;
 const render = phasor.renderer;
+const App = phasor.App;
 
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;

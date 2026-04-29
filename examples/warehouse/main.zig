@@ -1,7 +1,5 @@
 const Player = struct {};
 const PlayerCamera = struct {};
-const FpsPhysics = physics_fps.FpsPhysicsModule(Player);
-const FpsController = FpsPhysics.FpsController;
 
 const UvSamplingMode = union(enum) {
     FollowUv,
@@ -19,8 +17,6 @@ const BoxFaceMask = struct {
     top: bool = true,
     bottom: bool = true,
 };
-
-const App = phasor.App;
 
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.default(&init);
@@ -824,3 +820,7 @@ const MeshHandle = render.MeshHandle;
 const Material = render.Material;
 const MeshInstance = render.MeshInstance;
 const CameraLayer = render.CameraLayer;
+
+const FpsPhysics = physics_fps.FpsPhysicsModule(Player);
+const FpsController = FpsPhysics.FpsController;
+const App = phasor.App;

@@ -1,5 +1,3 @@
-const App = phasor.App;
-
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.default(&init);
     defer app.deinit();
@@ -43,3 +41,5 @@ const ClearColor = common.ClearColor;
 const Color = common.Color;
 const CameraLayer = render.CameraLayer;
 const Triangle = render.Triangle;
+
+const App = phasor.App;

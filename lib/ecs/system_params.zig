@@ -76,8 +76,6 @@ pub const WorldRef = struct {
     }
 };
 
-pub const Without = db.QuerySpec.Without;
-
 pub fn Query(comptime Parts: anytype) type {
     return struct {
         result: db.QueryResult = undefined,
@@ -206,3 +204,5 @@ const Commands = @import("Commands.zig");
 const World = @import("World.zig");
 const db = @import("db");
 const fixtures = @import("common").fixtures;
+
+pub const Without = db.QuerySpec.Without;

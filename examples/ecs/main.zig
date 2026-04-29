@@ -1,6 +1,3 @@
-const std = @import("std");
-const phasor = @import("phasor");
-
 pub const std_options = phasor.common.logging.stdOptions(.debug);
 
 const Position = struct { x: f32, y: f32 };
@@ -126,6 +123,9 @@ pub fn main(init: std.process.Init) !u8 {
 }
 
 // Imports
+const std = @import("std");
+const phasor = @import("phasor");
+
 const ecs = phasor.ecs;
 const resources = ecs.resources;
 const modules = phasor.modules;

@@ -1,5 +1,3 @@
-const db = @import("db");
-
 const Self = @This();
 
 allocator: std.mem.Allocator,
@@ -79,5 +77,6 @@ pub fn dbConst(self: *const Self) *const db.Database {
 
 // Imports
 const std = @import("std");
+const db = @import("db");
 const resources = @import("resources.zig");
 const events = @import("events.zig");

@@ -1,5 +1,3 @@
-pub const FastNoise = fastnoise.Noise(f32);
-
 pub const NoiseResource = struct {
     noise: FastNoise = .{},
 };
@@ -46,3 +44,5 @@ const ecs = @import("ecs");
 const fastnoise = @import("fastnoise");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
+
+pub const FastNoise = fastnoise.Noise(f32);
