@@ -42,6 +42,7 @@ pub fn main(init: std.process.Init) !u8 {
     try app.insertResource(render.VSync{ .enabled = false });
 
     try app.installDefaultModules();
+    try app.installModule(particles.ParticlesModule(sponza_particles.max_lion_fire_particles));
     var commands = app.commands();
     defer commands.deinit();
     try commands.insertResource(render.ShadowMode.off);
@@ -88,6 +89,8 @@ const phasor = @import("phasor");
 const phases = @import("phases.zig");
 const loading = @import("loading.zig");
 const gameplay = @import("gameplay.zig");
+const particles = phasor.particles;
+const sponza_particles = @import("particles.zig");
 const Assets = @import("shared.zig").Assets;
 const FpsPhysics = @import("shared.zig").FpsPhysics;
 

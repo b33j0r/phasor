@@ -8,6 +8,7 @@ test "import tests" {
     _ = metrics;
     _ = lighting;
     _ = modules;
+    _ = particles;
     _ = platform;
     _ = renderer;
     _ = gui;
@@ -24,6 +25,7 @@ pub const graph = @import("graph");
 pub const metrics = @import("metrics");
 pub const lighting = @import("lighting");
 pub const modules = @import("modules");
+pub const particles = @import("particles");
 pub const platform = @import("platform");
 pub const renderer = @import("render");
 pub const gui = @import("gui");

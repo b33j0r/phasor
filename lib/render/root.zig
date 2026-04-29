@@ -55,6 +55,7 @@ pub const MeshFactory = mesh.MeshFactory;
 pub const ParticleGeometry = @import("particle_geometry.zig").ParticleGeometry;
 pub const ParticleFacing = @import("particle_geometry.zig").ParticleFacing;
 pub const SphereDetail = @import("particle_geometry.zig").SphereDetail;
+pub const EllipsoidDetail = @import("particle_geometry.zig").EllipsoidDetail;
 pub const SdfVolume = @import("particle_geometry.zig").SdfVolume;
 pub const ResolvedParticleGeometry = @import("particle_geometry.zig").ResolvedParticleGeometry;
 pub const buildParticleGeometry = @import("particle_geometry.zig").buildParticleGeometry;

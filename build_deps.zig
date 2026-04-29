@@ -539,6 +539,28 @@ const PhysicsFpsSupportModule = struct {
     }
 };
 
+const ParticlesModuleLib = struct {
+    module: *std.Build.Module,
+    tests: *std.Build.Step.Compile,
+
+    const Deps = struct {
+        common: *std.Build.Module,
+        ecs: *std.Build.Module,
+        render: *std.Build.Module,
+        modules: *std.Build.Module,
+    };
+
+    fn build(ctx: *const BuildContext, deps: Deps) ParticlesModuleLib {
+        const bundle = ctx.moduleBundlePublic("particles", "lib/particles/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
+            .{ .name = "ecs", .module = deps.ecs },
+            .{ .name = "render", .module = deps.render },
+            .{ .name = "modules", .module = deps.modules },
+        });
+        return .{ .module = bundle.module, .tests = bundle.tests };
+    }
+};
+
 const PhasorModule = struct {
     module: *std.Build.Module,
     tests: *std.Build.Step.Compile,
@@ -551,6 +573,7 @@ const PhasorModule = struct {
         metrics: *std.Build.Module,
         lighting: *std.Build.Module,
         modules: *std.Build.Module,
+        particles: *std.Build.Module,
         platform: *std.Build.Module,
         renderer: *std.Build.Module,
         gui: *std.Build.Module,
@@ -572,6 +595,7 @@ const PhasorModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "lighting", .module = deps.lighting }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "particles", .module = deps.particles }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "platform", .module = deps.platform }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "gui", .module = deps.gui }) catch unreachable;
@@ -749,6 +773,7 @@ pub const Engine = struct {
     audio: AudioModule,
     window: ?WindowModule,
     modules: ModulesModule,
+    particles: ParticlesModuleLib,
     physics_fps_support: PhysicsFpsSupportModule,
     platform: PlatformModule,
     phasor: PhasorModule,
@@ -822,6 +847,12 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
     const physics_fps_support = PhysicsFpsSupportModule.build(ctx, .{
         .modules = modules.module,
     });
+    const particles = ParticlesModuleLib.build(ctx, .{
+        .common = common.module,
+        .ecs = ecs.module,
+        .render = renderer.module,
+        .modules = modules.module,
+    });
     const platform = PlatformModule.build(ctx, .{
         .common = common.module,
         .ecs = ecs.module,
@@ -838,6 +869,7 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .metrics = metrics.module,
         .lighting = lighting.module,
         .modules = modules.module,
+        .particles = particles.module,
         .platform = platform.module,
         .renderer = renderer.module,
         .gui = gui.module,
@@ -866,6 +898,7 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .audio = audio,
         .window = window,
         .modules = modules,
+        .particles = particles,
         .physics_fps_support = physics_fps_support,
         .platform = platform,
         .phasor = phasor,

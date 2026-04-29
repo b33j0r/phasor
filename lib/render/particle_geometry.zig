@@ -16,21 +16,28 @@ pub const SphereDetail = struct {
     longitude_segments: u16 = 12,
 };
 
+pub const EllipsoidDetail = struct {
+    latitude_segments: u16 = 8,
+    longitude_segments: u16 = 12,
+};
+
 pub const SdfVolume = struct {
     id: u32 = 0,
 };
 
 pub const ParticleGeometry = union(enum) {
     quad,
+    sprite,
     billboard,
     sphere: SphereDetail,
+    ellipsoid: EllipsoidDetail,
     cube,
     custom_mesh: mesh.MeshHandle,
     sdf_volume: SdfVolume,
 
     pub fn facing(self: ParticleGeometry) ParticleFacing {
         return switch (self) {
-            .billboard => .billboard,
+            .billboard, .sprite => .billboard,
             else => .world,
         };
     }
@@ -43,8 +50,12 @@ pub const ResolvedParticleGeometry = struct {
 
 pub fn buildParticleGeometry(build_ctx: *const build.BuildContext, geometry: ParticleGeometry) !ResolvedParticleGeometry {
     const mesh_handle = switch (geometry) {
-        .quad, .billboard => try buildQuad(build_ctx),
+        .quad, .billboard, .sprite => try buildQuad(build_ctx),
         .sphere => |detail| try buildSphere(build_ctx, detail),
+        .ellipsoid => |detail| try buildSphere(build_ctx, .{
+            .latitude_segments = detail.latitude_segments,
+            .longitude_segments = detail.longitude_segments,
+        }),
         .cube => try buildCube(build_ctx),
         .custom_mesh => |handle| handle,
         .sdf_volume => return error.UnsupportedParticleGeometry,
