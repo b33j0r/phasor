@@ -112,30 +112,21 @@ fn updateBallBounce(
 // Imports
 const std = @import("std");
 const phasor = @import("phasor");
-const common = phasor.common;
-const ecs = phasor.ecs;
-const platform = phasor.platform;
-const modules = phasor.modules;
-const renderer = phasor.renderer;
-const system_params = ecs.system_params;
 
 const App = phasor.App;
 
-const Color = common.Color;
-const ClearColor = common.ClearColor;
-const DeltaTime = modules.TimeModule.DeltaTime;
-const Camera3d = common.Camera3d;
-const Transform = common.Transform;
-const Vec3 = common.Vec3;
-
-const Commands = ecs.Commands;
-const Query = system_params.Query;
-const Res = system_params.Res;
-const ResMut = system_params.ResMut;
-
-const WindowBounds = common.WindowBounds;
-const WindowSettings = platform.WindowSettings;
-
-const BuildContext = renderer.BuildContext;
-const MeshInstance = renderer.MeshInstance;
-const VSync = renderer.VSync;
+const BuildContext = phasor.BuildContext;
+const Camera3d = phasor.Camera3d;
+const ClearColor = phasor.ClearColor;
+const Color = phasor.Color;
+const Commands = phasor.Commands;
+const DeltaTime = phasor.DeltaTime;
+const MeshInstance = phasor.MeshInstance;
+const Query = phasor.Query;
+const Res = phasor.Res;
+const ResMut = phasor.ResMut;
+const Transform = phasor.Transform;
+const Vec3 = phasor.Vec3;
+const VSync = phasor.VSync;
+const WindowBounds = phasor.WindowBounds;
+const WindowSettings = phasor.WindowSettings;
