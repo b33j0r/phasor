@@ -6,6 +6,7 @@ pub const imported_scene = @import("imported_scene.zig");
 pub const SceneData = scene.SceneData;
 pub const ImportedScene = imported_scene.ImportedScene;
 pub const PreparedImportedScene = imported_scene.PreparedImportedScene;
+pub const AssetsModule = @import("module.zig").AssetsModule;
 pub const Scene = struct {
     path: ?[:0]const u8 = null,
     data: ?[]const u8 = null,
@@ -54,18 +55,7 @@ pub const Scene = struct {
     }
 };
 
-pub const AssetsContext = struct {
-    allocator: std.mem.Allocator,
-    io: *const std.Io,
-    renderer: ?*render.Renderer = null,
-    sampler: ?*render.Sampler = null,
-    font_library: ?*render.FontLibrary = null,
-    mesh_library: ?*render.MeshLibrary = null,
-    shader_library: ?*render.ShaderLibrary = null,
-    post_process_shader_library: ?*render.PostProcessShaderLibrary = null,
-    texture_library: ?*render.TextureLibrary = null,
-    material_library: ?*render.MaterialLibrary = null,
-};
+pub const AssetsContext = render.AssetsContext;
 
 pub const Texture = struct {
     pub const DynamicRange = enum {

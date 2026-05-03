@@ -245,7 +245,7 @@ fn layerKeyForTable(table: *const db.table.Table) i32 {
 const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
-const render = @import("render");
+const render = @import("root.zig");
 const lighting = @import("lighting");
 const db = @import("db");
 const types = @import("types.zig");

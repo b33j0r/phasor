@@ -7,4 +7,6 @@ pub const SoundPlayer = struct {
     loop: bool = false,
 };
 
+pub const AudioModule = @import("module.zig");
+
 const assets = @import("assets");

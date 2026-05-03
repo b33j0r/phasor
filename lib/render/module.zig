@@ -55,7 +55,6 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try app.addSystem("BeforeFrame", render_prepare.updateTextMeshes);
     try app.addSystem("BeforeFrame", render_prepare.updateLayerCameras);
     try app.addSystem("BeforeFrame", render_extract.extractSystem);
-    try app.addSystem("BeforeFrame", emitSceneMetricsSystem);
     try app.addSystem(schedule.DefaultSchedule.Render, render_submit.renderSystem);
     try app.addSystem("AfterFrame", render_prepare.cleanupUnusedMeshes);
     try app.addSystem(schedule.DefaultSchedule.WindowDestroy, shutdownSystem);
@@ -70,7 +69,6 @@ pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(render_prepare.updateTextMeshes);
     app.removeSystem(render_prepare.updateLayerCameras);
     app.removeSystem(render_extract.extractSystem);
-    app.removeSystem(emitSceneMetricsSystem);
     app.removeSystem(render_prepare.cleanupUnusedMeshes);
     app.removeSystem(render_submit.renderSystem);
     app.removeSystem(shutdownSystem);
@@ -107,31 +105,31 @@ fn initRenderer(commands: *Commands) !void {
 
     const material = try renderer.createMaterial(texture, sampler);
     var shadow_shader_uv2 = try renderer.createShadowShader(.{
-        .wgsl = @embedFile("render/shaders/shadow_caster_uv2.wgsl"),
+        .wgsl = @embedFile("shaders/shadow_caster_uv2.wgsl"),
         .vertex_layout = .uv2,
         .binding_mode = .material,
     });
     errdefer renderer.destroyShadowShader(&shadow_shader_uv2);
     var shadow_shader_pos3_uv2 = try renderer.createShadowShader(.{
-        .wgsl = @embedFile("render/shaders/shadow_caster_pos3_uv2.wgsl"),
+        .wgsl = @embedFile("shaders/shadow_caster_pos3_uv2.wgsl"),
         .vertex_layout = .pos3_uv2,
         .binding_mode = .material,
     });
     errdefer renderer.destroyShadowShader(&shadow_shader_pos3_uv2);
     var shadow_shader_pos3_norm_uv2 = try renderer.createShadowShader(.{
-        .wgsl = @embedFile("render/shaders/shadow_caster_pos3_norm_uv2.wgsl"),
+        .wgsl = @embedFile("shaders/shadow_caster_pos3_norm_uv2.wgsl"),
         .vertex_layout = .pos3_norm_uv2,
         .binding_mode = .material,
     });
     errdefer renderer.destroyShadowShader(&shadow_shader_pos3_norm_uv2);
     var shadow_shader_pos3_norm_tangent_uv2 = try renderer.createShadowShader(.{
-        .wgsl = @embedFile("render/shaders/shadow_caster_pos3_norm_tangent_uv2.wgsl"),
+        .wgsl = @embedFile("shaders/shadow_caster_pos3_norm_tangent_uv2.wgsl"),
         .vertex_layout = .pos3_norm_tangent_uv2,
         .binding_mode = .material,
     });
     errdefer renderer.destroyShadowShader(&shadow_shader_pos3_norm_tangent_uv2);
     var shadow_shader_pos3_color4 = try renderer.createShadowShader(.{
-        .wgsl = @embedFile("render/shaders/shadow_caster_pos3_color4.wgsl"),
+        .wgsl = @embedFile("shaders/shadow_caster_pos3_color4.wgsl"),
         .vertex_layout = .pos3_color4,
         .binding_mode = .none,
     });
@@ -248,7 +246,7 @@ fn createCoreShader(
 }
 
 fn ensureAssetsContextSystem(commands: *Commands) !void {
-    if (commands.hasResource(assets.AssetsContext)) return;
+    if (commands.hasResource(render.AssetsContext)) return;
     const state = commands.getResourceMut(RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
     const font_library = commands.getResourceMut(render.FontLibrary) orelse return;
@@ -256,7 +254,7 @@ fn ensureAssetsContextSystem(commands: *Commands) !void {
     const post_process_shader_library = commands.getResourceMut(render.PostProcessShaderLibrary) orelse return;
     const texture_library = commands.getResourceMut(render.TextureLibrary) orelse return;
     const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
-    try commands.insertResource(assets.AssetsContext{
+    try commands.insertResource(render.AssetsContext{
         .allocator = commands.allocator,
         .io = commands.io,
         .renderer = &state.renderer,
@@ -363,7 +361,7 @@ fn shutdownSystem(commands: *Commands) void {
     _ = commands.removeResource(ShadowSettings);
     _ = commands.removeResource(render.ShadowMode);
     _ = commands.removeResource(render.SceneDebugView);
-    _ = commands.removeResource(assets.AssetsContext);
+    _ = commands.removeResource(render.AssetsContext);
     _ = commands.removeResource(render.BuildContext);
     _ = commands.removeResource(render.RenderQueue);
     _ = commands.removeResource(RenderState);
@@ -422,42 +420,20 @@ pub fn setSurfaceSize(
     }) catch {};
 }
 
-fn emitSceneMetricsSystem(
-    bus_opt: ResMutOpt(metrics.Bus),
-    scene_stats_mode_opt: ResOpt(render.SceneStatsMode),
-    scene_stats_snapshot_opt: ResOpt(render.SceneStatsSnapshot),
-) void {
-    const bus = bus_opt.ptr orelse return;
-    const mode = scene_stats_mode_opt.ptr orelse return;
-    if (!mode.enabled) return;
-
-    const snapshot = if (scene_stats_snapshot_opt.ptr) |stats| stats.* else render.SceneStatsSnapshot{};
-    const size = snapshot.size();
-    metrics.emitBus(true, bus, .{
-        .scene_mesh_count = metrics.gauge(snapshot.mesh_count),
-        .scene_size_x = metrics.gauge(size.x),
-        .scene_size_y = metrics.gauge(size.y),
-        .scene_size_z = metrics.gauge(size.z),
-    });
-}
-
 // Imports
 const common = @import("common");
 const ecs = @import("ecs");
-const render = @import("render");
-const assets = @import("assets");
-const metrics = @import("metrics");
-const render_types = @import("render/types.zig");
-const render_prepare = @import("render/prepare.zig");
-const render_extract = @import("render/extract.zig");
-const render_submit = @import("render/submit.zig");
-const render_shadows = @import("render/shadows.zig");
+const render = @import("root.zig");
+const render_types = @import("types.zig");
+const render_prepare = @import("prepare.zig");
+const render_extract = @import("extract.zig");
+const render_submit = @import("submit.zig");
+const render_shadows = @import("shadows.zig");
 const std = @import("std");
 
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const ResMut = ecs.system_params.ResMut;
-const ResMutOpt = ecs.system_params.ResMutOpt;
 const ResOpt = ecs.system_params.ResOpt;
 const schedule = ecs.schedule;
 const log = std.log.scoped(.render_module);

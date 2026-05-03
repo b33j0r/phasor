@@ -341,6 +341,7 @@ const AssetsModule = struct {
 
     const Deps = struct {
         common: *std.Build.Module,
+        ecs: *std.Build.Module,
         render: *std.Build.Module,
         stb_image: *std.Build.Module,
         cgltf: *std.Build.Module,
@@ -349,6 +350,7 @@ const AssetsModule = struct {
     fn build(ctx: *const BuildContext, deps: Deps) AssetsModule {
         const bundle = ctx.moduleBundle("lib/assets/root.zig", &.{
             .{ .name = "common", .module = deps.common },
+            .{ .name = "ecs", .module = deps.ecs },
             .{ .name = "render", .module = deps.render },
             .{ .name = "stb_image", .module = deps.stb_image },
             .{ .name = "cgltf", .module = deps.cgltf },
@@ -362,13 +364,20 @@ const AudioModule = struct {
     tests: *std.Build.Step.Compile,
 
     const Deps = struct {
+        ecs: *std.Build.Module,
         assets: *std.Build.Module,
+        miniaudio: ?*std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) AudioModule {
-        const bundle = ctx.moduleBundle("lib/audio/root.zig", &.{
-            .{ .name = "assets", .module = deps.assets },
-        });
+        var imports: std.ArrayList(std.Build.Module.Import) = .empty;
+        defer imports.deinit(ctx.b.allocator);
+        imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
+        if (deps.miniaudio) |miniaudio_mod| {
+            imports.append(ctx.b.allocator, .{ .name = "miniaudio", .module = miniaudio_mod }) catch unreachable;
+        }
+        const bundle = ctx.moduleBundle("lib/audio/root.zig", imports.items);
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -440,13 +449,20 @@ const MetricsModule = struct {
 
     const Deps = struct {
         common: *std.Build.Module,
+        db: *std.Build.Module,
+        ecs: *std.Build.Module,
+        modules: *std.Build.Module,
+        render: *std.Build.Module,
     };
 
     fn build(ctx: *const BuildContext, deps: Deps) MetricsModule {
-        const bundle = ctx.moduleBundle("lib/metrics/root.zig", &.{.{
-            .name = "common",
-            .module = deps.common,
-        }});
+        const bundle = ctx.moduleBundle("lib/metrics/root.zig", &.{
+            .{ .name = "common", .module = deps.common },
+            .{ .name = "db", .module = deps.db },
+            .{ .name = "ecs", .module = deps.ecs },
+            .{ .name = "modules", .module = deps.modules },
+            .{ .name = "render", .module = deps.render },
+        });
         return .{ .module = bundle.module, .tests = bundle.tests };
     }
 };
@@ -457,6 +473,7 @@ const GuiModuleLib = struct {
 
     const Deps = struct {
         common: *std.Build.Module,
+        db: *std.Build.Module,
         ecs: *std.Build.Module,
         render: *std.Build.Module,
     };
@@ -464,6 +481,7 @@ const GuiModuleLib = struct {
     fn build(ctx: *const BuildContext, deps: Deps) GuiModuleLib {
         const bundle = ctx.moduleBundlePublic("gui", "lib/gui/root.zig", &.{
             .{ .name = "common", .module = deps.common },
+            .{ .name = "db", .module = deps.db },
             .{ .name = "ecs", .module = deps.ecs },
             .{ .name = "render", .module = deps.render },
         });
@@ -479,12 +497,6 @@ const ModulesModule = struct {
         common: *std.Build.Module,
         db: *std.Build.Module,
         ecs: *std.Build.Module,
-        lighting: *std.Build.Module,
-        gui: *std.Build.Module,
-        assets: *std.Build.Module,
-        audio: *std.Build.Module,
-        metrics: *std.Build.Module,
-        render: *std.Build.Module,
         fastnoise: *std.Build.Module,
         miniaudio: ?*std.Build.Module,
         glfw: ?*std.Build.Module,
@@ -498,12 +510,6 @@ const ModulesModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
-        imports.append(ctx.b.allocator, .{ .name = "lighting", .module = deps.lighting }) catch unreachable;
-        imports.append(ctx.b.allocator, .{ .name = "gui", .module = deps.gui }) catch unreachable;
-        imports.append(ctx.b.allocator, .{ .name = "assets", .module = deps.assets }) catch unreachable;
-        imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
-        imports.append(ctx.b.allocator, .{ .name = "metrics", .module = deps.metrics }) catch unreachable;
-        imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.render }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "fastnoise", .module = deps.fastnoise }) catch unreachable;
         if (deps.miniaudio) |miniaudio_mod| {
             imports.append(ctx.b.allocator, .{ .name = "miniaudio", .module = miniaudio_mod }) catch unreachable;
@@ -617,6 +623,9 @@ const RenderModule = struct {
 
     const Deps = struct {
         common: *std.Build.Module,
+        db: *std.Build.Module,
+        ecs: *std.Build.Module,
+        lighting: *std.Build.Module,
         glfw: ?*std.Build.Module,
         stb: *std.Build.Module,
     };
@@ -627,6 +636,9 @@ const RenderModule = struct {
         var imports: std.ArrayList(std.Build.Module.Import) = .empty;
         defer imports.deinit(ctx.b.allocator);
         imports.append(ctx.b.allocator, .{ .name = "common", .module = deps.common }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "db", .module = deps.db }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "lighting", .module = deps.lighting }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "stb", .module = deps.stb }) catch unreachable;
         if (!is_wasm) {
             const glfw_mod = deps.glfw orelse @panic("glfw module required for native builds");
@@ -715,6 +727,7 @@ const PlatformModule = struct {
         ecs: *std.Build.Module,
         modules: *std.Build.Module,
         renderer: *std.Build.Module,
+        audio: *std.Build.Module,
         window: ?*std.Build.Module,
         wasm: ?*std.Build.Module,
     };
@@ -728,6 +741,7 @@ const PlatformModule = struct {
         imports.append(ctx.b.allocator, .{ .name = "ecs", .module = deps.ecs }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "modules", .module = deps.modules }) catch unreachable;
         imports.append(ctx.b.allocator, .{ .name = "render", .module = deps.renderer }) catch unreachable;
+        imports.append(ctx.b.allocator, .{ .name = "audio", .module = deps.audio }) catch unreachable;
         if (!is_wasm) {
             const window_mod = deps.window orelse @panic("window module required for native builds");
             imports.append(ctx.b.allocator, .{ .name = "window", .module = window_mod }) catch unreachable;
@@ -800,29 +814,7 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .common = common.module,
         .stb_image = stb_image.module,
     });
-    const metrics = MetricsModule.build(ctx, .{
-        .common = common.module,
-    });
     const wasm_support = WasmSupportModule.build(ctx);
-    const renderer = RenderModule.build(ctx, .{
-        .common = common.module,
-        .glfw = if (!is_wasm) glfw.?.module else null,
-        .stb = stb.module,
-    });
-    const gui = GuiModuleLib.build(ctx, .{
-        .common = common.module,
-        .ecs = ecs.module,
-        .render = renderer.module,
-    });
-    const assets = AssetsModule.build(ctx, .{
-        .common = common.module,
-        .render = renderer.module,
-        .stb_image = stb_image.module,
-        .cgltf = cgltf.module,
-    });
-    const audio = AudioModule.build(ctx, .{
-        .assets = assets.module,
-    });
     const window = if (!is_wasm) WindowModule.build(ctx, .{
         .common = common.module,
         .ecs = ecs.module,
@@ -832,17 +824,44 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .common = common.module,
         .db = db.module,
         .ecs = ecs.module,
-        .lighting = lighting.module,
-        .gui = gui.module,
-        .assets = assets.module,
-        .audio = audio.module,
-        .metrics = metrics.module,
-        .render = renderer.module,
         .fastnoise = fastnoise.module,
         .miniaudio = if (miniaudio) |mod| mod.module else null,
         .glfw = if (!is_wasm) glfw.?.module else null,
         .window = if (!is_wasm) window.?.module else null,
         .wasm = if (is_wasm) wasm_support.module else null,
+    });
+    const renderer = RenderModule.build(ctx, .{
+        .common = common.module,
+        .db = db.module,
+        .ecs = ecs.module,
+        .lighting = lighting.module,
+        .glfw = if (!is_wasm) glfw.?.module else null,
+        .stb = stb.module,
+    });
+    const metrics = MetricsModule.build(ctx, .{
+        .common = common.module,
+        .db = db.module,
+        .ecs = ecs.module,
+        .modules = modules.module,
+        .render = renderer.module,
+    });
+    const gui = GuiModuleLib.build(ctx, .{
+        .common = common.module,
+        .db = db.module,
+        .ecs = ecs.module,
+        .render = renderer.module,
+    });
+    const assets = AssetsModule.build(ctx, .{
+        .common = common.module,
+        .ecs = ecs.module,
+        .render = renderer.module,
+        .stb_image = stb_image.module,
+        .cgltf = cgltf.module,
+    });
+    const audio = AudioModule.build(ctx, .{
+        .ecs = ecs.module,
+        .assets = assets.module,
+        .miniaudio = if (miniaudio) |mod| mod.module else null,
     });
     const physics_fps_support = PhysicsFpsSupportModule.build(ctx, .{
         .modules = modules.module,
@@ -858,6 +877,7 @@ pub fn buildEngine(ctx: *const BuildContext) Engine {
         .ecs = ecs.module,
         .modules = modules.module,
         .renderer = renderer.module,
+        .audio = audio.module,
         .window = if (!is_wasm) window.?.module else null,
         .wasm = if (is_wasm) wasm_support.module else null,
     });

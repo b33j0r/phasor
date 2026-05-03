@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const ecs = @import("ecs");
 const modules = @import("modules");
 const render = @import("render");
+const audio = @import("audio");
 const common = @import("common");
 const schedule = ecs.schedule;
 
@@ -123,9 +124,9 @@ fn installDefaultModulesFor(app: *ecs.App) !void {
     try installPlatformModules(app, .{});
     try app.installModule(modules.TimeModule);
     try app.installModule(modules.TimerModule);
-    try app.installModule(modules.RenderModule);
+    try app.installModule(render.RenderModule);
     try app.installModule(modules.InputModule);
-    try app.installModule(modules.AudioModule);
+    try app.installModule(audio.AudioModule);
 }
 
 pub const PlatformModuleSettings = struct {
@@ -149,7 +150,7 @@ pub fn installPlatformModules(app: *ecs.App, comptime settings: PlatformModuleSe
 }
 
 fn setupNativeSurface(commands: *ecs.Commands) !void {
-    if (commands.hasResource(modules.RenderModule.RenderSurface)) return;
+    if (commands.hasResource(render.RenderSurface)) return;
 
     const window = @import("window");
     const window_res = commands.getResource(window.Window) orelse return;
@@ -159,16 +160,16 @@ fn setupNativeSurface(commands: *ecs.Commands) !void {
     else
         true;
     const surface = try render.surface_glfw.fromGlfwWindowWithVsync(handle, vsync);
-    try commands.insertResource(modules.RenderModule.RenderSurface{ .target = surface });
+    try commands.insertResource(render.RenderSurface{ .target = surface });
 }
 
 fn setupWasmSurface(comptime canvas_id: []const u8) fn (*ecs.Commands) anyerror!void {
     return struct {
         fn run(commands: *ecs.Commands) !void {
-            if (commands.hasResource(modules.RenderModule.RenderSurface)) return;
+            if (commands.hasResource(render.RenderSurface)) return;
 
             const surface = render.surface_canvas.fromCanvasId(canvas_id);
-            try commands.insertResource(modules.RenderModule.RenderSurface{ .target = surface });
+            try commands.insertResource(render.RenderSurface{ .target = surface });
         }
     }.run;
 }
@@ -316,7 +317,7 @@ fn rootWasmResize(
     const runner = decodeRootWasmRunnerHandle(handle) orelse return;
     var commands = ecs.Commands.init(runner.app.allocator, runner.app.io, &runner.app.world);
     defer commands.deinit();
-    modules.RenderModule.setSurfaceSize(
+    render.RenderModule.setSurfaceSize(
         &commands,
         logical_width,
         logical_height,
@@ -331,7 +332,7 @@ fn rootWasmOnDeviceLost(handle: u32) callconv(.c) void {
     const runner = decodeRootWasmRunnerHandle(handle) orelse return;
     var commands = ecs.Commands.init(runner.app.allocator, runner.app.io, &runner.app.world);
     defer commands.deinit();
-    modules.RenderModule.signalDeviceLost(&commands);
+    render.RenderModule.signalDeviceLost(&commands);
     _ = commands.apply() catch {};
 }
 
@@ -340,7 +341,7 @@ fn rootWasmOnDeviceRestored(handle: u32) callconv(.c) void {
     const runner = decodeRootWasmRunnerHandle(handle) orelse return;
     var commands = ecs.Commands.init(runner.app.allocator, runner.app.io, &runner.app.world);
     defer commands.deinit();
-    modules.RenderModule.signalDeviceRestored(&commands);
+    render.RenderModule.signalDeviceRestored(&commands);
     _ = commands.apply() catch {};
 }
 

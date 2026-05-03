@@ -248,6 +248,6 @@ pub fn cameraLayerKeyForRow(row: db.QueryResult.Row) i32 {
 
 const std = @import("std");
 const common = @import("common");
-const render = @import("render");
+const render = @import("root.zig");
 const db = @import("db");
 const ecs = @import("ecs");

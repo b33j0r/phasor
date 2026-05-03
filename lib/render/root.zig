@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const std_options = @import("common").logging.moduleStdOptions();
 
 test "import tests" {
@@ -127,6 +129,18 @@ pub const Triangle = backend.Triangle;
 pub const TexturedQuad = backend.TexturedQuad;
 pub const DrawCmd = backend.DrawCmd;
 pub const BuildContext = @import("build.zig").BuildContext;
+pub const AssetsContext = struct {
+    allocator: std.mem.Allocator,
+    io: *const std.Io,
+    renderer: ?*Renderer = null,
+    sampler: ?*Sampler = null,
+    font_library: ?*FontLibrary = null,
+    mesh_library: ?*MeshLibrary = null,
+    shader_library: ?*ShaderLibrary = null,
+    post_process_shader_library: ?*PostProcessShaderLibrary = null,
+    texture_library: ?*TextureLibrary = null,
+    material_library: ?*MaterialLibrary = null,
+};
 pub const CoreShaderSources = @import("core_shaders.zig");
 pub const ColorGrade = @import("color_grading.zig").ColorGrade;
 pub const ColorGradingSettings = @import("color_grading.zig").ColorGradingSettings;
@@ -156,6 +170,21 @@ pub const LayerOverride = layer.LayerOverride;
 pub const LayerSortKey = layer.LayerSortKey;
 pub const CameraLayer = layer.CameraLayer;
 pub const CameraLayerN = layer.CameraLayerN;
+pub const RenderModule = @import("module.zig");
+pub const LayoutModule = @import("layout_module.zig");
+pub const SkyModule = @import("sky_module.zig");
+pub const RenderSurface = RenderModule.RenderSurface;
+pub const RenderState = RenderModule.RenderState;
+pub const ViewportSize = RenderModule.ViewportSize;
+pub const FramebufferSize = RenderModule.FramebufferSize;
+pub const RenderRecovery = RenderModule.RenderRecovery;
+pub const SpriteMeshCache = RenderModule.SpriteMeshCache;
+pub const LayerCameras = RenderModule.LayerCameras;
+pub const LayerCamera = RenderModule.LayerCamera;
+pub const LayerViewports = RenderModule.LayerViewports;
+pub const ExtractedSceneLighting = RenderModule.ExtractedSceneLighting;
+pub const ShadowSettings = RenderModule.ShadowSettings;
+pub const ShadowTechnique = RenderModule.ShadowTechnique;
 
 pub fn configForVsync(vsync: bool) RendererConfig {
     return backend.configForVsync(vsync);

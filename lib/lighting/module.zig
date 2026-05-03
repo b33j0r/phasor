@@ -68,12 +68,9 @@ fn accumulate(
 
 fn emitAuthoringMetrics(
     bus_opt: ResMutOpt(metrics.Bus),
-    mode_opt: ResOpt(render.SceneStatsMode),
     stats: ResMut(lighting.AuthoringStats),
 ) void {
     const bus = bus_opt.ptr orelse return;
-    const mode = mode_opt.ptr orelse return;
-    if (!mode.enabled) return;
 
     metrics.emitBus(true, bus, .{
         .lights_total = metrics.gauge(stats.ptr.total_lights),
@@ -86,12 +83,10 @@ fn emitAuthoringMetrics(
 const ecs = @import("ecs");
 const lighting = @import("lighting");
 const metrics = @import("metrics");
-const render = @import("render");
 
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const Query = ecs.system_params.Query;
 const ResMut = ecs.system_params.ResMut;
 const ResMutOpt = ecs.system_params.ResMutOpt;
-const ResOpt = ecs.system_params.ResOpt;
 const Without = ecs.system_params.Without;

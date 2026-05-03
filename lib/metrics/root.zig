@@ -4,6 +4,36 @@ pub const Metrics = struct {
     frame_ms: f32 = 0.0,
 };
 
+pub const MetricsModule = @import("module.zig").MetricsModule(null);
+pub const MetricsModuleLayered = @import("module.zig").MetricsModule;
+pub const DebugModule = @import("debug_module.zig").DebugModule(null);
+pub const DebugModuleLayered = @import("debug_module.zig").DebugModule;
+pub const DebugSettings = @import("debug_module.zig").DebugSettings;
+pub const CrashDumpModule = @import("crash_dump_module.zig");
+pub const SoakMonitorModule = @import("soak_monitor_module.zig");
+pub const MetricLine = @import("module.zig").MetricLine;
+pub const MetricBuiltinLine = @import("module.zig").BuiltinMetricLine;
+pub const MetricBuiltinLineItem = @import("module.zig").BuiltinMetricLineItem;
+pub const MetricContext = @import("module.zig").MetricContext;
+pub const MetricLineKind = @import("module.zig").MetricLineKind;
+pub const MetricLineStore = @import("module.zig").MetricLineStore;
+pub const MetricValueFormat = @import("module.zig").MetricValueFormat;
+pub const MetricsViewport = @import("module.zig").MetricsViewport;
+pub const MetricLineElapsedTime = @import("module.zig").MetricLineElapsedTime;
+pub const MetricLineFps = @import("module.zig").MetricLineFps;
+pub const MetricLineFrameMs = @import("module.zig").MetricLineFrameMs;
+pub const MetricLineFontName = @import("module.zig").MetricLineFontName;
+pub const MetricLineFontMetrics = @import("module.zig").MetricLineFontMetrics;
+pub const MetricLineFontAtlas = @import("module.zig").MetricLineFontAtlas;
+pub const DefaultBuiltinMetricLines = @import("module.zig").DefaultBuiltinLines;
+pub const DefaultMetricLines = @import("module.zig").DefaultLines;
+pub const lineFormat = @import("module.zig").lineFormat;
+pub const lineStore = @import("module.zig").lineStore;
+pub const withExtraText = @import("module.zig").withExtraText;
+pub const builtinLine = @import("module.zig").builtinLine;
+pub const builtinLineWithExtraText = @import("module.zig").builtinLineWithExtraText;
+pub const withSort = @import("module.zig").withSort;
+
 pub const MetricMode = enum {
     stat,
     gauge,

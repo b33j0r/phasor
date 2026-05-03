@@ -289,5 +289,5 @@ fn lookAt(eye: common.Vec3, target: common.Vec3, up_hint: common.Vec3) common.Ma
 }
 
 const common = @import("common");
-const render = @import("render");
+const render = @import("root.zig");
 const types = @import("types.zig");

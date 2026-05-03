@@ -92,10 +92,12 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
                 .text_entity = text_entity,
                 .text_buffer = buffer,
             });
+            try app.addSystem("BeforeFrame", emitSceneMetrics);
             try app.addSystem("Update", updateMetricsText);
         }
 
         pub fn uninstall(_: *const @This(), app: *AppCommands, cmds: *Commands) void {
+            app.removeSystem(emitSceneMetrics);
             app.removeSystem(updateMetricsText);
 
             if (cmds.getResource(MetricsState)) |state| {
@@ -107,6 +109,25 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
             _ = cmds.removeResource(metrics.Metrics);
         }
     };
+}
+
+fn emitSceneMetrics(
+    bus_opt: ResMutOpt(metrics.Bus),
+    scene_stats_mode_opt: ResOpt(render.SceneStatsMode),
+    scene_stats_snapshot_opt: ResOpt(render.SceneStatsSnapshot),
+) void {
+    const bus = bus_opt.ptr orelse return;
+    const mode = scene_stats_mode_opt.ptr orelse return;
+    if (!mode.enabled) return;
+
+    const snapshot = if (scene_stats_snapshot_opt.ptr) |stats| stats.* else render.SceneStatsSnapshot{};
+    const size = snapshot.size();
+    metrics.emitBus(true, bus, .{
+        .scene_mesh_count = metrics.gauge(snapshot.mesh_count),
+        .scene_size_x = metrics.gauge(size.x),
+        .scene_size_y = metrics.gauge(size.y),
+        .scene_size_z = metrics.gauge(size.z),
+    });
 }
 
 fn defaultViewportMode(comptime LayerT: ?type) MetricsViewport {
@@ -725,10 +746,11 @@ const Commands = ecs.Commands;
 const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
+const ResMutOpt = ecs.system_params.ResMutOpt;
 const ResOpt = ecs.system_params.ResOpt;
 const Entity = @import("db").Entity;
-const TimeModule = @import("TimeModule.zig");
-const RenderModule = @import("RenderModule.zig");
+const TimeModule = @import("modules").TimeModule;
+const RenderModule = render.RenderModule;
 const ViewportSize = RenderModule.ViewportSize;
 const RenderState = RenderModule.RenderState;
 const LayerViewports = RenderModule.LayerViewports;

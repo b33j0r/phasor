@@ -963,7 +963,7 @@ fn positionToNdcCenter(pos: common.Vec2, size: render.Size) common.Vec2 {
 const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
-const render = @import("render");
+const render = @import("root.zig");
 const shadows = @import("shadows.zig");
 const types = @import("types.zig");
 

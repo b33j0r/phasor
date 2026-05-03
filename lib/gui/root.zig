@@ -3,6 +3,8 @@ const common = @import("common");
 const ecs = @import("ecs");
 const render = @import("render");
 
+pub const GuiModule = @import("module.zig");
+
 pub const Anchor = enum {
     TopLeft,
     TopCenter,

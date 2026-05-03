@@ -157,8 +157,8 @@ fn resolveRect(layout: common.ViewportLayout, bounds: Bounds) types.ViewportRect
 const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
-const render = @import("render");
-const types = @import("render/types.zig");
+const render = @import("root.zig");
+const types = @import("types.zig");
 
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;

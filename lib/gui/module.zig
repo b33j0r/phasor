@@ -116,7 +116,7 @@ const db = @import("db");
 const ecs = @import("ecs");
 const gui = @import("gui");
 const render = @import("render");
-const RenderModule = @import("RenderModule.zig");
+const RenderModule = render.RenderModule;
 
 const AppCommands = ecs.AppCommands;
 const schedule = ecs.schedule;

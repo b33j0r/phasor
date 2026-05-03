@@ -4,9 +4,9 @@ const std = @import("std");
 const ecs = @import("ecs");
 const metrics = @import("metrics");
 const render = @import("render");
-const render_mod = @import("RenderModule.zig");
-const time_mod = @import("TimeModule.zig");
-const crash = @import("CrashDumpModule.zig");
+const render_mod = @import("render").RenderModule;
+const time_mod = @import("modules").TimeModule;
+const crash = @import("metrics").CrashDumpModule;
 
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;

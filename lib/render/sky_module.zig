@@ -427,9 +427,9 @@ const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
 const db = @import("db");
-const render = @import("render");
+const render = @import("root.zig");
 
-const RenderState = @import("RenderModule.zig").RenderState;
+const RenderState = @import("root.zig").RenderState;
 
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
