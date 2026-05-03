@@ -1,3 +1,7 @@
+//! A simple example of a bouncing ball using the Phasor game engine.
+//!
+//!
+
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.init(&init, .{
         .command_queue_capacity = 64,
