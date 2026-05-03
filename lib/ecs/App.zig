@@ -51,11 +51,7 @@ pub fn deinit(self: *Self) void {
     self.* = undefined;
 }
 
-pub fn addSystem(self: *Self, comptime system_fn: anytype) !void {
-    try self.schedule_manager.addSystem(&self.world, schedule_mod.DefaultSchedule.Update, system_fn);
-}
-
-pub fn addSystemTo(self: *Self, schedule_label: []const u8, comptime system_fn: anytype) !void {
+pub fn addSystem(self: *Self, schedule_label: []const u8, comptime system_fn: anytype) !void {
     try self.schedule_manager.addSystem(&self.world, schedule_label, system_fn);
 }
 

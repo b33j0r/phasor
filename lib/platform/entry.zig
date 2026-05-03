@@ -54,12 +54,8 @@ pub const RuntimeApp = struct {
         return try self.inner.step();
     }
 
-    pub fn addSystem(self: *Self, comptime system_fn: anytype) !void {
-        try self.inner.addSystem(system_fn);
-    }
-
-    pub fn addSystemTo(self: *Self, schedule_label: []const u8, comptime system_fn: anytype) !void {
-        try self.inner.addSystemTo(schedule_label, system_fn);
+    pub fn addSystem(self: *Self, schedule_label: []const u8, comptime system_fn: anytype) !void {
+        try self.inner.addSystem(schedule_label, system_fn);
     }
 
     pub fn removeSystem(self: *Self, comptime system_fn: anytype) void {
@@ -145,9 +141,9 @@ pub fn installPlatformModules(app: *ecs.App, comptime settings: PlatformModuleSe
     }
     if (settings.auto_surface) {
         if (is_wasm) {
-            try app.addSystemTo(schedule.DefaultSchedule.WindowCreate, setupWasmSurface(settings.canvas_id));
+            try app.addSystem(schedule.DefaultSchedule.WindowCreate, setupWasmSurface(settings.canvas_id));
         } else {
-            try app.addSystemTo(schedule.DefaultSchedule.WindowCreate, setupNativeSurface);
+            try app.addSystem(schedule.DefaultSchedule.WindowCreate, setupNativeSurface);
         }
     }
 }
