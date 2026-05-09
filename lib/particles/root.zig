@@ -186,9 +186,9 @@ pub fn ParticlesModuleConfigured(comptime max_particles: usize, comptime config:
             const particle_config = config_res.ptr orelse return;
             const capacity = particle_config.normalizedCapacity(max_particles);
             if (capacity == 0) return;
-            const step: f32 = @floatCast(std.math.clamp(dt.ptr.seconds, 0.0, 0.05));
+            const step = dt.ptr.clampedSeconds32(0.05);
             if (!(step > 0.0)) return;
-            const time_s: f32 = @floatCast(elapsed.ptr.seconds);
+            const time_s = elapsed.ptr.seconds32();
 
             var it = emitters.iterator();
             while (it.next()) |row| {
@@ -214,9 +214,9 @@ pub fn ParticlesModuleConfigured(comptime max_particles: usize, comptime config:
             elapsed: Res(TimeModule.ElapsedTime),
             state_res: ResMut(ParticleState(max_particles)),
         ) void {
-            const step: f32 = @floatCast(std.math.clamp(dt.ptr.seconds, 0.0, 0.05));
+            const step = dt.ptr.clampedSeconds32(0.05);
             if (!(step > 0.0)) return;
-            const time_s: f32 = @floatCast(elapsed.ptr.seconds);
+            const time_s = elapsed.ptr.seconds32();
 
             for (&state_res.ptr.particles) |*particle| {
                 if (!particle.alive) continue;

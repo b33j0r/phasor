@@ -146,7 +146,7 @@ pub fn FpsPhysicsModule(comptime ControlledTag: type) type {
             }),
         ) void {
             const input = control_input.ptr;
-            const raw_step: f32 = @floatCast(dt.deref().seconds);
+            const raw_step = dt.deref().seconds32();
             const step: f32 = @min(raw_step, settings.ptr.max_intent_dt);
             if (!(step > 0.0)) return;
 

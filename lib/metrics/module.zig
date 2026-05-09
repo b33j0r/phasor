@@ -242,7 +242,7 @@ fn updateMetricsText(
     }
 
     if (should_emit_fps_window) {
-        const fps = @as(f32, @floatFromInt(state.ptr.frames)) / @as(f32, @floatCast(fps_timer.elapsed));
+        const fps = @as(f32, @floatFromInt(state.ptr.frames)) / fps_timer.elapsed32();
         const max_fps = if (fps > metrics_res.ptr.max_fps) fps else metrics_res.ptr.max_fps;
         metrics.emitBus(true, bus.ptr, .{
             .fps = metrics.stat(fps),

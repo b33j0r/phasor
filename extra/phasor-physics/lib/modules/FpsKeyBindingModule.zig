@@ -77,7 +77,7 @@ fn updateFpsControlInputFromBindings(
         input.sprint_held = isKeyBindingDown(keys, settings.ptr.bindings.sprint);
         input.toggle_fly_pressed = keys.isKeyPressed(settings.ptr.bindings.toggle_fly);
 
-        const step: f32 = @floatCast(dt.ptr.seconds);
+        const step = dt.ptr.seconds32();
         if (keys.isKeyDown(settings.ptr.bindings.look_left)) input.look_key_yaw += settings.ptr.look_key_yaw_speed * step;
         if (keys.isKeyDown(settings.ptr.bindings.look_right)) input.look_key_yaw -= settings.ptr.look_key_yaw_speed * step;
         if (keys.isKeyDown(settings.ptr.bindings.look_up)) input.look_key_pitch += settings.ptr.look_key_pitch_speed * step;

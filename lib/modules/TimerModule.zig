@@ -2,11 +2,27 @@
 pub const CountdownTimer = struct {
     remaining: f64,
     finished: bool = false,
+
+    pub fn remainingAs(self: CountdownTimer, comptime T: type) T {
+        return @floatCast(self.remaining);
+    }
+
+    pub fn remaining32(self: CountdownTimer) f32 {
+        return self.remainingAs(f32);
+    }
 };
 
 pub const StopwatchTimer = struct {
     elapsed: f64 = 0.0,
     running: bool = true,
+
+    pub fn elapsedAs(self: StopwatchTimer, comptime T: type) T {
+        return @floatCast(self.elapsed);
+    }
+
+    pub fn elapsed32(self: StopwatchTimer) f32 {
+        return self.elapsedAs(f32);
+    }
 };
 
 pub fn install(app: *AppCommands, cmds: *Commands) !void {
@@ -42,7 +58,18 @@ fn updateTimers(dt_res: Res(TimeModule.SimulationDeltaTime), countdowns: Query(.
     }
 }
 
+test "timer components expose f32 conversion helpers" {
+    const countdown = CountdownTimer{ .remaining = 1.25 };
+    try std.testing.expectEqual(@as(f64, 1.25), countdown.remainingAs(f64));
+    try std.testing.expectEqual(@as(f32, 1.25), countdown.remaining32());
+
+    const stopwatch = StopwatchTimer{ .elapsed = 2.5 };
+    try std.testing.expectEqual(@as(f64, 2.5), stopwatch.elapsedAs(f64));
+    try std.testing.expectEqual(@as(f32, 2.5), stopwatch.elapsed32());
+}
+
 // Imports
+const std = @import("std");
 const ecs = @import("ecs");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;

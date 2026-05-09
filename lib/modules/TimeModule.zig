@@ -1,18 +1,60 @@
 //! `TimeModule` updates frame delta, simulation elapsed time, and monotonic runtime resources each frame.
+//! Time resources store seconds as `f64` for stable CPU-side accumulation.
+//! Convert to `f32` at render/physics/shader-facing boundaries with the helper methods below.
 pub const DeltaTime = struct {
     seconds: f64 = 0.0,
+
+    pub fn secondsAs(self: DeltaTime, comptime T: type) T {
+        return @floatCast(self.seconds);
+    }
+
+    pub fn seconds32(self: DeltaTime) f32 {
+        return self.secondsAs(f32);
+    }
+
+    pub fn clampedSeconds32(self: DeltaTime, max_seconds: f32) f32 {
+        return @floatCast(std.math.clamp(self.seconds, 0.0, @as(f64, max_seconds)));
+    }
 };
 
 pub const ElapsedTime = struct {
     seconds: f64 = 0.0,
+
+    pub fn secondsAs(self: ElapsedTime, comptime T: type) T {
+        return @floatCast(self.seconds);
+    }
+
+    pub fn seconds32(self: ElapsedTime) f32 {
+        return self.secondsAs(f32);
+    }
 };
 
 pub const RunTime = struct {
     seconds: f64 = 0.0,
+
+    pub fn secondsAs(self: RunTime, comptime T: type) T {
+        return @floatCast(self.seconds);
+    }
+
+    pub fn seconds32(self: RunTime) f32 {
+        return self.secondsAs(f32);
+    }
 };
 
 pub const SimulationDeltaTime = struct {
     seconds: f64 = 0.0,
+
+    pub fn secondsAs(self: SimulationDeltaTime, comptime T: type) T {
+        return @floatCast(self.seconds);
+    }
+
+    pub fn seconds32(self: SimulationDeltaTime) f32 {
+        return self.secondsAs(f32);
+    }
+
+    pub fn clampedSeconds32(self: SimulationDeltaTime, max_seconds: f32) f32 {
+        return @floatCast(std.math.clamp(self.seconds, 0.0, @as(f64, max_seconds)));
+    }
 };
 
 const LastInstant = struct {
@@ -113,6 +155,23 @@ fn sanitizeDelta(dt: f64) f64 {
     if (!std.math.isFinite(dt)) return 0.0;
     if (dt < 0.0) return 0.0;
     return dt;
+}
+
+test "time resources expose f32 conversion helpers" {
+    const delta = DeltaTime{ .seconds = 1.25 };
+    try std.testing.expectEqual(@as(f64, 1.25), delta.secondsAs(f64));
+    try std.testing.expectEqual(@as(f32, 1.25), delta.seconds32());
+    try std.testing.expectEqual(@as(f32, 0.5), delta.clampedSeconds32(0.5));
+
+    const elapsed = ElapsedTime{ .seconds = 2.5 };
+    try std.testing.expectEqual(@as(f32, 2.5), elapsed.seconds32());
+
+    const run = RunTime{ .seconds = 3.5 };
+    try std.testing.expectEqual(@as(f32, 3.5), run.seconds32());
+
+    const simulation = SimulationDeltaTime{ .seconds = 4.5 };
+    try std.testing.expectEqual(@as(f32, 4.5), simulation.seconds32());
+    try std.testing.expectEqual(@as(f32, 1.0), simulation.clampedSeconds32(1.0));
 }
 
 // Imports
