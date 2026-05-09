@@ -127,6 +127,7 @@ fn installDefaultModulesFor(app: *ecs.App) !void {
     try app.installModule(render.RenderModule);
     try app.installModule(modules.InputModule);
     try app.installModule(audio.AudioModule);
+    try app.installModule(modules.ParentModule);
 }
 
 pub const PlatformModuleSettings = struct {

@@ -1,0 +1,15 @@
+# Project
+local/
+
+# Zig
+.zig-cache/
+zig-out/
+zig-pkg/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/

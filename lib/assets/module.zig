@@ -39,7 +39,7 @@ pub fn AssetsModule(comptime T: type) type {
 // Imports
 const std = @import("std");
 const ecs = @import("ecs");
-const assets_mod = @import("assets");
+const assets_mod = @import("./root.zig");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const schedule = ecs.schedule;
