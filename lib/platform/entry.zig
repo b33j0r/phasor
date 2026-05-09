@@ -6,6 +6,7 @@ const render = @import("render");
 const audio = @import("audio");
 const common = @import("common");
 const schedule = ecs.schedule;
+const entry = @This();
 
 const is_wasm = builtin.target.cpu.arch.isWasm();
 
@@ -76,7 +77,7 @@ pub const RuntimeApp = struct {
     }
 
     pub fn installDefaultModules(self: *Self) !void {
-        try installDefaultModulesFor(&self.inner);
+        try entry.installDefaultModules(&self.inner);
     }
 
     pub fn uninstallModule(self: *Self, comptime module: anytype) !void {
@@ -117,10 +118,6 @@ pub const RuntimeApp = struct {
 };
 
 pub fn installDefaultModules(app: *ecs.App) !void {
-    try installDefaultModulesFor(app);
-}
-
-fn installDefaultModulesFor(app: *ecs.App) !void {
     try installPlatformModules(app, .{});
     try app.installModule(modules.TimeModule);
     try app.installModule(modules.TimerModule);

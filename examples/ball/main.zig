@@ -23,6 +23,7 @@ pub fn main(init: std.process.Init) !u8 {
     } });
 
     try app.installDefaultModules();
+    try app.installModule(MetricsModule{ .font_size = 24.0 });
 
     try app.addSystem("Startup", setup);
     try app.addSystem("Update", updateBallMotion);
@@ -126,6 +127,7 @@ const Color = phasor.Color;
 const Commands = phasor.Commands;
 const DeltaTime = phasor.DeltaTime;
 const MeshInstance = phasor.MeshInstance;
+const MetricsModule = phasor.MetricsModule;
 const Query = phasor.Query;
 const Res = phasor.Res;
 const ResMut = phasor.ResMut;

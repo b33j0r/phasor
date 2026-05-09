@@ -20,6 +20,7 @@ pub fn main(init: std.process.Init) !u8 {
 
     try app.installDefaultModules();
     try app.installModule(AssetsModule(Assets));
+    try app.installModule(MetricsModule{ .font_size = 24.0 });
 
     try app.addSystem("Startup", setup);
 
@@ -86,6 +87,7 @@ const Commands = phasor.Commands;
 const DeltaTime = phasor.DeltaTime;
 const LocalTransform = phasor.LocalTransform;
 const MeshInstance = phasor.MeshInstance;
+const MetricsModule = phasor.MetricsModule;
 const Parent = phasor.Parent;
 const ParentModule = phasor.ParentModule;
 const Query = phasor.Query;

@@ -735,10 +735,11 @@ fn resolveBounds(
     return null;
 }
 
+// Imports
 const std = @import("std");
 const common = @import("common");
 const ecs = @import("ecs");
-const metrics = @import("metrics");
+const metrics = @import("./root.zig");
 const render = @import("render");
 const schedule = ecs.schedule;
 const AppCommands = ecs.AppCommands;
