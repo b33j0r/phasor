@@ -85,6 +85,13 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
             };
 
             const text_entity = try cmds.createEntity(components);
+            try cmds.addComponents(text_entity, .{
+                TimerModule.StopwatchTimer{},
+                TimerModule.CountdownTimer{
+                    .remaining = self.log_interval_seconds,
+                    .finished = self.log_interval_seconds <= 0.0,
+                },
+            });
 
             const buffer = try cmds.allocator.alloc(u8, self.buffer_capacity);
             try cmds.insertResource(MetricsState{
@@ -161,10 +168,8 @@ const MetricsConfig = struct {
 const MetricsState = struct {
     allocator: std.mem.Allocator,
     text_entity: Entity.Id = 0,
-    timer: f64 = 0.0,
     frames: u32 = 0,
     text_buffer: []u8 = &[_]u8{},
-    next_log_time: f64 = 0.0,
 
     pub fn deinit(self: *MetricsState) void {
         if (self.text_buffer.len > 0) {
@@ -195,17 +200,29 @@ fn updateMetricsText(
     bus: ResMut(metrics.Bus),
     store: ResMut(metrics.Store),
     metrics_res: ResMut(metrics.Metrics),
-    query: Query(.{ render.Text, common.Transform, MetricsTextTag }),
+    query: Query(.{
+        render.Text,
+        common.Transform,
+        MetricsTextTag,
+        TimerModule.StopwatchTimer,
+        TimerModule.CountdownTimer,
+    }),
 ) void {
     const bounds = resolveBounds(config.ptr.viewport, layer_viewports_opt, viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
     const dt_seconds = dt.deref().seconds;
     const clamped_dt = std.math.clamp(dt_seconds, 0.0, config.ptr.max_dt_seconds);
     metrics_res.ptr.frame_ms = @floatCast(clamped_dt * 1000.0);
+    var fps_window_timer: ?*TimerModule.StopwatchTimer = null;
+    var log_timer: ?*TimerModule.CountdownTimer = null;
 
     var iter = query.iterator();
     while (iter.next()) |row| {
         const text = row.get(render.Text) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
+        const stopwatch = row.get(TimerModule.StopwatchTimer) orelse continue;
+        const countdown = row.get(TimerModule.CountdownTimer) orelse continue;
+        if (fps_window_timer == null) fps_window_timer = stopwatch;
+        if (log_timer == null) log_timer = countdown;
 
         transform.translation.x = bounds.width - config.ptr.margin;
         transform.translation.y = bounds.height - config.ptr.margin;
@@ -216,15 +233,16 @@ fn updateMetricsText(
         text.vertical_alignment = .Bottom;
     }
 
+    const fps_timer = fps_window_timer orelse return;
+
     var should_emit_fps_window = false;
     if (clamped_dt > 0.0) {
-        state.ptr.timer += clamped_dt;
         state.ptr.frames += 1;
-        should_emit_fps_window = state.ptr.timer >= config.ptr.update_interval;
+        should_emit_fps_window = fps_timer.elapsed >= config.ptr.update_interval;
     }
 
     if (should_emit_fps_window) {
-        const fps = @as(f32, @floatFromInt(state.ptr.frames)) / @as(f32, @floatCast(state.ptr.timer));
+        const fps = @as(f32, @floatFromInt(state.ptr.frames)) / @as(f32, @floatCast(fps_timer.elapsed));
         const max_fps = if (fps > metrics_res.ptr.max_fps) fps else metrics_res.ptr.max_fps;
         metrics.emitBus(true, bus.ptr, .{
             .fps = metrics.stat(fps),
@@ -232,7 +250,7 @@ fn updateMetricsText(
             .frame_ms = metrics.stat(metrics_res.ptr.frame_ms),
             .elapsed_seconds = metrics.stat(elapsed.ptr.seconds),
         });
-        state.ptr.timer = 0.0;
+        fps_timer.elapsed = 0.0;
         state.ptr.frames = 0;
     } else {
         // Keep elapsed text monotonic even when a frame reports zero/invalid dt.
@@ -242,7 +260,7 @@ fn updateMetricsText(
     }
 
     drainMetrics(bus.ptr, store.ptr);
-    maybeLogSnapshot(config.ptr, state.ptr, elapsed.ptr.seconds, store.ptr);
+    maybeLogSnapshot(config.ptr, log_timer, elapsed.ptr.seconds, store.ptr);
 
     const fps_value = metricF64(store.ptr, "fps", metrics_res.ptr.fps);
     const frame_ms_value = metricF64(store.ptr, "frame_ms", metrics_res.ptr.frame_ms);
@@ -659,13 +677,15 @@ fn metricF64(store: *metrics.Store, name: []const u8, fallback: f64) f64 {
 
 fn maybeLogSnapshot(
     config: *const MetricsConfig,
-    state: *MetricsState,
+    log_timer: ?*TimerModule.CountdownTimer,
     elapsed_seconds: f64,
     store: *metrics.Store,
 ) void {
     if (config.log_interval_seconds <= 0) return;
-    if (elapsed_seconds < state.next_log_time) return;
-    state.next_log_time = elapsed_seconds + config.log_interval_seconds;
+    const timer = log_timer orelse return;
+    if (!timer.finished) return;
+    timer.finished = false;
+    timer.remaining = config.log_interval_seconds;
     logSnapshot(elapsed_seconds, store);
 }
 
@@ -751,6 +771,7 @@ const ResMutOpt = ecs.system_params.ResMutOpt;
 const ResOpt = ecs.system_params.ResOpt;
 const Entity = @import("db").Entity;
 const TimeModule = @import("modules").TimeModule;
+const TimerModule = @import("modules").TimerModule;
 const RenderModule = render.RenderModule;
 const ViewportSize = RenderModule.ViewportSize;
 const RenderState = RenderModule.RenderState;

@@ -118,9 +118,9 @@ pub const RuntimeApp = struct {
 };
 
 pub fn installDefaultModules(app: *ecs.App) !void {
-    try installPlatformModules(app, .{});
     try app.installModule(modules.TimeModule);
     try app.installModule(modules.TimerModule);
+    try installPlatformModules(app, .{});
     try app.installModule(render.RenderModule);
     try app.installModule(modules.InputModule);
     try app.installModule(audio.AudioModule);

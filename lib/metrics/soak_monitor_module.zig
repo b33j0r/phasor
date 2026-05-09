@@ -6,10 +6,12 @@ const metrics = @import("metrics");
 const render = @import("render");
 const render_mod = @import("render").RenderModule;
 const time_mod = @import("modules").TimeModule;
+const timer_mod = @import("modules").TimerModule;
 const crash = @import("metrics").CrashDumpModule;
 
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
+const Query = ecs.system_params.Query;
 const Res = ecs.system_params.Res;
 const ResMut = ecs.system_params.ResMut;
 const ResOpt = ecs.system_params.ResOpt;
@@ -26,25 +28,41 @@ pub const SoakMonitorSettings = struct {
 };
 
 const SoakMonitorState = struct {
-    next_snapshot: f64 = 0.0,
+    timer_entity: ecs.Entity.Id = 0,
     last_buffers: u32 = 0,
     last_textures: u32 = 0,
     last_bind_groups: u32 = 0,
     last_pipelines: u32 = 0,
 };
 
+const SoakMonitorTimerTag = struct {};
+
 pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(SoakMonitorSettings)) {
         try commands.insertResource(SoakMonitorSettings{});
     }
     if (!commands.hasResource(SoakMonitorState)) {
-        try commands.insertResource(SoakMonitorState{});
+        const settings = commands.getResource(SoakMonitorSettings).?;
+        const timer_entity = try commands.createEntity(.{
+            timer_mod.CountdownTimer{
+                .remaining = settings.warmup_seconds,
+                .finished = settings.warmup_seconds <= 0.0,
+            },
+            SoakMonitorTimerTag{},
+        });
+        try commands.insertResource(SoakMonitorState{
+            .timer_entity = timer_entity,
+        });
     }
     try app.addSystem("Update", updateSoakMonitor);
 }
 
-pub fn uninstall(app: *AppCommands) void {
+pub fn uninstall(app: *AppCommands, commands: *Commands) void {
     app.removeSystem(updateSoakMonitor);
+    if (commands.getResource(SoakMonitorState)) |state| {
+        commands.removeEntity(state.timer_entity) catch {};
+    }
+    _ = commands.removeResource(SoakMonitorState);
 }
 
 fn updateSoakMonitor(
@@ -54,13 +72,25 @@ fn updateSoakMonitor(
     run_time: Res(time_mod.RunTime),
     store_opt: ResOpt(metrics.Store),
     render_state_opt: ResOpt(render_mod.RenderState),
+    timer_query: Query(.{ timer_mod.CountdownTimer, SoakMonitorTimerTag }),
 ) void {
-    if (!settings.ptr.enabled) return;
-    const elapsed_seconds = run_time.ptr.seconds;
-    if (state.ptr.next_snapshot == 0.0) {
-        state.ptr.next_snapshot = settings.ptr.warmup_seconds;
+    var timer_opt: ?*timer_mod.CountdownTimer = null;
+    var timer_it = timer_query.iterator();
+    while (timer_it.next()) |row| {
+        timer_opt = row.get(timer_mod.CountdownTimer) orelse continue;
+        break;
     }
-    if (elapsed_seconds < state.ptr.next_snapshot) return;
+    const timer = timer_opt orelse return;
+
+    const initial_delay = settings.ptr.warmup_seconds;
+    if (!settings.ptr.enabled) {
+        timer.finished = initial_delay <= 0.0;
+        timer.remaining = initial_delay;
+        return;
+    }
+
+    const elapsed_seconds = run_time.ptr.seconds;
+    if (!timer.finished) return;
 
     const store = store_opt.ptr orelse return;
     const snapshot = readSnapshot(store);
@@ -74,7 +104,8 @@ fn updateSoakMonitor(
     state.ptr.last_textures = snapshot.create_textures;
     state.ptr.last_bind_groups = snapshot.create_bind_groups;
     state.ptr.last_pipelines = snapshot.create_pipelines;
-    state.ptr.next_snapshot = elapsed_seconds + settings.ptr.snapshot_interval_seconds;
+    timer.finished = false;
+    timer.remaining = settings.ptr.snapshot_interval_seconds;
 
     if (warn) {
         commands.insertResource(crash.CrashDumpRequest{ .reason = "soak_invariant" }) catch {};
