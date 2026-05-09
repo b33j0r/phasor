@@ -166,6 +166,17 @@ fn setupNativeSurface(commands: *ecs.Commands) !void {
 fn setupWasmSurface(comptime canvas_id: []const u8) fn (*ecs.Commands) anyerror!void {
     return struct {
         fn run(commands: *ecs.Commands) !void {
+            const settings = if (commands.getResource(WindowSettings)) |res|
+                res.*
+            else
+                WindowSettings{};
+            try ensureWasmWindowResources(
+                commands,
+                settings.width,
+                settings.height,
+                settings.width,
+                settings.height,
+            );
             if (commands.hasResource(render.RenderSurface)) return;
 
             const surface = render.surface_canvas.fromCanvasId(canvas_id);
@@ -317,6 +328,13 @@ fn rootWasmResize(
     const runner = decodeRootWasmRunnerHandle(handle) orelse return;
     var commands = ecs.Commands.init(runner.app.allocator, runner.app.io, &runner.app.world);
     defer commands.deinit();
+    _ = ensureWasmWindowResources(
+        &commands,
+        logical_width,
+        logical_height,
+        framebuffer_width,
+        framebuffer_height,
+    ) catch {};
     render.RenderModule.setSurfaceSize(
         &commands,
         logical_width,
@@ -408,4 +426,33 @@ fn ensureRootWasmInitGlobals() void {
     root_wasm_arena = std.heap.ArenaAllocator.init(std.heap.wasm_allocator);
     root_wasm_environ_map = std.process.Environ.Map.init(std.heap.wasm_allocator);
     root_wasm_init_ready = true;
+}
+
+fn ensureWasmWindowResources(
+    commands: *ecs.Commands,
+    logical_width: u32,
+    logical_height: u32,
+    framebuffer_width: u32,
+    framebuffer_height: u32,
+) !void {
+    try commands.insertResource(common.WindowBounds{
+        .width = logical_width,
+        .height = logical_height,
+    });
+    try commands.insertResource(common.RenderBounds{
+        .width = @floatFromInt(framebuffer_width),
+        .height = @floatFromInt(framebuffer_height),
+    });
+    const x_scale: f32 = if (logical_width == 0)
+        1.0
+    else
+        @as(f32, @floatFromInt(framebuffer_width)) / @as(f32, @floatFromInt(logical_width));
+    const y_scale: f32 = if (logical_height == 0)
+        1.0
+    else
+        @as(f32, @floatFromInt(framebuffer_height)) / @as(f32, @floatFromInt(logical_height));
+    try commands.insertResource(common.ContentScale{
+        .x = x_scale,
+        .y = y_scale,
+    });
 }

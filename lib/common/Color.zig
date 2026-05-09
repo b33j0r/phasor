@@ -20,7 +20,7 @@ pub const YELLOW = Color{ .r = 253, .g = 249, .b = 0, .a = 255 };
 pub const GOLD = Color{ .r = 255, .g = 203, .b = 0, .a = 255 };
 pub const ORANGE = Color{ .r = 255, .g = 161, .b = 0, .a = 255 };
 pub const PINK = Color{ .r = 255, .g = 109, .b = 194, .a = 255 };
-pub const RED = Color{ .r = 230, .g = 41, .b = 55, .a = 255 };
+pub const RED = Color{ .r = 240, .g = 21, .b = 21, .a = 255 };
 pub const MAROON = Color{ .r = 190, .g = 33, .b = 55, .a = 255 };
 pub const GREEN = Color{ .r = 0, .g = 228, .b = 48, .a = 255 };
 pub const LIME = Color{ .r = 0, .g = 158, .b = 47, .a = 255 };

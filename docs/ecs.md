@@ -143,20 +143,35 @@ Systems run inside named schedules. The common schedules are:
 - `Shutdown` for teardown.
 
 For most gameplay code, `Startup` and `Update` are enough. Modules use the other
-schedules to keep engine work in the right part of the frame.
+schedules to keep engine work in the right part of the frame. You can also add a
+custom schedules to the graph (custom schedules are used to implement the core
+modules).
 
-## How to Choose Components and Resources
+## Components versus Resources
 
 Put data on an entity when it describes that entity. Position, velocity, health,
 sprite state, and "this is the player" tags are all components.
 
 Use a resource when there should be one value for the app or for a whole mode of
 the game. Window bounds, timers, asset contexts, input state, and current phase
-state are resources.
+state are usually resources.
 
 If you are unsure, ask: "Could there be many of these at once?" If yes, it is
 probably a component. "Does this configure or summarize the whole world?" If yes,
 it is probably a resource.
+
+## Tag Components
+
+Components are just structs (or enums). It is often useful to add a zero-size
+component to an entity to mark it in some way. For example, you might have a `Player`
+struct:
+
+```zig
+const Player = struct {};
+```
+
+Then you can query for `Query(.{ Player, Transform })` to get all the player entities
+and their transforms. This is a common pattern for things like "this is the player", "this is an enemy", "this is a bullet", and so on.
 
 ## If You Know Bevy
 
@@ -175,9 +190,9 @@ enough to understand their data dependencies.
 
 ## See Also
 
-- [A Simple Entity Component System (ECS)](https://austinmorlan.com/posts/entity_component_system/)
-  by Austin Morlan. A good from-scratch explanation of the pattern.
 - [Bevy ECS quick start](https://bevy.org/learn/quick-start/getting-started/ecs/).
   Useful context for the API style that inspired Phasor's ECS ergonomics.
 - [Entity component system on Wikipedia](https://en.wikipedia.org/wiki/Entity_component_system).
   A broader overview of the architectural pattern.
+- [A Simple Entity Component System (ECS)](https://austinmorlan.com/posts/entity_component_system/)
+  by Austin Morlan. A good from-scratch explanation of the pattern.

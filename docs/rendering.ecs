@@ -1,0 +1,3 @@
+# Rendering
+
+Rendering is decoupled from ECS via a `Channel(T)` render command subsystem.
