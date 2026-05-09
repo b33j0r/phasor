@@ -99,7 +99,7 @@ fn writeCrashDump(
         .{ now_ms, if (builtin.target.cpu.arch.isWasm()) "wasm" else "native", reason },
     );
     if (run_time) |run_time_res| {
-        try appendFmt(&buffer, commands.allocator, "  run_time_seconds={d:.3}\n", .{run_time_res.seconds});
+        try appendFmt(&buffer, commands.allocator, "  run_time_seconds={d:.3}\n", .{run_time_res.secondsAs(f64)});
     }
 
     if (render_state_opt) |state| {

@@ -209,9 +209,8 @@ fn updateMetricsText(
     }),
 ) void {
     const bounds = resolveBounds(config.ptr.viewport, layer_viewports_opt, viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
-    const dt_seconds = dt.deref().seconds;
-    const clamped_dt = std.math.clamp(dt_seconds, 0.0, config.ptr.max_dt_seconds);
-    metrics_res.ptr.frame_ms = @floatCast(clamped_dt * 1000.0);
+    const clamped_dt = dt.deref().clampedSeconds32(config.ptr.max_dt_seconds);
+    metrics_res.ptr.frame_ms = clamped_dt * 1000.0;
     var fps_window_timer: ?*TimerModule.StopwatchTimer = null;
     var log_timer: ?*TimerModule.CountdownTimer = null;
 
@@ -238,7 +237,7 @@ fn updateMetricsText(
     var should_emit_fps_window = false;
     if (clamped_dt > 0.0) {
         state.ptr.frames += 1;
-        should_emit_fps_window = fps_timer.elapsed >= config.ptr.update_interval;
+        should_emit_fps_window = fps_timer.elapsedAs(f64) >= config.ptr.update_interval;
     }
 
     if (should_emit_fps_window) {
@@ -248,24 +247,24 @@ fn updateMetricsText(
             .fps = metrics.stat(fps),
             .max_fps = metrics.stat(max_fps),
             .frame_ms = metrics.stat(metrics_res.ptr.frame_ms),
-            .elapsed_seconds = metrics.stat(elapsed.ptr.seconds),
+            .elapsed_seconds = metrics.stat(elapsed.ptr.secondsAs(f64)),
         });
-        fps_timer.elapsed = 0.0;
+        fps_timer.reset();
         state.ptr.frames = 0;
     } else {
         // Keep elapsed text monotonic even when a frame reports zero/invalid dt.
         metrics.emitBus(true, bus.ptr, .{
-            .elapsed_seconds = metrics.stat(elapsed.ptr.seconds),
+            .elapsed_seconds = metrics.stat(elapsed.ptr.secondsAs(f64)),
         });
     }
 
     drainMetrics(bus.ptr, store.ptr);
-    maybeLogSnapshot(config.ptr, log_timer, elapsed.ptr.seconds, store.ptr);
+    maybeLogSnapshot(config.ptr, log_timer, elapsed.ptr.secondsAs(f64), store.ptr);
 
     const fps_value = metricF64(store.ptr, "fps", metrics_res.ptr.fps);
     const frame_ms_value = metricF64(store.ptr, "frame_ms", metrics_res.ptr.frame_ms);
     const max_fps_value = metricF64(store.ptr, "max_fps", metrics_res.ptr.max_fps);
-    const elapsed_value = metricF64(store.ptr, "elapsed_seconds", elapsed.ptr.seconds);
+    const elapsed_value = metricF64(store.ptr, "elapsed_seconds", elapsed.ptr.secondsAs(f64));
 
     metrics_res.ptr.fps = @floatCast(fps_value);
     metrics_res.ptr.frame_ms = @floatCast(frame_ms_value);
@@ -684,8 +683,7 @@ fn maybeLogSnapshot(
     if (config.log_interval_seconds <= 0) return;
     const timer = log_timer orelse return;
     if (!timer.finished) return;
-    timer.finished = false;
-    timer.remaining = config.log_interval_seconds;
+    timer.reset(config.log_interval_seconds);
     logSnapshot(elapsed_seconds, store);
 }
 

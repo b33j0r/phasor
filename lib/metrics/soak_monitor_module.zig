@@ -84,12 +84,11 @@ fn updateSoakMonitor(
 
     const initial_delay = settings.ptr.warmup_seconds;
     if (!settings.ptr.enabled) {
-        timer.finished = initial_delay <= 0.0;
-        timer.remaining = initial_delay;
+        timer.reset(initial_delay);
         return;
     }
 
-    const elapsed_seconds = run_time.ptr.seconds;
+    const elapsed_seconds = run_time.ptr.secondsAs(f64);
     if (!timer.finished) return;
 
     const store = store_opt.ptr orelse return;
@@ -104,8 +103,7 @@ fn updateSoakMonitor(
     state.ptr.last_textures = snapshot.create_textures;
     state.ptr.last_bind_groups = snapshot.create_bind_groups;
     state.ptr.last_pipelines = snapshot.create_pipelines;
-    timer.finished = false;
-    timer.remaining = settings.ptr.snapshot_interval_seconds;
+    timer.reset(settings.ptr.snapshot_interval_seconds);
 
     if (warn) {
         commands.insertResource(crash.CrashDumpRequest{ .reason = "soak_invariant" }) catch {};

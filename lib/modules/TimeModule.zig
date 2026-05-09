@@ -12,7 +12,7 @@ pub const DeltaTime = struct {
         return self.secondsAs(f32);
     }
 
-    pub fn clampedSeconds32(self: DeltaTime, max_seconds: f32) f32 {
+    pub fn clampedSeconds32(self: DeltaTime, max_seconds: anytype) f32 {
         return @floatCast(std.math.clamp(self.seconds, 0.0, @as(f64, max_seconds)));
     }
 };
@@ -52,7 +52,7 @@ pub const SimulationDeltaTime = struct {
         return self.secondsAs(f32);
     }
 
-    pub fn clampedSeconds32(self: SimulationDeltaTime, max_seconds: f32) f32 {
+    pub fn clampedSeconds32(self: SimulationDeltaTime, max_seconds: anytype) f32 {
         return @floatCast(std.math.clamp(self.seconds, 0.0, @as(f64, max_seconds)));
     }
 };

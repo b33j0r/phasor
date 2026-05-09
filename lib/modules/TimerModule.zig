@@ -10,6 +10,16 @@ pub const CountdownTimer = struct {
     pub fn remaining32(self: CountdownTimer) f32 {
         return self.remainingAs(f32);
     }
+
+    pub fn reset(self: *CountdownTimer, seconds: anytype) void {
+        self.remaining = @as(f64, seconds);
+        self.finished = self.remaining <= 0.0;
+    }
+
+    pub fn finish(self: *CountdownTimer) void {
+        self.remaining = 0.0;
+        self.finished = true;
+    }
 };
 
 pub const StopwatchTimer = struct {
@@ -22,6 +32,10 @@ pub const StopwatchTimer = struct {
 
     pub fn elapsed32(self: StopwatchTimer) f32 {
         return self.elapsedAs(f32);
+    }
+
+    pub fn reset(self: *StopwatchTimer) void {
+        self.elapsed = 0.0;
     }
 };
 
@@ -66,6 +80,18 @@ test "timer components expose f32 conversion helpers" {
     const stopwatch = StopwatchTimer{ .elapsed = 2.5 };
     try std.testing.expectEqual(@as(f64, 2.5), stopwatch.elapsedAs(f64));
     try std.testing.expectEqual(@as(f32, 2.5), stopwatch.elapsed32());
+
+    var mutable_countdown = CountdownTimer{ .remaining = 0.0, .finished = true };
+    mutable_countdown.reset(3.0);
+    try std.testing.expectEqual(@as(f64, 3.0), mutable_countdown.remaining);
+    try std.testing.expect(!mutable_countdown.finished);
+    mutable_countdown.finish();
+    try std.testing.expectEqual(@as(f64, 0.0), mutable_countdown.remaining);
+    try std.testing.expect(mutable_countdown.finished);
+
+    var mutable_stopwatch = StopwatchTimer{ .elapsed = 4.0 };
+    mutable_stopwatch.reset();
+    try std.testing.expectEqual(@as(f64, 0.0), mutable_stopwatch.elapsed);
 }
 
 // Imports
