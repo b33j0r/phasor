@@ -365,6 +365,8 @@ pub const Renderer = struct {
     surface_format: wgpu.TextureFormat,
     surface_size: Size,
     present_mode: wgpu.PresentMode,
+    metal_layer: ?*anyopaque,
+    display_sync_enabled: bool,
 
     triangle_pipeline: *wgpu.RenderPipeline,
     quad_pipeline_opaque: *wgpu.RenderPipeline,
@@ -440,7 +442,10 @@ pub const Renderer = struct {
         std.log.info("Renderer present mode: {s}", .{@tagName(present_mode)});
 
         const surface_size = native.size;
+        const metal_layer = metalLayerHandle(native);
+        const display_sync_enabled = presentModeUsesDisplaySync(present_mode);
         configureSurface(device, surface, surface_format, surface_size.width, surface_size.height, present_mode);
+        applyMetalLayerDisplaySync(metal_layer, display_sync_enabled);
 
         const pipeline_cache = PipelineCache.init(allocator);
 
@@ -454,6 +459,8 @@ pub const Renderer = struct {
             .surface_format = surface_format,
             .surface_size = surface_size,
             .present_mode = present_mode,
+            .metal_layer = metal_layer,
+            .display_sync_enabled = display_sync_enabled,
             .triangle_pipeline = undefined,
             .quad_pipeline_opaque = undefined,
             .quad_pipeline_blend = undefined,
@@ -667,6 +674,7 @@ pub const Renderer = struct {
         if (width == 0 or height == 0) return;
         self.surface_size = .{ .width = width, .height = height };
         configureSurface(self.device, self.surface, self.surface_format, width, height, self.present_mode);
+        self.applySurfaceTiming();
         const new_depth = createDepthTarget(self.device, width, height) catch return;
         self.depth_target.view.release();
         self.depth_target.texture.release();
@@ -688,6 +696,8 @@ pub const Renderer = struct {
 
     pub fn beginFrame(self: *Renderer) !Frame {
         self.instance_ring.reset();
+        // Display migration can reset CAMetalLayer timing state before the next resize notification.
+        self.applySurfaceTiming();
         var surface_texture: wgpu.SurfaceTexture = undefined;
         self.surface.getCurrentTexture(&surface_texture);
         if (surface_texture.status != .success_optimal and surface_texture.status != .success_suboptimal) {
@@ -711,6 +721,10 @@ pub const Renderer = struct {
 
     pub fn createSampler(self: *Renderer) !Sampler {
         return self.createSamplerWithDescriptor(.{});
+    }
+
+    fn applySurfaceTiming(self: *Renderer) void {
+        applyMetalLayerDisplaySync(self.metal_layer, self.display_sync_enabled);
     }
 
     pub fn createSamplerWithDescriptor(self: *Renderer, descriptor: SamplerDescriptor) !Sampler {
@@ -1958,6 +1972,33 @@ fn selectPresentMode(capabilities: wgpu.SurfaceCapabilities, requested: ?wgpu.Pr
         }
     }
     return modes[0];
+}
+
+fn presentModeUsesDisplaySync(mode: wgpu.PresentMode) bool {
+    return switch (mode) {
+        .fifo, .fifo_relaxed => true,
+        .immediate, .mailbox, .undefined => false,
+    };
+}
+
+test "present mode display sync mapping follows frame pacing semantics" {
+    try std.testing.expect(presentModeUsesDisplaySync(.fifo));
+    try std.testing.expect(presentModeUsesDisplaySync(.fifo_relaxed));
+    try std.testing.expect(!presentModeUsesDisplaySync(.immediate));
+    try std.testing.expect(!presentModeUsesDisplaySync(.mailbox));
+    try std.testing.expect(!presentModeUsesDisplaySync(.undefined));
+}
+
+fn metalLayerHandle(native: NativeSurface) ?*anyopaque {
+    if (native.kind != .metal) return null;
+    return native.handle.metal.layer;
+}
+
+fn applyMetalLayerDisplaySync(layer: ?*anyopaque, enabled: bool) void {
+    if (builtin.os.tag != .macos) return;
+    if (layer) |metal_layer| {
+        setMetalLayerDisplaySync(metal_layer, @as(i32, @intFromBool(enabled)));
+    }
 }
 
 fn configureSurface(device: *wgpu.Device, surface: *wgpu.Surface, format: wgpu.TextureFormat, width: u32, height: u32, present_mode: wgpu.PresentMode) void {
@@ -3540,6 +3581,7 @@ const postProcessVertexWGSL =
 
 // Imports
 const std = @import("std");
+const builtin = @import("builtin");
 const wgpu = @import("wgpu");
 const utils = @import("utils.zig");
 const common = @import("common");
@@ -3554,3 +3596,5 @@ const NativeHandle = utils.NativeHandle;
 const CacheKey = utils.CacheKey;
 const hashCacheKey = utils.hashCacheKey;
 const RingBuffer = utils.RingBuffer;
+
+extern "c" fn setMetalLayerDisplaySync(layer: ?*anyopaque, vsync: i32) void;
