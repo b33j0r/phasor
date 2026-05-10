@@ -66,9 +66,11 @@ pub const LayoutValue = common.LayoutValue;
 pub const WindowFlags = common.WindowFlags;
 pub const WindowSettings = common.WindowSettings;
 pub const WindowBounds = common.WindowBounds;
+pub const WindowPosition = common.WindowPosition;
 pub const RenderBounds = common.RenderBounds;
 pub const ContentScale = common.ContentScale;
 pub const WindowResized = common.WindowResized;
+pub const WindowMoved = common.WindowMoved;
 pub const ContentScaleChanged = common.ContentScaleChanged;
 pub const Paused = common.Paused;
 
