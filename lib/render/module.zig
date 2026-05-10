@@ -36,9 +36,6 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(render.CoreShaders)) {
         try commands.insertResource(render.CoreShaders{});
     }
-    if (!commands.hasResource(SpriteMeshCache)) {
-        try commands.insertResource(SpriteMeshCache.init(commands.allocator));
-    }
     try commands.registerEvent(common.WindowResized, 8);
     if (!commands.isEmpty()) {
         try commands.apply();
@@ -51,7 +48,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try app.addSystem("BeforeFrame", ensureAssetsContextSystem);
     try app.addSystem("BeforeFrame", ensureBuildContextSystem);
     try app.addSystem("BeforeFrame", render_prepare.handleViewportResize);
-    try app.addSystem("BeforeFrame", render_prepare.updateSpriteMeshes);
+    try render_shape.ShapesModule.install(app, commands);
     try app.addSystem("BeforeFrame", render_prepare.updateTextMeshes);
     try app.addSystem("BeforeFrame", render_prepare.updateLayerCameras);
     try app.addSystem("BeforeFrame", render_extract.extractSystem);
@@ -65,13 +62,13 @@ pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(ensureAssetsContextSystem);
     app.removeSystem(ensureBuildContextSystem);
     app.removeSystem(render_prepare.handleViewportResize);
-    app.removeSystem(render_prepare.updateSpriteMeshes);
     app.removeSystem(render_prepare.updateTextMeshes);
     app.removeSystem(render_prepare.updateLayerCameras);
     app.removeSystem(render_extract.extractSystem);
     app.removeSystem(render_prepare.cleanupUnusedMeshes);
     app.removeSystem(render_submit.renderSystem);
     app.removeSystem(shutdownSystem);
+    render_shape.ShapesModule.uninstall(app);
 }
 
 fn initSystem(commands: *Commands) !void {
@@ -299,7 +296,7 @@ fn ensureBuildContextSystem(commands: *Commands) !void {
 
 fn shutdownSystem(commands: *Commands) void {
     const state = commands.getResourceMut(RenderState) orelse {
-        _ = commands.removeResource(SpriteMeshCache);
+        _ = commands.removeResource(render_shape.GeneratedMeshCache);
         _ = commands.removeResource(LayerCameras);
         _ = commands.removeResource(LayerViewports);
         _ = commands.removeResource(render.MeshLibrary);
@@ -345,7 +342,7 @@ fn shutdownSystem(commands: *Commands) void {
         _ = commands.removeResource(render.TextureLibrary);
     }
 
-    _ = commands.removeResource(SpriteMeshCache);
+    _ = commands.removeResource(render_shape.GeneratedMeshCache);
 
     if (commands.getResourceMut(render.DefaultFont)) |font| {
         font.font.unload(commands.allocator, &state.renderer);
@@ -429,6 +426,7 @@ const render_prepare = @import("prepare.zig");
 const render_extract = @import("extract.zig");
 const render_submit = @import("submit.zig");
 const render_shadows = @import("shadows.zig");
+const render_shape = @import("shape.zig");
 const std = @import("std");
 
 const AppCommands = ecs.AppCommands;
@@ -443,7 +441,10 @@ pub const RenderState = render_types.RenderState;
 pub const ViewportSize = render_types.ViewportSize;
 pub const FramebufferSize = render_types.FramebufferSize;
 pub const RenderRecovery = render_types.RenderRecovery;
-pub const SpriteMeshCache = render_types.SpriteMeshCache;
+pub const ShapesModule = render_shape.ShapesModule;
+pub const GeneratedMeshCache = render_shape.GeneratedMeshCache;
+pub const GeneratedMeshKey = render_shape.GeneratedMeshKey;
+pub const GeneratedMeshInstance = render_shape.GeneratedMeshInstance;
 pub const LayerCameras = render_types.LayerCameras;
 pub const LayerCamera = render_types.LayerCamera;
 pub const LayerViewports = render_types.LayerViewports;

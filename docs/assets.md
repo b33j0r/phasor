@@ -28,7 +28,7 @@ const Assets = struct {
 Supported asset field types:
 
 - `Texture`: LDR or HDR image data. Produces `texture_handle`, `material_handle`,
-  dimensions, and `material` for `Sprite.material` or `MeshInstance.material`.
+  dimensions, and `material` for `Sprite`, shape components, or `MeshInstance`.
 - `Font`: TrueType font data. Produces a `FontHandle` and atlas-backed render font.
 - `Sound`: Audio bytes for playback through the audio module.
 - `Mesh`: Static mesh data using supported render vertex layouts.

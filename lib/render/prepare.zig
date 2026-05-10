@@ -1,87 +1,3 @@
-pub fn updateSpriteMeshes(commands: *Commands, sprites: Query(.{ render.Sprite, common.Transform })) !void {
-    const state = commands.getResourceMut(types.RenderState) orelse return;
-    const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
-    const sprite_cache = commands.getResourceMut(types.SpriteMeshCache) orelse return;
-
-    var it = sprites.iterator();
-    while (it.next()) |row| {
-        const sprite = row.get(render.Sprite) orelse continue;
-        const size_hash = render.spriteSizeHash(sprite.*);
-        if (sprite.mesh_handle.isValid() and sprite.size_hash == size_hash) {
-            if (row.get(render.MeshInstance)) |instance| {
-                instance.mesh_handle = sprite.mesh_handle;
-                instance.color = sprite.color;
-                if (sprite.material) |material| {
-                    instance.material = material;
-                }
-            } else {
-                try commands.addComponent(row.entity_id, render.MeshInstance{
-                    .mesh_handle = sprite.mesh_handle,
-                    .color = sprite.color,
-                    .material = sprite.material orelse render.Material.default,
-                });
-            }
-            continue;
-        }
-
-        var width: f32 = 1.0;
-        var height: f32 = 1.0;
-        switch (sprite.size_mode) {
-            .Auto => {
-                if (sprite.source_size) |size| {
-                    width = @floatFromInt(size.width);
-                    height = @floatFromInt(size.height);
-                }
-            },
-            .Manual => |m| {
-                width = m.width;
-                height = m.height;
-            },
-        }
-
-        const half_w = width * 0.5;
-        const half_h = height * 0.5;
-        const vertices = [_]render.VertexUv{
-            .{ .position = .{ -half_w, -half_h }, .uv = .{ 0.0, 0.0 } },
-            .{ .position = .{ half_w, -half_h }, .uv = .{ 1.0, 0.0 } },
-            .{ .position = .{ half_w, half_h }, .uv = .{ 1.0, 1.0 } },
-            .{ .position = .{ -half_w, half_h }, .uv = .{ 0.0, 1.0 } },
-        };
-        const indices = [_]u16{ 0, 1, 2, 0, 2, 3 };
-
-        var mesh_handle: render.MeshHandle = render.MeshHandle.invalid();
-        if (sprite_cache.map.get(size_hash)) |cached| {
-            if (mesh_library.get(cached) != null) {
-                mesh_handle = cached;
-            } else {
-                _ = sprite_cache.map.remove(size_hash);
-            }
-        }
-
-        if (!mesh_handle.isValid()) {
-            mesh_handle = try mesh_library.addMesh(&state.renderer, vertices[0..], indices[0..]);
-            try sprite_cache.map.put(size_hash, mesh_handle);
-        }
-
-        sprite.mesh_handle = mesh_handle;
-        sprite.size_hash = size_hash;
-
-        if (row.get(render.MeshInstance)) |instance| {
-            instance.mesh_handle = mesh_handle;
-            instance.color = sprite.color;
-            if (sprite.material) |material| {
-                instance.material = material;
-            }
-        } else {
-            try commands.addComponent(row.entity_id, render.MeshInstance{
-                .mesh_handle = mesh_handle,
-                .color = sprite.color,
-                .material = sprite.material orelse render.Material.default,
-            });
-        }
-    }
-}
-
 pub fn updateTextMeshes(
     commands: *Commands,
     default_font: ResMut(render.DefaultFont),
@@ -203,7 +119,7 @@ pub fn cleanupUnusedMeshes(
     commands: *Commands,
     instances: Query(.{render.MeshInstance}),
     texts: Query(.{render.Text}),
-    sprite_cache_opt: ResOpt(types.SpriteMeshCache),
+    generated_cache_opt: ResOpt(render.GeneratedMeshCache),
 ) !void {
     const state = commands.getResourceMut(types.RenderState) orelse return;
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
@@ -236,10 +152,10 @@ pub fn cleanupUnusedMeshes(
         used.set(index);
     }
 
-    if (sprite_cache_opt.ptr) |cache| {
+    if (generated_cache_opt.ptr) |cache| {
         var cache_it = cache.map.iterator();
         while (cache_it.next()) |entry| {
-            const handle = entry.value_ptr.*;
+            const handle = entry.value_ptr.mesh_handle;
             if (!handle.isValid()) continue;
             const index: usize = @intCast(handle.index);
             if (index >= slot_count) continue;

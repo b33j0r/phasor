@@ -65,23 +65,6 @@ pub const RenderRecovery = struct {
 
 pub const ShadowSettings = @import("shadows.zig").ShadowSettings;
 
-pub const SpriteMeshCache = struct {
-    allocator: std.mem.Allocator,
-    map: std.AutoHashMap(u64, render.MeshHandle),
-
-    pub fn init(allocator: std.mem.Allocator) SpriteMeshCache {
-        return .{
-            .allocator = allocator,
-            .map = std.AutoHashMap(u64, render.MeshHandle).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *SpriteMeshCache) void {
-        self.map.deinit();
-        self.* = undefined;
-    }
-};
-
 pub const LayerCameras = struct {
     allocator: std.mem.Allocator,
     map: std.AutoHashMap(i32, LayerCamera),

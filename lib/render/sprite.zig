@@ -3,8 +3,6 @@ pub const Sprite = struct {
     material: ?mesh.Material = null,
     size_mode: SizeMode = .Auto,
     source_size: ?utils.Size = null,
-    mesh_handle: mesh.MeshHandle = mesh.MeshHandle.invalid(),
-    size_hash: u64 = 0,
 
     pub const SizeMode = union(enum) {
         Auto,
@@ -19,28 +17,38 @@ pub const Sprite = struct {
         out.material = material;
         return out;
     }
+
+    pub fn dimensions(self: Sprite) struct { width: f32, height: f32 } {
+        return switch (self.size_mode) {
+            .Auto => blk: {
+                if (self.source_size) |size| {
+                    break :blk .{
+                        .width = @floatFromInt(size.width),
+                        .height = @floatFromInt(size.height),
+                    };
+                }
+                break :blk .{ .width = 1.0, .height = 1.0 };
+            },
+            .Manual => |m| .{ .width = m.width, .height = m.height },
+        };
+    }
+
+    pub fn meshKey(self: Sprite) shape.GeneratedMeshKey {
+        const size = self.dimensions();
+        return shape.GeneratedMeshKey.spriteQuad(size.width, size.height);
+    }
 };
 
-pub fn sizeHash(sprite: Sprite) u64 {
-    var hash = std.hash.Wyhash.init(0);
-    const tag: u8 = @intFromEnum(std.meta.activeTag(sprite.size_mode));
-    hash.update(std.mem.asBytes(&tag));
-    switch (sprite.size_mode) {
-        .Auto => {
-            if (sprite.source_size) |size| {
-                hash.update(std.mem.asBytes(&size.width));
-                hash.update(std.mem.asBytes(&size.height));
-            }
-        },
-        .Manual => |m| {
-            hash.update(std.mem.asBytes(&m.width));
-            hash.update(std.mem.asBytes(&m.height));
-        },
-    }
-    return hash.final();
+test "sprite mesh key is based on resolved dimensions" {
+    const a = Sprite{ .size_mode = .{ .Manual = .{ .width = 32.0, .height = 16.0 } } };
+    const b = Sprite{
+        .source_size = .{ .width = 32, .height = 16 },
+    };
+    try std.testing.expectEqual(a.meshKey(), b.meshKey());
 }
 
 const std = @import("std");
 const common = @import("common");
 const mesh = @import("mesh.zig");
+const shape = @import("shape.zig");
 const utils = @import("utils.zig");

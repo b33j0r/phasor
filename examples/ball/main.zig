@@ -43,19 +43,14 @@ const Velocity = struct {
 fn setup(
     commands: *Commands,
     r_window: Res(WindowBounds),
-    r_build_ctx: ResMut(BuildContext),
 ) !void {
     const radius: f32 = 40.0;
     const window = r_window.ptr;
-    const build_ctx = r_build_ctx.ptr;
 
     const center_screen = Vec3{
         .x = @as(f32, @floatFromInt(window.width)) * 0.5,
         .y = @as(f32, @floatFromInt(window.height)) * 0.5,
     };
-
-    var factory = build_ctx.meshFactory();
-    const circle_mesh = try factory.circle(radius, 48);
 
     _ = try commands.createEntity(.{
         Transform{},
@@ -66,12 +61,12 @@ fn setup(
         Ball{ .radius = radius },
         Velocity{ .v = .{ .x = 220.0, .y = 160.0 } },
         Transform{ .translation = center_screen },
-        MeshInstance{ .mesh_handle = circle_mesh, .color = Color.RED },
+        Circle{ .radius = radius, .segments = 48, .color = Color.RED },
     });
 }
 
 fn updateBallMotion(dt: Res(DeltaTime), query: Query(.{ Transform, Velocity })) !void {
-    const step: f32 = @floatCast(dt.deref().seconds);
+    const step = dt.deref().seconds32();
     var it = query.iterator();
     while (it.next()) |row| {
         const transform = row.get(Transform) orelse continue;
@@ -120,17 +115,15 @@ const phasor = @import("phasor");
 
 const App = phasor.App;
 
-const BuildContext = phasor.BuildContext;
 const Camera3d = phasor.Camera3d;
+const Circle = phasor.Circle;
 const ClearColor = phasor.ClearColor;
 const Color = phasor.Color;
 const Commands = phasor.Commands;
 const DeltaTime = phasor.DeltaTime;
-const MeshInstance = phasor.MeshInstance;
 const MetricsModule = phasor.MetricsModule;
 const Query = phasor.Query;
 const Res = phasor.Res;
-const ResMut = phasor.ResMut;
 const Transform = phasor.Transform;
 const Vec3 = phasor.Vec3;
 const VSync = phasor.VSync;

@@ -1,15 +1,15 @@
 # Rendering
 
 Rendering in Phasor is ECS-first. Game code adds render components to entities;
-the render module prepares meshes, extracts visible data into a `RenderQueue`,
-and submits that queue to the native or WASM backend.
+the render modules prepare meshes, extract visible data into a `RenderQueue`,
+and submit that queue to the native or WASM backend.
 
 Keep user code at the component level:
 
 - Use `ClearColor` for the frame background.
-- Use `Sprite` for image-like quads; put the material on the sprite.
-- Use `MeshInstance` for explicit mesh rendering.
-- Use `BuildContext.meshFactory()` for generated meshes.
+- Use `Sprite`, `Circle`, and `Rectangle` for common generated shapes.
+- Use `MeshInstance` when you already have a mesh handle.
+- Use `BuildContext.meshFactory()` or `BuildContext.addMesh*` for explicit mesh creation.
 - Use asset-loaded `Texture.material` or `BuildContext.createMaterial()` for textured materials.
 - Use `Layer`, `CameraLayer`, and `LayerSortKey` when draw order or multi-camera rendering matters.
 
@@ -48,11 +48,14 @@ fn setup(commands: *Commands) !void {
 }
 ```
 
-## Sprites
+## Shapes
 
-A sprite is a generated quad. `Sprite` owns the quad size, tint, and optional
-material. The render module creates and maintains the underlying `MeshInstance`
-for you.
+`ShapesModule` is installed by `RenderModule`. It turns `Sprite`, `Circle`, and
+`Rectangle` components into ordinary `MeshInstance` components before extraction.
+Identical generated shapes share one cached mesh, so 20,000 circles with the
+same radius and segment count produce one mesh and 20,000 instances.
+
+Use `Sprite` for image-like quads. Put the material on the sprite:
 
 ```zig
 const Assets = struct {
@@ -75,10 +78,35 @@ fn spawnLogo(commands: *Commands, assets: Res(Assets)) !void {
 Use `.Auto` when `source_size` is available and you want image-sized quads. Use
 `.Manual` for fixed world or screen dimensions.
 
+Use `Circle` and `Rectangle` for simple colored or textured shapes:
+
+```zig
+_ = try commands.createEntity(.{
+    Transform{ .translation = .{ .x = 200.0, .y = 160.0, .z = 0.0 } },
+    Circle{
+        .radius = 40.0,
+        .segments = 48,
+        .color = Color.RED,
+    },
+    Layer(0){},
+});
+
+_ = try commands.createEntity(.{
+    Transform{ .translation = .{ .x = 420.0, .y = 160.0, .z = 0.0 } },
+    Rectangle{
+        .width = 96.0,
+        .height = 48.0,
+        .material = assets.ptr.panel.material,
+    },
+    Layer(0){},
+});
+```
+
 ## Meshes
 
-Use `BuildContext.meshFactory()` for common generated shapes. Mesh handles are
-stored on `MeshInstance`.
+Use `MeshInstance` for the lower-level path. This is the right API when you
+import a mesh, build custom geometry, or want to control the mesh handle
+directly.
 
 ```zig
 fn setupMesh(commands: *Commands, build_ctx: ResMut(BuildContext)) !void {
@@ -97,26 +125,25 @@ fn setupMesh(commands: *Commands, build_ctx: ResMut(BuildContext)) !void {
 ```
 
 For custom geometry, call `BuildContext.addMesh*` with the vertex layout that
-matches your shader or material path.
+matches your shader or material path. The shape components use the same mesh
+library internally; they only automate the cache and `MeshInstance` maintenance.
 
 ## Materials
 
-`assets.Texture` creates both a texture handle and a `Material` value. The
-material is usually what user code attaches to entities:
+`assets.Texture` creates both a texture handle and a `Material` value. Attach
+that material to shape components or explicit mesh instances:
+
+```zig
+Circle{
+    .radius = 24.0,
+    .material = assets.ptr.dot.material,
+}
+```
 
 ```zig
 MeshInstance{
     .mesh_handle = mesh_handle,
     .material = assets.ptr.crate.material,
-}
-```
-
-Sprites carry their material directly:
-
-```zig
-Sprite{
-    .material = assets.ptr.icon.material,
-    .size_mode = .{ .Manual = .{ .width = 32.0, .height = 32.0 } },
 }
 ```
 
@@ -152,7 +179,7 @@ _ = try commands.createEntity(.{
 ## Practical Rules
 
 Prefer the highest-level component that expresses the thing you are drawing.
-Use `Sprite` for textured quads, `Text` for text, generated meshes for simple
-shapes, and imported scenes for GLTF content. Keep backend objects behind
-handles and assets; gameplay systems should rarely touch renderer backend types
-directly.
+Use `Sprite`, `Circle`, and `Rectangle` for simple generated geometry, `Text`
+for text, `MeshInstance` for explicit meshes, and imported scenes for GLTF
+content. Keep backend objects behind handles and assets; gameplay systems should
+rarely touch renderer backend types directly.
