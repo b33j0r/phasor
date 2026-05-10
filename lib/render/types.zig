@@ -63,17 +63,6 @@ pub const RenderRecovery = struct {
     restored: bool = false,
 };
 
-pub const SurfaceRefreshRequest = struct {
-    pending_until_ms: i64 = 0,
-
-    /// Display migration can leave the native surface pacing state stale briefly after the
-    /// first move/resize/scale notifications arrive. Keep reapplying the current framebuffer
-    /// configuration until that trailing window expires.
-    pub fn requestUntil(self: *SurfaceRefreshRequest, until_ms: i64) void {
-        self.pending_until_ms = @max(self.pending_until_ms, until_ms);
-    }
-};
-
 pub const ShadowSettings = @import("shadows.zig").ShadowSettings;
 
 pub const LayerCameras = struct {

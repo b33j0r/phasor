@@ -16,17 +16,14 @@ pub const Window = struct {
 };
 
 pub const WindowBounds = common.WindowBounds;
-pub const WindowPosition = common.WindowPosition;
 pub const RenderBounds = common.RenderBounds;
 pub const ContentScale = common.ContentScale;
 pub const WindowResized = common.WindowResized;
-pub const WindowMoved = common.WindowMoved;
 pub const ContentScaleChanged = common.ContentScaleChanged;
 
 pub const WindowModule = struct {
     pub fn install(app: *AppCommands, cmds: *Commands) !void {
         try cmds.registerEvent(WindowResized, 8);
-        try cmds.registerEvent(WindowMoved, 8);
         try cmds.registerEvent(ContentScaleChanged, 8);
 
         if (!cmds.hasResource(WindowSettings)) {
@@ -86,14 +83,6 @@ fn initSystem(commands: *Commands, settings_opt: ResOpt(WindowSettings)) !void {
         .width = @intCast(window_w),
         .height = @intCast(window_h),
     });
-    // Position changes can imply display migration even when the logical size is unchanged.
-    var window_x: i32 = 0;
-    var window_y: i32 = 0;
-    glfw.glfwGetWindowPos(window, &window_x, &window_y);
-    try commands.insertResource(WindowPosition{
-        .x = window_x,
-        .y = window_y,
-    });
     try commands.insertResource(RenderBounds{
         .width = @floatFromInt(fb_w),
         .height = @floatFromInt(fb_h),
@@ -111,10 +100,8 @@ fn updateSystem(
     window_opt: ResOpt(Window),
     bounds_opt: ResOpt(WindowBounds),
     render_bounds_opt: ResOpt(RenderBounds),
-    position_opt: ResOpt(WindowPosition),
     scale_opt: ResOpt(ContentScale),
     resize_writer: EventWriter(WindowResized),
-    moved_writer: EventWriter(WindowMoved),
     scale_writer: EventWriter(ContentScaleChanged),
 ) !void {
     const window_res = window_opt.ptr orelse return;
@@ -169,27 +156,6 @@ fn updateSystem(
             "Window resized: {d}x{d} logical, {d}x{d} physical",
             .{ window_w, window_h, fb_w, fb_h },
         );
-    }
-
-    var window_x: i32 = 0;
-    var window_y: i32 = 0;
-    glfw.glfwGetWindowPos(handle, &window_x, &window_y);
-    const new_position = WindowPosition{
-        .x = window_x,
-        .y = window_y,
-    };
-    const position_changed = if (position_opt.ptr) |old_position|
-        old_position.x != new_position.x or old_position.y != new_position.y
-    else
-        true;
-
-    try commands.insertResource(new_position);
-
-    if (position_changed) {
-        try moved_writer.send(.{
-            .x = window_x,
-            .y = window_y,
-        });
     }
 
     var xscale: f32 = 1.0;

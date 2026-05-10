@@ -1,7 +1,3 @@
-// Native display changes can arrive before the underlying surface pacing state settles.
-// Reconfigure across a short trailing window so the final post-move state is reapplied too.
-const surface_refresh_duration_ms: i64 = 350;
-
 pub fn updateTextMeshes(
     commands: *Commands,
     default_font: ResMut(render.DefaultFont),
@@ -199,9 +195,6 @@ pub fn handleViewportResize(
             .width = @floatFromInt(evt.framebuffer_width),
             .height = @floatFromInt(evt.framebuffer_height),
         });
-        if (commands.getResourceMut(types.SurfaceRefreshRequest)) |request| {
-            requestSurfaceRefresh(request, commands.io);
-        }
         return;
     }
 
@@ -232,67 +225,6 @@ pub fn handleViewportResize(
             });
         }
     }
-}
-
-pub fn handleSurfaceMove(
-    commands: *Commands,
-    reader: EventReader(common.WindowMoved),
-) !void {
-    var latest: ?common.WindowMoved = null;
-    while (reader.tryRecv()) |evt| {
-        latest = evt;
-    }
-
-    if (latest == null) return;
-    const request = commands.getResourceMut(types.SurfaceRefreshRequest) orelse return;
-    requestSurfaceRefresh(request, commands.io);
-}
-
-pub fn handleSurfaceScaleChange(
-    commands: *Commands,
-    reader: EventReader(common.ContentScaleChanged),
-) !void {
-    var changed = false;
-    while (reader.tryRecv()) |_| {
-        changed = true;
-    }
-
-    if (!changed) return;
-    const request = commands.getResourceMut(types.SurfaceRefreshRequest) orelse return;
-    requestSurfaceRefresh(request, commands.io);
-}
-
-pub fn applyPendingSurfaceRefresh(
-    commands: *Commands,
-    render_bounds_opt: ResOpt(common.RenderBounds),
-) void {
-    const request = commands.getResourceMut(types.SurfaceRefreshRequest) orelse return;
-    const now_ms = currentTimeMs(commands.io) catch return;
-    if (request.pending_until_ms <= now_ms) return;
-    const state = commands.getResourceMut(types.RenderState) orelse return;
-
-    // Use the latest physical framebuffer extent so same-size display moves still force a
-    // surface reconfigure with the current monitor-backed state.
-    const width: u32 = if (render_bounds_opt.ptr) |bounds|
-        @intFromFloat(@max(1.0, bounds.width))
-    else
-        @max(state.renderer.surface_size.width, 1);
-    const height: u32 = if (render_bounds_opt.ptr) |bounds|
-        @intFromFloat(@max(1.0, bounds.height))
-    else
-        @max(state.renderer.surface_size.height, 1);
-
-    state.renderer.resize(width, height);
-}
-
-fn requestSurfaceRefresh(request: *types.SurfaceRefreshRequest, io: *const std.Io) void {
-    const now_ms = currentTimeMs(io) catch return;
-    request.requestUntil(now_ms + surface_refresh_duration_ms);
-}
-
-fn currentTimeMs(io: *const std.Io) !i64 {
-    const ts = try std.Io.Clock.real.now(io.*);
-    return ts.toMilliseconds();
 }
 
 const LogicalAxis = enum { width, height };

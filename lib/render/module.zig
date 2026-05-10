@@ -12,9 +12,6 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     if (!commands.hasResource(RenderRecovery)) {
         try commands.insertResource(RenderRecovery{});
     }
-    if (!commands.hasResource(SurfaceRefreshRequest)) {
-        try commands.insertResource(SurfaceRefreshRequest{});
-    }
     if (!commands.hasResource(ExtractedSceneLighting)) {
         try commands.insertResource(ExtractedSceneLighting{});
     }
@@ -40,8 +37,6 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
         try commands.insertResource(render.CoreShaders{});
     }
     try commands.registerEvent(common.WindowResized, 8);
-    try commands.registerEvent(common.WindowMoved, 8);
-    try commands.registerEvent(common.ContentScaleChanged, 8);
     if (!commands.isEmpty()) {
         try commands.apply();
     }
@@ -53,9 +48,6 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
     try app.addSystem("BeforeFrame", ensureAssetsContextSystem);
     try app.addSystem("BeforeFrame", ensureBuildContextSystem);
     try app.addSystem("BeforeFrame", render_prepare.handleViewportResize);
-    try app.addSystem("BeforeFrame", render_prepare.handleSurfaceMove);
-    try app.addSystem("BeforeFrame", render_prepare.handleSurfaceScaleChange);
-    try app.addSystem("BeforeFrame", render_prepare.applyPendingSurfaceRefresh);
     try render_shape.ShapesModule.install(app, commands);
     try app.addSystem("BeforeFrame", render_prepare.updateTextMeshes);
     try app.addSystem("BeforeFrame", render_prepare.updateLayerCameras);
@@ -70,9 +62,6 @@ pub fn uninstall(app: *AppCommands) void {
     app.removeSystem(ensureAssetsContextSystem);
     app.removeSystem(ensureBuildContextSystem);
     app.removeSystem(render_prepare.handleViewportResize);
-    app.removeSystem(render_prepare.handleSurfaceMove);
-    app.removeSystem(render_prepare.handleSurfaceScaleChange);
-    app.removeSystem(render_prepare.applyPendingSurfaceRefresh);
     app.removeSystem(render_prepare.updateTextMeshes);
     app.removeSystem(render_prepare.updateLayerCameras);
     app.removeSystem(render_extract.extractSystem);
@@ -452,7 +441,6 @@ pub const RenderState = render_types.RenderState;
 pub const ViewportSize = render_types.ViewportSize;
 pub const FramebufferSize = render_types.FramebufferSize;
 pub const RenderRecovery = render_types.RenderRecovery;
-pub const SurfaceRefreshRequest = render_types.SurfaceRefreshRequest;
 pub const ShapesModule = render_shape.ShapesModule;
 pub const GeneratedMeshCache = render_shape.GeneratedMeshCache;
 pub const GeneratedMeshKey = render_shape.GeneratedMeshKey;

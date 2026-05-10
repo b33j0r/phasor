@@ -84,11 +84,6 @@ pub const WindowBounds = struct {
     height: u32,
 };
 
-pub const WindowPosition = struct {
-    x: i32,
-    y: i32,
-};
-
 pub const ContentScale = struct {
     x: f32,
     y: f32,
@@ -99,11 +94,6 @@ pub const WindowResized = struct {
     height: u32,
     framebuffer_width: u32,
     framebuffer_height: u32,
-};
-
-pub const WindowMoved = struct {
-    x: i32,
-    y: i32,
 };
 
 pub const ContentScaleChanged = struct {
