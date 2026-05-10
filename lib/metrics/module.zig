@@ -26,6 +26,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
         bus_capacity: usize = 256,
         bus_enabled: bool = true,
         log_interval_seconds: f64 = 0.0,
+        fps_smoothing_seconds: f64 = 0.5,
         viewport: MetricsViewport = defaultViewportMode(LayerT),
 
         pub fn install(self: *const @This(), app: *AppCommands, cmds: *Commands) !void {
@@ -58,6 +59,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
                 .prepend_lines = self.prepend_lines,
                 .extra_lines = self.extra_lines,
                 .log_interval_seconds = self.log_interval_seconds,
+                .fps_smoothing_seconds = self.fps_smoothing_seconds,
                 .viewport = self.viewport,
             });
 
@@ -86,7 +88,6 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
 
             const text_entity = try cmds.createEntity(components);
             try cmds.addComponents(text_entity, .{
-                TimerModule.StopwatchTimer{ .clock = .real },
                 TimerModule.CountdownTimer{
                     .remaining = self.log_interval_seconds,
                     .finished = self.log_interval_seconds <= 0.0,
@@ -163,13 +164,15 @@ const MetricsConfig = struct {
     prepend_lines: []const MetricLine,
     extra_lines: []const MetricLine,
     log_interval_seconds: f64,
+    fps_smoothing_seconds: f64,
     viewport: MetricsViewport,
 };
 
 const MetricsState = struct {
     allocator: std.mem.Allocator,
     text_entity: Entity.Id = 0,
-    frames: u32 = 0,
+    fps: FpsEstimator = .{},
+    emit_elapsed_seconds: f64 = 0.0,
     text_buffer: []u8 = &[_]u8{},
 
     pub fn deinit(self: *MetricsState) void {
@@ -181,6 +184,54 @@ const MetricsState = struct {
 };
 
 const MetricsTextTag = struct {};
+
+const FpsSample = struct {
+    fps: f64 = 0.0,
+    frame_ms: f64 = 0.0,
+};
+
+const FpsEstimator = struct {
+    smoothed_frame_seconds: f64 = 0.0,
+    last: FpsSample = .{},
+
+    fn update(self: *FpsEstimator, frame_seconds: f64, smoothing_seconds: f64) FpsSample {
+        if (!(frame_seconds > 0.0) or !std.math.isFinite(frame_seconds)) return self.last;
+
+        if (self.smoothed_frame_seconds == 0.0 or smoothing_seconds <= 0.0) {
+            self.smoothed_frame_seconds = frame_seconds;
+        } else {
+            const alpha = 1.0 - std.math.exp(-frame_seconds / smoothing_seconds);
+            self.smoothed_frame_seconds += (frame_seconds - self.smoothed_frame_seconds) * alpha;
+        }
+
+        self.last = .{
+            .fps = 1.0 / self.smoothed_frame_seconds,
+            .frame_ms = self.smoothed_frame_seconds * 1000.0,
+        };
+        return self.last;
+    }
+};
+
+test "fps estimator smooths frame time spikes" {
+    var estimator = FpsEstimator{};
+    const steady = estimator.update(1.0 / 60.0, 0.5);
+    try std.testing.expectApproxEqAbs(@as(f64, 60.0), steady.fps, 0.001);
+
+    const smoothed = estimator.update(1.0 / 30.0, 0.5);
+    try std.testing.expect(smoothed.fps > 30.0);
+    try std.testing.expect(smoothed.fps < 60.0);
+
+    const raw = estimator.update(1.0 / 30.0, 0.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 30.0), raw.fps, 0.001);
+
+    const last = estimator.update(0.0, 0.5);
+    try std.testing.expectApproxEqAbs(raw.fps, last.fps, 0.001);
+}
+
+test "metrics emit interval preserves overshoot" {
+    try std.testing.expectApproxEqAbs(@as(f64, 0.010), consumeEmitInterval(0.260, 0.250), 0.0001);
+    try std.testing.expectEqual(@as(f64, 0.0), consumeEmitInterval(0.016, 0.0));
+}
 
 const Bounds = struct {
     width: f32,
@@ -205,23 +256,20 @@ fn updateMetricsText(
         render.Text,
         common.Transform,
         MetricsTextTag,
-        TimerModule.StopwatchTimer,
         TimerModule.CountdownTimer,
     }),
 ) void {
     const bounds = resolveBounds(config.ptr.viewport, layer_viewports_opt, viewport_opt, window_bounds_opt, render_bounds_opt, render_state_opt) orelse return;
-    const clamped_dt = dt.deref().clampedSeconds32(config.ptr.max_dt_seconds);
-    metrics_res.ptr.frame_ms = clamped_dt * 1000.0;
-    var fps_window_timer: ?*TimerModule.StopwatchTimer = null;
+    const clamped_dt = dt.deref().clampedSeconds64(config.ptr.max_dt_seconds);
+    const sample = state.ptr.fps.update(clamped_dt, config.ptr.fps_smoothing_seconds);
+    metrics_res.ptr.frame_ms = @floatCast(sample.frame_ms);
     var log_timer: ?*TimerModule.CountdownTimer = null;
 
     var iter = query.iterator();
     while (iter.next()) |row| {
         const text = row.get(render.Text) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
-        const stopwatch = row.get(TimerModule.StopwatchTimer) orelse continue;
         const countdown = row.get(TimerModule.CountdownTimer) orelse continue;
-        if (fps_window_timer == null) fps_window_timer = stopwatch;
         if (log_timer == null) log_timer = countdown;
 
         transform.translation.x = bounds.width - config.ptr.margin;
@@ -233,17 +281,14 @@ fn updateMetricsText(
         text.vertical_alignment = .Bottom;
     }
 
-    const fps_timer = fps_window_timer orelse return;
-
     var should_emit_fps_window = false;
     if (clamped_dt > 0.0) {
-        state.ptr.frames += 1;
-        should_emit_fps_window = fps_timer.elapsedAs(f64) >= config.ptr.update_interval;
+        state.ptr.emit_elapsed_seconds += clamped_dt;
+        should_emit_fps_window = state.ptr.emit_elapsed_seconds >= config.ptr.update_interval;
     }
 
     if (should_emit_fps_window) {
-        const elapsed_seconds = @max(fps_timer.elapsed32(), clamped_dt);
-        const fps = @as(f32, @floatFromInt(state.ptr.frames)) / elapsed_seconds;
+        const fps = @as(f32, @floatCast(sample.fps));
         const max_fps = if (fps > metrics_res.ptr.max_fps) fps else metrics_res.ptr.max_fps;
         metrics.emitBus(true, bus.ptr, .{
             .fps = metrics.stat(fps),
@@ -251,8 +296,7 @@ fn updateMetricsText(
             .frame_ms = metrics.stat(metrics_res.ptr.frame_ms),
             .elapsed_seconds = metrics.stat(elapsed.ptr.secondsAs(f64)),
         });
-        fps_timer.reset();
-        state.ptr.frames = 0;
+        state.ptr.emit_elapsed_seconds = consumeEmitInterval(state.ptr.emit_elapsed_seconds, config.ptr.update_interval);
     } else {
         // Keep elapsed text monotonic even when a frame reports zero/invalid dt.
         metrics.emitBus(true, bus.ptr, .{
@@ -304,6 +348,12 @@ fn updateMetricsText(
         const text = row.get(render.Text) orelse continue;
         text.content = fmt_buf;
     }
+}
+
+fn consumeEmitInterval(elapsed_seconds: f64, interval_seconds: f64) f64 {
+    if (!(interval_seconds > 0.0)) return 0.0;
+    if (elapsed_seconds <= interval_seconds) return 0.0;
+    return @mod(elapsed_seconds, interval_seconds);
 }
 
 pub const MetricContext = struct {

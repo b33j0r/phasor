@@ -12,8 +12,16 @@ pub const DeltaTime = struct {
         return self.secondsAs(f32);
     }
 
-    pub fn clampedSeconds32(self: DeltaTime, max_seconds: anytype) f32 {
+    pub fn clampedSecondsAs(self: DeltaTime, comptime T: type, max_seconds: anytype) T {
         return @floatCast(std.math.clamp(self.seconds, 0.0, @as(f64, max_seconds)));
+    }
+
+    pub fn clampedSeconds64(self: DeltaTime, max_seconds: anytype) f64 {
+        return self.clampedSecondsAs(f64, max_seconds);
+    }
+
+    pub fn clampedSeconds32(self: DeltaTime, max_seconds: anytype) f32 {
+        return self.clampedSecondsAs(f32, max_seconds);
     }
 };
 
@@ -52,8 +60,16 @@ pub const SimulationDeltaTime = struct {
         return self.secondsAs(f32);
     }
 
-    pub fn clampedSeconds32(self: SimulationDeltaTime, max_seconds: anytype) f32 {
+    pub fn clampedSecondsAs(self: SimulationDeltaTime, comptime T: type, max_seconds: anytype) T {
         return @floatCast(std.math.clamp(self.seconds, 0.0, @as(f64, max_seconds)));
+    }
+
+    pub fn clampedSeconds64(self: SimulationDeltaTime, max_seconds: anytype) f64 {
+        return self.clampedSecondsAs(f64, max_seconds);
+    }
+
+    pub fn clampedSeconds32(self: SimulationDeltaTime, max_seconds: anytype) f32 {
+        return self.clampedSecondsAs(f32, max_seconds);
     }
 };
 
@@ -161,6 +177,7 @@ test "time resources expose f32 conversion helpers" {
     const delta = DeltaTime{ .seconds = 1.25 };
     try std.testing.expectEqual(@as(f64, 1.25), delta.secondsAs(f64));
     try std.testing.expectEqual(@as(f32, 1.25), delta.seconds32());
+    try std.testing.expectEqual(@as(f64, 0.5), delta.clampedSeconds64(0.5));
     try std.testing.expectEqual(@as(f32, 0.5), delta.clampedSeconds32(0.5));
 
     const elapsed = ElapsedTime{ .seconds = 2.5 };
@@ -171,6 +188,7 @@ test "time resources expose f32 conversion helpers" {
 
     const simulation = SimulationDeltaTime{ .seconds = 4.5 };
     try std.testing.expectEqual(@as(f32, 4.5), simulation.seconds32());
+    try std.testing.expectEqual(@as(f64, 1.0), simulation.clampedSeconds64(1.0));
     try std.testing.expectEqual(@as(f32, 1.0), simulation.clampedSeconds32(1.0));
 }
 
