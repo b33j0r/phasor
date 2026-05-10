@@ -1,5 +1,6 @@
 pub const Sprite = struct {
     color: common.Color = common.Color.WHITE,
+    material: ?mesh.Material = null,
     size_mode: SizeMode = .Auto,
     source_size: ?utils.Size = null,
     mesh_handle: mesh.MeshHandle = mesh.MeshHandle.invalid(),
@@ -12,6 +13,12 @@ pub const Sprite = struct {
             height: f32,
         },
     };
+
+    pub fn withMaterial(self: Sprite, material: mesh.Material) Sprite {
+        var out = self;
+        out.material = material;
+        return out;
+    }
 };
 
 pub fn sizeHash(sprite: Sprite) u64 {

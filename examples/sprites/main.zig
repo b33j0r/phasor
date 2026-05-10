@@ -27,11 +27,9 @@ pub fn main(init: std.process.Init) !u8 {
     return try app.run();
 }
 
-const Assets = struct {
-    logo: Texture = .{
-        .data = @embedFile("assets/textures/logo.png"),
-    }
-};
+const Assets = struct { logo: Texture = .{
+    .data = @embedFile("assets/textures/logo.png"),
+} };
 
 fn setup(
     commands: *Commands,
@@ -39,7 +37,6 @@ fn setup(
     r_assets: Res(Assets),
 ) !void {
     const window = r_window.ptr;
-    const material = r_assets.ptr.logo.material;
 
     const center_screen = Vec3{
         .x = @as(f32, @floatFromInt(window.width)) * 0.5,
@@ -65,10 +62,10 @@ fn setup(
         },
         Transform{},
         Sprite{
+            .material = r_assets.ptr.logo.material,
             .color = Color.WHITE,
             .size_mode = .{ .Manual = .{ .width = sprite_size, .height = sprite_size } },
         },
-        MeshInstance{ .material = material },
     });
 }
 
@@ -86,7 +83,6 @@ const Color = phasor.Color;
 const Commands = phasor.Commands;
 const DeltaTime = phasor.DeltaTime;
 const LocalTransform = phasor.LocalTransform;
-const MeshInstance = phasor.MeshInstance;
 const MetricsModule = phasor.MetricsModule;
 const Parent = phasor.Parent;
 const ParentModule = phasor.ParentModule;

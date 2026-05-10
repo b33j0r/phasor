@@ -11,10 +11,14 @@ pub fn updateSpriteMeshes(commands: *Commands, sprites: Query(.{ render.Sprite, 
             if (row.get(render.MeshInstance)) |instance| {
                 instance.mesh_handle = sprite.mesh_handle;
                 instance.color = sprite.color;
+                if (sprite.material) |material| {
+                    instance.material = material;
+                }
             } else {
                 try commands.addComponent(row.entity_id, render.MeshInstance{
                     .mesh_handle = sprite.mesh_handle,
                     .color = sprite.color,
+                    .material = sprite.material orelse render.Material.default,
                 });
             }
             continue;
@@ -65,10 +69,14 @@ pub fn updateSpriteMeshes(commands: *Commands, sprites: Query(.{ render.Sprite, 
         if (row.get(render.MeshInstance)) |instance| {
             instance.mesh_handle = mesh_handle;
             instance.color = sprite.color;
+            if (sprite.material) |material| {
+                instance.material = material;
+            }
         } else {
             try commands.addComponent(row.entity_id, render.MeshInstance{
                 .mesh_handle = mesh_handle,
                 .color = sprite.color,
+                .material = sprite.material orelse render.Material.default,
             });
         }
     }
