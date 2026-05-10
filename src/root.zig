@@ -99,6 +99,7 @@ pub const DeltaTime = modules.TimeModule.DeltaTime;
 pub const ElapsedTime = modules.TimeModule.ElapsedTime;
 pub const RunTime = modules.TimeModule.RunTime;
 pub const SimulationDeltaTime = modules.TimeModule.SimulationDeltaTime;
+pub const TimerClock = modules.TimerModule.TimerClock;
 
 pub const MeshInstance = renderer.MeshInstance;
 pub const MeshHandle = renderer.MeshHandle;

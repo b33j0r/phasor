@@ -86,10 +86,11 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
 
             const text_entity = try cmds.createEntity(components);
             try cmds.addComponents(text_entity, .{
-                TimerModule.StopwatchTimer{},
+                TimerModule.StopwatchTimer{ .clock = .real },
                 TimerModule.CountdownTimer{
                     .remaining = self.log_interval_seconds,
                     .finished = self.log_interval_seconds <= 0.0,
+                    .clock = .real,
                 },
             });
 
@@ -241,7 +242,8 @@ fn updateMetricsText(
     }
 
     if (should_emit_fps_window) {
-        const fps = @as(f32, @floatFromInt(state.ptr.frames)) / fps_timer.elapsed32();
+        const elapsed_seconds = @max(fps_timer.elapsed32(), clamped_dt);
+        const fps = @as(f32, @floatFromInt(state.ptr.frames)) / elapsed_seconds;
         const max_fps = if (fps > metrics_res.ptr.max_fps) fps else metrics_res.ptr.max_fps;
         metrics.emitBus(true, bus.ptr, .{
             .fps = metrics.stat(fps),

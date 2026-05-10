@@ -116,6 +116,11 @@ the window size, ask for `Res(WindowBounds)`. If it needs elapsed time, ask for
 `Res(ElapsedTime)`. This keeps systems understandable and gives the scheduler a
 chance to reason about what can run together.
 
+`TimerModule` provides `CountdownTimer` and `StopwatchTimer` components. They use
+simulation time by default, so they pause with `Paused`. Set `.clock = .real` for
+diagnostic or UI timers that should keep advancing while gameplay simulation is
+paused.
+
 Use optional resources when absence is a real state, not as a way to avoid
 thinking about setup order. A required `Res(T)` is a useful assertion: this
 system only makes sense after `T` exists.

@@ -47,6 +47,7 @@ pub fn install(app: *AppCommands, commands: *Commands) !void {
             timer_mod.CountdownTimer{
                 .remaining = settings.warmup_seconds,
                 .finished = settings.warmup_seconds <= 0.0,
+                .clock = .real,
             },
             SoakMonitorTimerTag{},
         });
