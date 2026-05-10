@@ -102,6 +102,8 @@ pub const SimulationDeltaTime = modules.TimeModule.SimulationDeltaTime;
 
 pub const MeshInstance = renderer.MeshInstance;
 pub const MeshHandle = renderer.MeshHandle;
+pub const Material = renderer.Material;
+pub const MaterialHandle = renderer.MaterialHandle;
 pub const MeshFactory = renderer.MeshFactory;
 pub const BuildContext = renderer.BuildContext;
 pub const AssetsContext = renderer.AssetsContext;
@@ -130,6 +132,7 @@ pub const Scene = assets.Scene;
 pub const Texture = assets.Texture;
 pub const Mesh = assets.Mesh;
 pub const Shader = assets.Shader;
+pub const PostProcessShader = assets.PostProcessShader;
 pub const Font = assets.Font;
 pub const SoundPlayer = audio.SoundPlayer;
 

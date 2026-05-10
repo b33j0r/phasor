@@ -22,7 +22,7 @@ the right point in the frame. The function signature is the contract.
 
 ```zig
 fn moveShips(dt: Res(DeltaTime), ships: Query(.{ Transform, Velocity })) void {
-    const step: f32 = @floatCast(dt.deref().seconds);
+    const step = dt.deref().seconds32();
 
     var it = ships.iterator();
     while (it.next()) |row| {

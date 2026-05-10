@@ -36,12 +36,9 @@ pub const GeneratedMeshKey = struct {
     }
 };
 
-pub const GeneratedMeshInstance = struct {
-    key: GeneratedMeshKey,
-};
+pub const GeneratedMeshInstance = struct {};
 
 pub const GeneratedMeshCache = struct {
-    allocator: std.mem.Allocator,
     generation: u64 = 0,
     map: std.AutoHashMap(GeneratedMeshKey, Entry),
 
@@ -52,7 +49,6 @@ pub const GeneratedMeshCache = struct {
 
     pub fn init(allocator: std.mem.Allocator) GeneratedMeshCache {
         return .{
-            .allocator = allocator,
             .map = std.AutoHashMap(GeneratedMeshKey, Entry).init(allocator),
         };
     }
@@ -150,7 +146,7 @@ fn updateGeneratedMeshes(
         const mesh_handle = try generatedMeshHandle(commands.allocator, &state.renderer, mesh_library, cache, key, .{
             .sprite_quad = .{ .width = size.width, .height = size.height },
         });
-        try syncGeneratedMeshInstance(commands, row, key, .{
+        try syncGeneratedMeshInstance(commands, row, .{
             .mesh_handle = mesh_handle,
             .color = spr.color,
             .material = spr.material orelse mesh.Material.default,
@@ -164,7 +160,7 @@ fn updateGeneratedMeshes(
         const mesh_handle = try generatedMeshHandle(commands.allocator, &state.renderer, mesh_library, cache, key, .{
             .circle = .{ .radius = circle.radius, .segments = circle.segments },
         });
-        try syncGeneratedMeshInstance(commands, row, key, .{
+        try syncGeneratedMeshInstance(commands, row, .{
             .mesh_handle = mesh_handle,
             .shader_handle = circle.shader_handle,
             .color = circle.color,
@@ -180,7 +176,7 @@ fn updateGeneratedMeshes(
         const mesh_handle = try generatedMeshHandle(commands.allocator, &state.renderer, mesh_library, cache, key, .{
             .rectangle = .{ .width = rectangle.width, .height = rectangle.height },
         });
-        try syncGeneratedMeshInstance(commands, row, key, .{
+        try syncGeneratedMeshInstance(commands, row, .{
             .mesh_handle = mesh_handle,
             .shader_handle = rectangle.shader_handle,
             .color = rectangle.color,
@@ -294,26 +290,22 @@ fn buildQuadMesh(
 fn syncGeneratedMeshInstance(
     commands: *Commands,
     row: anytype,
-    key: GeneratedMeshKey,
     prepared: mesh.MeshInstance,
 ) !void {
     if (row.get(mesh.MeshInstance)) |instance| {
         instance.* = prepared;
-        if (row.get(GeneratedMeshInstance)) |marker| {
-            marker.key = key;
-        } else {
-            try commands.addComponent(row.entity_id, GeneratedMeshInstance{ .key = key });
+        if (row.get(GeneratedMeshInstance) == null) {
+            try commands.addComponent(row.entity_id, GeneratedMeshInstance{});
         }
         return;
     }
 
-    if (row.get(GeneratedMeshInstance)) |marker| {
-        marker.key = key;
+    if (row.get(GeneratedMeshInstance) != null) {
         try commands.addComponent(row.entity_id, prepared);
     } else {
         try commands.addComponents(row.entity_id, .{
             prepared,
-            GeneratedMeshInstance{ .key = key },
+            GeneratedMeshInstance{},
         });
     }
 }
