@@ -259,9 +259,9 @@ const WasmImports = if (builtin.target.cpu.arch.isWasm()) struct {
 
 const builtin = @import("builtin");
 const ecs = @import("ecs");
-const metrics = @import("metrics");
+const metrics = @import("root.zig");
 const render = @import("render");
-const MetricsModule = @import("metrics");
+const MetricsModule = @import("module.zig");
 const RenderModule = render.RenderModule;
 const RenderState = RenderModule.RenderState;
 const Commands = ecs.Commands;

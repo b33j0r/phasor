@@ -114,7 +114,7 @@ fn viewportSize(viewport_opt: ?*const RenderModule.ViewportSize) gui.Box {
 const common = @import("common");
 const db = @import("db");
 const ecs = @import("ecs");
-const gui = @import("gui");
+const gui = @import("root.zig");
 const render = @import("render");
 const RenderModule = render.RenderModule;
 
