@@ -187,22 +187,13 @@ pub fn handleViewportResize(
     }
 
     if (latest) |evt| {
-        const viewport_width = resolvedLogicalExtent(@floatFromInt(evt.width), render_bounds_opt.ptr, .width);
-        const viewport_height = resolvedLogicalExtent(@floatFromInt(evt.height), render_bounds_opt.ptr, .height);
         try commands.insertResource(types.ViewportSize{
-            .width = viewport_width,
-            .height = viewport_height,
-        });
-        if (render_bounds_opt.ptr) |bounds| {
-            try commands.insertResource(types.FramebufferSize{
-                .width = bounds.width,
-                .height = bounds.height,
-            });
-            return;
-        }
-        try commands.insertResource(types.FramebufferSize{
             .width = @floatFromInt(evt.width),
             .height = @floatFromInt(evt.height),
+        });
+        try commands.insertResource(types.FramebufferSize{
+            .width = @floatFromInt(evt.framebuffer_width),
+            .height = @floatFromInt(evt.framebuffer_height),
         });
         return;
     }

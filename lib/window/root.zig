@@ -99,6 +99,7 @@ fn updateSystem(
     commands: *Commands,
     window_opt: ResOpt(Window),
     bounds_opt: ResOpt(WindowBounds),
+    render_bounds_opt: ResOpt(RenderBounds),
     scale_opt: ResOpt(ContentScale),
     resize_writer: EventWriter(WindowResized),
     scale_writer: EventWriter(ContentScaleChanged),
@@ -132,18 +133,24 @@ fn updateSystem(
         .height = @floatFromInt(fb_h),
     };
 
-    const size_changed = if (bounds_opt.ptr) |old_bounds|
+    const logical_size_changed = if (bounds_opt.ptr) |old_bounds|
         old_bounds.width != new_window_bounds.width or old_bounds.height != new_window_bounds.height
+    else
+        true;
+    const framebuffer_size_changed = if (render_bounds_opt.ptr) |old_bounds|
+        old_bounds.widthInt() != new_render_bounds.widthInt() or old_bounds.heightInt() != new_render_bounds.heightInt()
     else
         true;
 
     try commands.insertResource(new_window_bounds);
     try commands.insertResource(new_render_bounds);
 
-    if (size_changed) {
+    if (logical_size_changed or framebuffer_size_changed) {
         try resize_writer.send(.{
             .width = new_window_bounds.width,
             .height = new_window_bounds.height,
+            .framebuffer_width = @intCast(fb_w),
+            .framebuffer_height = @intCast(fb_h),
         });
         std.log.info(
             "Window resized: {d}x{d} logical, {d}x{d} physical",

@@ -92,6 +92,8 @@ pub const ContentScale = struct {
 pub const WindowResized = struct {
     width: u32,
     height: u32,
+    framebuffer_width: u32,
+    framebuffer_height: u32,
 };
 
 pub const ContentScaleChanged = struct {
