@@ -7,7 +7,7 @@ and submits that queue to the native or WASM backend.
 Keep user code at the component level:
 
 - Use `ClearColor` for the frame background.
-- Use `Sprite` for image-like quads.
+- Use `Sprite` for image-like quads; put the material on the sprite.
 - Use `MeshInstance` for explicit mesh rendering.
 - Use `BuildContext.meshFactory()` for generated meshes.
 - Use asset-loaded `Texture.material` or `BuildContext.createMaterial()` for textured materials.
@@ -50,9 +50,9 @@ fn setup(commands: *Commands) !void {
 
 ## Sprites
 
-A sprite is a generated quad. `Sprite` controls quad size and tint. In the
-current API, the texture material lives on `MeshInstance`, so a textured sprite
-uses both components:
+A sprite is a generated quad. `Sprite` owns the quad size, tint, and optional
+material. The render module creates and maintains the underlying `MeshInstance`
+for you.
 
 ```zig
 const Assets = struct {
@@ -63,10 +63,10 @@ fn spawnLogo(commands: *Commands, assets: Res(Assets)) !void {
     _ = try commands.createEntity(.{
         Transform{ .translation = .{ .x = 400.0, .y = 300.0, .z = 0.0 } },
         Sprite{
+            .material = assets.ptr.logo.material,
             .size_mode = .{ .Manual = .{ .width = 128.0, .height = 128.0 } },
             .source_size = .{ .width = assets.ptr.logo.width, .height = assets.ptr.logo.height },
         },
-        MeshInstance{ .material = assets.ptr.logo.material },
         Layer(0){},
     });
 }
@@ -111,6 +111,15 @@ MeshInstance{
 }
 ```
 
+Sprites carry their material directly:
+
+```zig
+Sprite{
+    .material = assets.ptr.icon.material,
+    .size_mode = .{ .Manual = .{ .width = 32.0, .height = 32.0 } },
+}
+```
+
 When building textures manually, create a material from a texture handle:
 
 ```zig
@@ -131,8 +140,10 @@ ordering:
 ```zig
 _ = try commands.createEntity(.{
     Transform{ .translation = .{ .x = 40.0, .y = 40.0, .z = 0.0 } },
-    Sprite{ .size_mode = .{ .Manual = .{ .width = 32.0, .height = 32.0 } } },
-    MeshInstance{ .material = assets.ptr.icon.material },
+    Sprite{
+        .material = assets.ptr.icon.material,
+        .size_mode = .{ .Manual = .{ .width = 32.0, .height = 32.0 } },
+    },
     Layer(0){},
     LayerSortKey{ .value = 10.0 },
 });
