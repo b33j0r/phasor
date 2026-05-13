@@ -26,7 +26,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
         bus_capacity: usize = 256,
         bus_enabled: bool = true,
         log_interval_seconds: f64 = 0.0,
-        fps_smoothing_seconds: f64 = 0.5,
+        fps_smoothing_seconds: f64 = 0.1,
         viewport: MetricsViewport = defaultViewportMode(LayerT),
 
         pub fn install(self: *const @This(), app: *AppCommands, cmds: *Commands) !void {
