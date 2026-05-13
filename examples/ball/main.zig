@@ -1,20 +1,31 @@
-//! A simple example of a bouncing ball using the Phasor game engine.
-//!
-//!
+//! A simple example using the Phasor game engine.
 
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.init(&init, .{
+        // This is the maximum number of commands that a system can issue in a single frame.
+        // If this limit is exceeded, the app will crash with an error.
         .command_queue_capacity = 64,
+
+        // Enabling parallel systems allows the app to execute systems in parallel when possible,
+        // which can improve performance on multi-core CPUs. It won't make a difference in this example.
         .parallel_systems = true,
     });
+
+    // Clean up the app at the end of this function.
     defer app.deinit();
 
+    // Several of the modules use one or more resources for configuration.
+    // WindowSettings works with the WindowModule to configure the window.
     try app.insertResource(WindowSettings{
         .title = "Ball",
         .width = 800,
         .height = 600,
     });
+
+    // TODO: move VSync into the WindowSettings resource.
     try app.insertResource(VSync{ .enabled = false });
+
+    // ClearColor is used by the RenderModule to clear the screen at the beginning of each frame.
     try app.insertResource(ClearColor{ .color = .{
         .r = 255,
         .g = 255,
@@ -22,15 +33,34 @@ pub fn main(init: std.process.Init) !u8 {
         .a = 255,
     } });
 
+    // This installs the time, timer, window, render, input, audio, and parent modules.
     try app.installDefaultModules();
+
+    // This displays diagnostic text such as the FPS counter and frame time in the
+    // bottom-right corner of the screen.
     try app.installModule(MetricsModule{ .font_size = 24.0 });
 
+    // Register our system functions. The first argument is the schedule that the system should
+    // run in, and the second argument is the system function itself.
+
+    // Startup happens once when the app starts.
     try app.addSystem("Startup", setup);
+
+    // Update happens every frame after Startup.
     try app.addSystem("Update", updateBallMotion);
+
+    // Systems are executed in the order they are added unless they can be run in parallel
+    // (and parallel_systems is true in App.init).
+
+    // Here, this system will run after updateBallMotion.
     try app.addSystem("Update", updateBallBounce);
 
+    // Finally, run the app. This will block until the app is exited.
     return try app.run();
 }
+
+
+// Components
 
 const Ball = struct {
     radius: f32,
@@ -39,6 +69,9 @@ const Ball = struct {
 const Velocity = struct {
     v: Vec3 = .{},
 };
+
+
+// Systems
 
 fn setup(
     commands: *Commands,
