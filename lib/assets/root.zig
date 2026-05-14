@@ -49,7 +49,7 @@ pub const Scene = struct {
             }
         }
         if (self.resolved_path) |resolved_path| {
-            ctx.allocator.free(resolved_path.ptr[0..resolved_path.len + 1]);
+            ctx.allocator.free(resolved_path.ptr[0 .. resolved_path.len + 1]);
             self.resolved_path = null;
         }
     }
@@ -258,6 +258,7 @@ pub const DecodedSound = struct {
 
 pub const Mesh = struct {
     uv_vertices: ?[]const render.VertexUv = null,
+    pos3_uv_vertices: ?[]const render.VertexPos3Uv = null,
     pos3_color_vertices: ?[]const render.VertexPos3Color = null,
     indices: []const u16 = &.{},
     handle: render.MeshHandle = render.MeshHandle.invalid(),
@@ -271,6 +272,11 @@ pub const Mesh = struct {
         if (self.uv_vertices) |vertices| {
             self.handle = try library.addMesh(renderer, vertices, self.indices);
             log.debug("loaded uv mesh: vertices={} indices={}", .{ vertices.len, self.indices.len });
+            return;
+        }
+        if (self.pos3_uv_vertices) |vertices| {
+            self.handle = try library.addMeshPos3Uv(renderer, vertices, self.indices);
+            log.debug("loaded pos3/uv mesh: vertices={} indices={}", .{ vertices.len, self.indices.len });
             return;
         }
         if (self.pos3_color_vertices) |vertices| {

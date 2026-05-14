@@ -1,0 +1,12 @@
+.{
+    .name = .cube,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.17.0-dev.78+9636d76b6",
+    .paths = .{""},
+    .dependencies = .{
+        .phasor = .{
+            .path = "../..",
+        },
+    },
+    .fingerprint = 0x30feb1b8a715fc0f,
+}

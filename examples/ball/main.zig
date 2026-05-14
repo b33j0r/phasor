@@ -1,4 +1,4 @@
-//! A simple example using the Phasor game engine.
+//! A simple bouncing ball example using Phasor.
 
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.init(&init, .{
@@ -22,16 +22,11 @@ pub fn main(init: std.process.Init) !u8 {
         .height = 600,
     });
 
-    // TODO: move VSync into the WindowSettings resource.
+    // TODO: move VSync into the WindowSettings resource?
     try app.insertResource(VSync{ .enabled = false });
 
     // ClearColor is used by the RenderModule to clear the screen at the beginning of each frame.
-    try app.insertResource(ClearColor{ .color = .{
-        .r = 255,
-        .g = 255,
-        .b = 255,
-        .a = 255,
-    } });
+    try app.insertResource(ClearColor{ .color = Color.WHITE });
 
     // This installs the time, timer, window, render, input, audio, and parent modules.
     try app.installDefaultModules();
@@ -59,17 +54,15 @@ pub fn main(init: std.process.Init) !u8 {
     return try app.run();
 }
 
-
 // Components
 
-const Ball = struct {
-    radius: f32,
-};
+// Ball marks which circle should use the bounce behavior.
+const Ball = struct {};
 
+// Velocity stores the ball's movement speed in pixels per second.
 const Velocity = struct {
     v: Vec3 = .{},
 };
-
 
 // Systems
 
@@ -77,21 +70,28 @@ fn setup(
     commands: *Commands,
     r_window: Res(WindowBounds),
 ) !void {
+    // The ball will be rendered as a circle with this radius.
     const radius: f32 = 40.0;
+
+    // WindowBounds is inserted by the WindowModule and stores the current window size.
     const window = r_window.ptr;
 
+    // Put the ball in the middle of the window.
     const center_screen = Vec3{
         .x = @as(f32, @floatFromInt(window.width)) * 0.5,
         .y = @as(f32, @floatFromInt(window.height)) * 0.5,
     };
 
+    // Create a camera. The TopLeft viewport mode makes 2D coordinates start
+    // in the top-left corner of the window instead of the center.
     _ = try commands.createEntity(.{
         Transform{},
         Camera3d{ .Viewport = .{ .mode = .TopLeft } },
     });
 
+    // Create the ball entity itself.
     _ = try commands.createEntity(.{
-        Ball{ .radius = radius },
+        Ball{},
         Velocity{ .v = .{ .x = 220.0, .y = 160.0 } },
         Transform{ .translation = center_screen },
         Circle{ .radius = radius, .segments = 48, .color = Color.RED },
@@ -99,31 +99,40 @@ fn setup(
 }
 
 fn updateBallMotion(dt: Res(DeltaTime), query: Query(.{ Transform, Velocity })) !void {
+    // DeltaTime tells us how much time passed since the last frame.
     const step = dt.deref().seconds32();
+
+    // Query gives us every entity that has both Transform and Velocity.
     var it = query.iterator();
     while (it.next()) |row| {
         const transform = row.get(Transform) orelse continue;
         const velocity = row.get(Velocity) orelse continue;
+
+        // Move the ball by velocity * time so the speed is framerate-independent.
         transform.translation.x += velocity.v.x * step;
         transform.translation.y += velocity.v.y * step;
     }
 }
 
 fn updateBallBounce(
-    query: Query(.{ Transform, Velocity, Ball }),
+    query: Query(.{ Transform, Velocity, Ball, Circle }),
     r_window: Res(WindowBounds),
 ) !void {
+    // Convert the window dimensions to floats so we can compare them with the ball position.
     const window = r_window.ptr;
     const window_width: f32 = @floatFromInt(window.width);
     const window_height: f32 = @floatFromInt(window.height);
 
+    // This query includes Ball so only the ball bounces, and Circle because the
+    // bounce checks need the circle radius.
     var it = query.iterator();
     while (it.next()) |row| {
         const transform = row.get(Transform) orelse continue;
         const velocity = row.get(Velocity) orelse continue;
-        const ball = row.get(Ball) orelse continue;
-        const radius = ball.radius;
+        const circle = row.get(Circle) orelse continue;
+        const radius = circle.radius;
 
+        // Clamp the ball to the left or right edge and flip its horizontal velocity.
         if (transform.translation.x - radius < 0.0) {
             transform.translation.x = radius;
             velocity.v.x *= -1.0;
@@ -132,6 +141,7 @@ fn updateBallBounce(
             velocity.v.x *= -1.0;
         }
 
+        // Clamp the ball to the top or bottom edge and flip its vertical velocity.
         if (transform.translation.y - radius < 0.0) {
             transform.translation.y = radius;
             velocity.v.y *= -1.0;

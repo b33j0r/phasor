@@ -101,6 +101,8 @@ pub const TimerClock = modules.TimerModule.TimerClock;
 
 pub const MeshInstance = renderer.MeshInstance;
 pub const MeshHandle = renderer.MeshHandle;
+pub const VertexPos3Uv = renderer.VertexPos3Uv;
+pub const VertexPos3Color = renderer.VertexPos3Color;
 pub const Material = renderer.Material;
 pub const MaterialHandle = renderer.MaterialHandle;
 pub const MeshFactory = renderer.MeshFactory;
