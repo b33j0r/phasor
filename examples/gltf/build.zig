@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
     const phasor = phasor_dep.module("phasor");
 
     const app_mod = b.createModule(.{
-        .root_source_file = b.path("main2.zig"),
+        .root_source_file = b.path("main.zig"),
         .target = host_target,
         .optimize = optimize,
         .imports = &.{
@@ -55,7 +55,7 @@ fn addWebBuild(
     const wasm_phasor = wasm_phasor_dep.module("phasor");
 
     const wasm_app_mod = b.createModule(.{
-        .root_source_file = b.path("main2.zig"),
+        .root_source_file = b.path("main.zig"),
         .target = wasm_target,
         .optimize = optimize,
         .imports = &.{
