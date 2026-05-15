@@ -18,7 +18,7 @@ pub const PostProcessShaderHandle = struct {
 };
 
 pub const PostProcessParams = extern struct {
-    values: [16]f32 = [_]f32{0.0} ** 16,
+    values: [16]f32 = @splat(0.0),
 
     pub fn setVec4(self: *PostProcessParams, index: usize, value: [4]f32) void {
         if (index >= 4) return;

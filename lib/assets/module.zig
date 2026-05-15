@@ -11,7 +11,7 @@ pub fn AssetsLoadState(comptime T: type) type {
         config: AssetsModuleConfig,
         next_session_id: u64 = 1,
         session: ?Session = null,
-        plan_slots: [asset_fields.len]?PlanSlot = [_]?PlanSlot{null} ** asset_fields.len,
+        plan_slots: [asset_fields.len]?PlanSlot = @splat(null),
         pending_builds: std.ArrayListUnmanaged(PendingSceneBuild) = .empty,
 
         const Self = @This();

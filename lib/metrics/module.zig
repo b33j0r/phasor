@@ -525,7 +525,7 @@ fn appendMetricLines(ctx: *const MetricContext, buffer: []u8, start: usize, line
         return offset;
     }
 
-    var used: [max_sort_lines]bool = .{false} ** max_sort_lines;
+    var used: [max_sort_lines]bool = @splat(false);
     var produced: usize = 0;
     while (produced < lines.len) : (produced += 1) {
         var best_idx: ?usize = null;

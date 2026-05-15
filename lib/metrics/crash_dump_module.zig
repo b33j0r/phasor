@@ -126,8 +126,8 @@ fn writeCrashDump(
         var js_used: u32 = 0;
         var js_total: u32 = 0;
         WasmImports.jsHeap(&js_used, &js_total);
-        var creates: [13]u32 = .{0} ** 13;
-        var destroys: [5]u32 = .{0} ** 5;
+        var creates: [13]u32 = @splat(0);
+        var destroys: [5]u32 = @splat(0);
         WasmImports.webgpuResourceCounts(&creates, &destroys);
         try appendFmt(
             &buffer,

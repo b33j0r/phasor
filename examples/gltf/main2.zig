@@ -17,7 +17,7 @@ const BoxRoot = struct {};
 const LoadingUi = struct {
     last_stage: AssetsLoadStage = .idle,
     last_asset_name: []const u8 = "bundle",
-    status_buf: [160]u8 = [_]u8{0} ** 160,
+    status_buf: [160]u8 = @splat(0),
     status_len: usize = 0,
 
     pub fn status(self: *const LoadingUi) []const u8 {

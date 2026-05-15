@@ -42,8 +42,8 @@ pub const ExtractedSceneLighting = struct {
     environment_average_luminance: f32 = 1.0,
     environment_dominant_direction: common.Vec3 = .{ .x = 0.0, .y = 1.0, .z = 0.0 },
     environment_dominant_color: common.Color.F32 = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
-    environment_irradiance_sh: [9][4]f32 = [_][4]f32{[_]f32{ 0.0, 0.0, 0.0, 0.0 }} ** 9,
-    lights: [render.max_scene_lights]render.SceneLight = [_]render.SceneLight{render.SceneLight{}} ** render.max_scene_lights,
+    environment_irradiance_sh: [9][4]f32 = @splat(.{ 0.0, 0.0, 0.0, 0.0 }),
+    lights: [render.max_scene_lights]render.SceneLight = @splat(render.SceneLight{}),
 };
 
 pub const ViewportSize = struct {

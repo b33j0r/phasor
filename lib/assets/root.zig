@@ -1190,12 +1190,12 @@ const AssetFileIoNative = struct {
 
         if (std.fs.path.isAbsolute(rel_path)) {
             if (fileExists(io, rel_path)) {
-                return try allocator.dupeZ(u8, rel_path);
+                return try allocator.dupeSentinel(u8, rel_path, 0);
             }
         }
 
         if (fileExists(io, rel_path)) {
-            return try allocator.dupeZ(u8, rel_path);
+            return try allocator.dupeSentinel(u8, rel_path, 0);
         }
 
         const cwd_path = std.Io.Dir.cwd().realPathFileAlloc(io.*, ".", allocator) catch null;
@@ -1209,7 +1209,7 @@ const AssetFileIoNative = struct {
             defer allocator.free(candidate);
 
             if (fileExists(io, candidate)) {
-                return try allocator.dupeZ(u8, candidate);
+                return try allocator.dupeSentinel(u8, candidate, 0);
             }
 
             base = std.fs.path.dirname(dir);
@@ -1232,7 +1232,7 @@ const AssetFileIoWasm = struct {
     fn resolveFileSearch(allocator: std.mem.Allocator, io: *const std.Io, path: [:0]const u8) ![:0]u8 {
         _ = io;
         const rel_path = std.mem.sliceTo(path, 0);
-        if (fileExists(null, rel_path)) return try allocator.dupeZ(u8, rel_path);
+        if (fileExists(null, rel_path)) return try allocator.dupeSentinel(u8, rel_path, 0);
         return error.FileNotFound;
     }
 

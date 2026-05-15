@@ -59,7 +59,7 @@ fn buildEnvironmentLight(
     rgba: []const f32,
     options: BuildOptions,
 ) resources.EnvironmentLight {
-    var sh = [_][3]f32{[_]f32{ 0.0, 0.0, 0.0 }} ** 9;
+    var sh: [9][3]f32 = @splat(.{ 0.0, 0.0, 0.0 });
     var total_luminance: f64 = 0.0;
     var total_weight: f64 = 0.0;
     const width_f = @as(f64, @floatFromInt(width));
@@ -138,7 +138,7 @@ fn buildEnvironmentLight(
         dominant_weight = 1.0;
     }
 
-    var irradiance_sh = [_][4]f32{[_]f32{ 0.0, 0.0, 0.0, 0.0 }} ** 9;
+    var irradiance_sh: [9][4]f32 = @splat(.{ 0.0, 0.0, 0.0, 0.0 });
     const convolution = [_]f32{
         @floatCast(std.math.pi),
         @floatCast((2.0 * std.math.pi) / 3.0),

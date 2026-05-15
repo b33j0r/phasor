@@ -33,7 +33,7 @@ pub const ParticleProfile = struct {
 
 pub const ParticleSystemConfig = struct {
     capacity: usize,
-    profiles: [max_profiles]ParticleProfile = [_]ParticleProfile{.{}} ** max_profiles,
+    profiles: [max_profiles]ParticleProfile = @splat(.{}),
     profile_count: usize = 1,
     hidden_position: Vec3 = default_hidden_position,
     layer: i32 = 0,
@@ -93,7 +93,7 @@ pub const Particle = struct {
 
 pub fn ParticleState(comptime max_particles: usize) type {
     return struct {
-        particles: [max_particles]Particle = [_]Particle{.{}} ** max_particles,
+        particles: [max_particles]Particle = @splat(.{}),
         next_spawn: usize = 0,
         slots_built: bool = false,
 

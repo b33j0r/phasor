@@ -13,7 +13,7 @@ pub const EnvironmentLight = struct {
     average_luminance: f32 = 1.0,
     dominant_direction: common.Vec3 = .{ .x = 0.0, .y = 1.0, .z = 0.0 },
     dominant_color: common.Color.F32 = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
-    irradiance_sh: [9][4]f32 = [_][4]f32{[_]f32{ 0.0, 0.0, 0.0, 0.0 }} ** 9,
+    irradiance_sh: [9][4]f32 = @splat(.{ 0.0, 0.0, 0.0, 0.0 }),
 };
 
 pub const ExposureSettings = struct {

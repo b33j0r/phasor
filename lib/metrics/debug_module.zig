@@ -168,8 +168,8 @@ fn emitWasmRuntimeMetrics(bus: *metrics.Bus, emit_errors: bool) void {
         }
     }
 
-    var creates: [13]u32 = .{0} ** 13;
-    var destroys: [5]u32 = .{0} ** 5;
+    var creates: [13]u32 = @splat(0);
+    var destroys: [5]u32 = @splat(0);
     WasmImports.webgpuResourceCounts(&creates, &destroys);
     metrics.emitBus(true, bus, .{
         .webgpu_create_buffers = metrics.gauge(creates[0]),

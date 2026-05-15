@@ -690,7 +690,7 @@ test "parse gltf file resolves external buffer bytes" {
 
     const scene_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/scene.gltf", .{tmp.sub_path});
     defer allocator.free(scene_path);
-    const scene_path_z = try allocator.dupeZ(u8, scene_path);
+    const scene_path_z = try allocator.dupeSentinel(u8, scene_path, 0);
     defer allocator.free(scene_path_z);
 
     var parsed = try parseFromFile(allocator, scene_path_z);
