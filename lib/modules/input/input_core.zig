@@ -154,14 +154,26 @@ fn keyToIndex(key: Key) u8 {
         .right_control => 36,
         .left_alt => 37,
         .right_alt => 38,
+        .zero => 39,
+        .one => 40,
+        .two => 41,
+        .three => 42,
+        .four => 43,
+        .five => 44,
+        .six => 45,
+        .seven => 46,
+        .eight => 47,
+        .nine => 48,
         else => 255,
     };
 }
 
 pub const keys_to_poll = [_]Key{
-    .space, .a,  .b,    .c,      .d,     .e,          .f,           .g,            .h,             .i,        .j,         .k, .l, .m,
-    .n,     .o,  .p,    .q,      .r,     .s,          .t,           .u,            .v,             .w,        .x,         .y, .z, .left,
-    .right, .up, .down, .escape, .enter, .left_shift, .right_shift, .left_control, .right_control, .left_alt, .right_alt,
+    .space,         .a,        .b,         .c,    .d,     .e,   .f,     .g,      .h,     .i,          .j,           .k,
+    .l,             .m,        .n,         .o,    .p,     .q,   .r,     .s,      .t,     .u,          .v,           .w,
+    .x,             .y,        .z,         .left, .right, .up,  .down,  .escape, .enter, .left_shift, .right_shift, .left_control,
+    .right_control, .left_alt, .right_alt, .zero, .one,   .two, .three, .four,   .five,  .six,        .seven,       .eight,
+    .nine,
 };
 
 pub const Key = enum(c_int) {

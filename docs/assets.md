@@ -21,7 +21,7 @@ const Assets = struct {
     bloom: PostProcessShader = .{
         .wgsl_fragment = @embedFile("assets/bloom.frag.wgsl"),
     },
-    scene: Scene = Scene.embedded(@embedFile("assets/scene.gltf")),
+    scene: Scene = Scene.file("assets/scene.gltf"),
 };
 ```
 
@@ -34,8 +34,10 @@ Supported asset field types:
 - `Mesh`: Static mesh data using supported render vertex layouts.
 - `Shader`: Custom mesh shader source and binding/layout metadata.
 - `PostProcessShader`: Fragment snippet compiled into a post-process shader.
-- `Scene`: Parsed GLTF scene data for imported-scene preparation.
+- `Scene`: Format-routed scene asset. It loads scene data, prepares renderable content,
+  and can be instantiated as an ECS hierarchy.
 
 Files can be loaded with constructors such as `Texture.file("logo.png")` or
-embedded with `@embedFile`. On WASM, prefer embedded sources for assets that need
-to be available inside the bundle.
+embedded with `@embedFile`. For embedded scene assets, provide either a virtual
+filename with `Scene.embeddedNamed("scene.gltf", bytes)` or an explicit format
+hint with `Scene.embedded(bytes).withFormat("gltf")`.

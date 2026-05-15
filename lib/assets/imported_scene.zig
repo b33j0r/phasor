@@ -6,6 +6,8 @@ const stb_image = @import("stb_image");
 const log = std.log.scoped(.assets_imported_scene);
 
 pub const ImportedScene = struct {
+    pub const MaterialOverride = PreparedImportedScene.MaterialOverride;
+
     allocator: std.mem.Allocator,
     renderer: *render.Renderer,
     mesh_library: *render.MeshLibrary,
@@ -15,12 +17,14 @@ pub const ImportedScene = struct {
     texture_handles: []render.TextureHandle = &.{},
     material_handles: []render.MaterialHandle = &.{},
     root_entities: []u64 = &.{},
+    entities: []u64 = &.{},
     bounds: Bounds = .{},
 
     pub const Options = struct {
         parent: ?u64 = null,
         shader_handle: render.ShaderHandle = render.ShaderHandle.invalid(),
         mesh_layout: MeshLayout = .Pos3Uv,
+        material_overrides: []const MaterialOverride = &.{},
     };
 
     pub const MeshLayout = enum {
@@ -89,6 +93,7 @@ pub const ImportedScene = struct {
         }
         self.allocator.free(self.mesh_handles);
         self.allocator.free(self.root_entities);
+        self.allocator.free(self.entities);
         self.* = undefined;
     }
 
@@ -103,6 +108,7 @@ pub const ImportedScene = struct {
     ) !ImportedScene {
         var prepared = try PreparedImportedScene.prepare(allocator, io, source_path, scene_data, .{
             .mesh_layout = options.mesh_layout,
+            .material_overrides = options.material_overrides,
         });
         defer prepared.deinit();
         return prepared.instantiate(allocator, commands, build_ctx, options);
@@ -158,6 +164,7 @@ pub const PreparedImportedScene = struct {
         material_library: ?*render.MaterialLibrary = null,
         node_entities: []u64 = &.{},
         root_entities: []u64 = &.{},
+        entities: std.ArrayListUnmanaged(u64) = .empty,
         loaded_textures_srgb: []?render.TextureHandle = &.{},
         loaded_textures_linear: []?render.TextureHandle = &.{},
         scene_materials: []?render.MaterialHandle = &.{},
@@ -236,6 +243,7 @@ pub const PreparedImportedScene = struct {
                 }
             }
             self.owned_samplers.deinit(self.allocator);
+            self.entities.deinit(self.allocator);
             if (self.scene_materials.len > 0) self.allocator.free(self.scene_materials);
             if (self.loaded_textures_linear.len > 0) self.allocator.free(self.loaded_textures_linear);
             if (self.loaded_textures_srgb.len > 0) self.allocator.free(self.loaded_textures_srgb);
@@ -263,6 +271,8 @@ pub const PreparedImportedScene = struct {
 
             const root_entities = self.root_entities;
             self.root_entities = &.{};
+            const entities = try self.entities.toOwnedSlice(self.allocator);
+            errdefer self.allocator.free(entities);
 
             if (self.scene_materials.len > 0) self.allocator.free(self.scene_materials);
             self.scene_materials = &.{};
@@ -286,6 +296,7 @@ pub const PreparedImportedScene = struct {
                 .texture_handles = texture_handles,
                 .material_handles = material_handles,
                 .root_entities = root_entities,
+                .entities = entities,
             };
         }
     };
@@ -386,6 +397,10 @@ pub const PreparedImportedScene = struct {
         return ApplyState.init(allocator, self);
     }
 
+    pub fn primitiveCount(self: *const PreparedImportedScene) usize {
+        return self.primitives.len;
+    }
+
     pub fn applyBatch(
         self: *const PreparedImportedScene,
         commands: anytype,
@@ -436,7 +451,7 @@ pub const PreparedImportedScene = struct {
                 }
             }
 
-            _ = try commands.createEntity(.{
+            const entity = try commands.createEntity(.{
                 common.Parent{ .id = state.node_entities[prepared_primitive.node_index] },
                 common.LocalTransform.identity(),
                 common.Transform{},
@@ -449,6 +464,7 @@ pub const PreparedImportedScene = struct {
                 },
                 render.Layer(0){},
             });
+            try state.entities.append(state.allocator, entity);
         }
 
         return state.next_primitive >= self.primitives.len;
@@ -488,6 +504,7 @@ pub const PreparedImportedScene = struct {
                 transformFromLocal(node.local_transform),
             });
             state.node_entities[index] = entity;
+            try state.entities.append(state.allocator, entity);
         }
 
         for (self.nodes, 0..) |node, index| {
@@ -1146,7 +1163,7 @@ fn prepareTextureData(
     else if (image.buffer_view_index) |buffer_view_index|
         try imageBytesFromBufferView(allocator, scene_data, buffer_view_index)
     else if (image.uri) |uri|
-        try readExternalImage(allocator, io, source_path orelse return null, uri)
+        try imageBytesFromUri(allocator, io, source_path orelse return null, uri)
     else
         return null;
     defer allocator.free(bytes);
@@ -1196,12 +1213,25 @@ fn imageBytesFromBufferView(allocator: std.mem.Allocator, scene_data: *const sce
     return allocator.dupe(u8, bytes[start..end]);
 }
 
-fn readExternalImage(allocator: std.mem.Allocator, io: *const std.Io, source_path: []const u8, uri: []const u8) ![]u8 {
-    if (std.mem.startsWith(u8, uri, "data:")) return error.UnsupportedDataUri;
+fn imageBytesFromUri(allocator: std.mem.Allocator, io: *const std.Io, source_path: []const u8, uri: []const u8) ![]u8 {
+    if (std.mem.startsWith(u8, uri, "data:")) return decodeDataUri(allocator, uri);
     const scene_dir = std.fs.path.dirname(source_path) orelse return error.InvalidScenePath;
     const absolute_path = try std.fs.path.join(allocator, &.{ scene_dir, uri });
     defer allocator.free(absolute_path);
     return std.Io.Dir.cwd().readFileAlloc(io.*, absolute_path, allocator, std.Io.Limit.limited(32 * 1024 * 1024));
+}
+
+fn decodeDataUri(allocator: std.mem.Allocator, uri: []const u8) ![]u8 {
+    const comma = std.mem.indexOfScalar(u8, uri, ',') orelse return error.InvalidDataUri;
+    const metadata = uri[0..comma];
+    if (!std.mem.endsWith(u8, metadata, ";base64")) return error.UnsupportedDataUri;
+
+    const encoded = uri[comma + 1 ..];
+    const size = try std.base64.standard.Decoder.calcSizeForSlice(encoded);
+    const decoded = try allocator.alloc(u8, size);
+    errdefer allocator.free(decoded);
+    try std.base64.standard.Decoder.decode(decoded, encoded);
+    return decoded;
 }
 
 fn alphaModeFromScene(mode: scene_mod.AlphaMode) render.Material.AlphaMode {

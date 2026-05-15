@@ -6,7 +6,6 @@
 /// - `Res(T)` / `ResOpt(T)` / `HasResource(T)` → reads resource T
 /// - `ResMut(T)` / `ResMutOpt(T)` → writes resource T
 /// - `Query(...)` → component access (treated as shared read for now)
-
 /// A unique identifier for a resource type, derived from its type name pointer.
 /// Since Zig deduplicates `@typeName` string literals, pointer equality is valid.
 pub const ResourceId = [*]const u8;
@@ -43,6 +42,8 @@ pub const AccessDescriptor = struct {
                 }
             }
         }
+
+        if (self.reads_components and other.reads_components) return true;
 
         return false;
     }

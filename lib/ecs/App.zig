@@ -45,6 +45,11 @@ pub fn default(allocator: std.mem.Allocator, io: *const std.Io) !Self {
 }
 
 pub fn deinit(self: *Self) void {
+    if (self.startup_run and !self.shutdown_run) {
+        self.shutdown() catch |err| {
+            log.err("app shutdown during deinit failed: {s}", .{@errorName(err)});
+        };
+    }
     if (self.command_channel) |*channel| channel.deinit();
     self.world.deinit();
     self.schedule_manager.deinit(null);
@@ -148,17 +153,23 @@ pub fn step(self: *Self) !?u8 {
         .skip_shutdown = true,
     });
     if (self.world.getResource(resources.Exit)) |exit| {
-        if (!self.shutdown_run) {
-            log.info("app shutdown requested with exit code {}", .{exit.code});
-            try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.Shutdown, command_channel);
-            try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.AssetsUnload, command_channel);
-            try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.WindowDestroy, command_channel);
-            self.shutdown_run = true;
-            log.debug("app shutdown complete", .{});
-        }
+        log.info("app shutdown requested with exit code {}", .{exit.code});
+        try self.shutdown();
         return exit.code;
     }
     return null;
+}
+
+pub fn shutdown(self: *Self) !void {
+    if (self.shutdown_run) return;
+    if (!self.startup_run) return;
+
+    const command_channel = try self.ensureCommandChannel();
+    try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.Shutdown, command_channel);
+    try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.AssetsUnload, command_channel);
+    try self.runScheduleByLabelInternal(schedule_mod.DefaultSchedule.WindowDestroy, command_channel);
+    self.shutdown_run = true;
+    log.debug("app shutdown complete", .{});
 }
 
 pub fn runScheduleByLabel(self: *Self, label: []const u8) !void {

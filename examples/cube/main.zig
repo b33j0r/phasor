@@ -26,7 +26,7 @@ pub fn main(init: std.process.Init) !u8 {
     try app.insertResource(VSync{ .enabled = false });
 
     // ClearColor is used by the RenderModule to clear the screen at the beginning of each frame.
-    try app.insertResource(ClearColor{ .color = Color.DARKBLUE });
+    try app.insertResource(ClearColor{ .color = Color.BLACK });
 
     // This installs the time, timer, window, render, input, audio, and parent modules.
     try app.installDefaultModules();

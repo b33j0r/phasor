@@ -20,14 +20,32 @@ pub const RuntimePlatformSettings = struct {
 
 pub const RuntimeApp = struct {
     inner: ecs.App,
+    wasm_inner: ?*ecs.App = null,
+    wasm_io: ?*std.Io = null,
     moved_to_wasm: bool = false,
 
     const Self = @This();
 
     pub fn init(init_context: *const std.process.Init, comptime config: ecs.App.AppConfig) !Self {
-        const allocator = if (is_wasm) std.heap.wasm_allocator else std.heap.c_allocator;
+        if (is_wasm) {
+            const allocator = std.heap.wasm_allocator;
+            const io_ptr = try allocator.create(std.Io);
+            errdefer allocator.destroy(io_ptr);
+            io_ptr.* = init_context.io;
+
+            const app_ptr = try allocator.create(ecs.App);
+            errdefer allocator.destroy(app_ptr);
+            app_ptr.* = try ecs.App.init(allocator, io_ptr, config);
+
+            return .{
+                .inner = undefined,
+                .wasm_inner = app_ptr,
+                .wasm_io = io_ptr,
+            };
+        }
+
         return .{
-            .inner = try ecs.App.init(allocator, &init_context.io, config),
+            .inner = try ecs.App.init(std.heap.c_allocator, &init_context.io, config),
         };
     }
 
@@ -37,6 +55,19 @@ pub const RuntimeApp = struct {
 
     pub fn deinit(self: *Self) void {
         if (self.moved_to_wasm) return;
+        if (is_wasm) {
+            const allocator = std.heap.wasm_allocator;
+            if (self.wasm_inner) |app| {
+                app.deinit();
+                allocator.destroy(app);
+                self.wasm_inner = null;
+            }
+            if (self.wasm_io) |io| {
+                allocator.destroy(io);
+                self.wasm_io = null;
+            }
+            return;
+        }
         self.inner.deinit();
     }
 
@@ -45,75 +76,83 @@ pub const RuntimeApp = struct {
         if (is_wasm) {
             return runWasm(self);
         }
-        return try self.inner.run();
+        return try self.innerPtr().run();
     }
 
     pub fn start(self: *Self) !void {
-        try self.inner.start();
+        try self.innerPtr().start();
     }
 
     pub fn step(self: *Self) !?u8 {
-        return try self.inner.step();
+        return try self.innerPtr().step();
     }
 
     pub fn addSystem(self: *Self, schedule_label: []const u8, comptime system_fn: anytype) !void {
-        try self.inner.addSystem(schedule_label, system_fn);
+        try self.innerPtr().addSystem(schedule_label, system_fn);
     }
 
     pub fn removeSystem(self: *Self, comptime system_fn: anytype) void {
-        self.inner.removeSystem(system_fn);
+        self.innerPtr().removeSystem(system_fn);
     }
 
     pub fn addSchedule(self: *Self, label: []const u8) !void {
-        try self.inner.addSchedule(label);
+        try self.innerPtr().addSchedule(label);
     }
 
     pub fn insertScheduleBetween(self: *Self, before_label: []const u8, label: []const u8, after_label: []const u8) !void {
-        try self.inner.insertScheduleBetween(before_label, label, after_label);
+        try self.innerPtr().insertScheduleBetween(before_label, label, after_label);
     }
 
     pub fn installModule(self: *Self, comptime module: anytype) !void {
-        try self.inner.installModule(module);
+        try self.innerPtr().installModule(module);
     }
 
     pub fn installDefaultModules(self: *Self) !void {
-        try entry.installDefaultModules(&self.inner);
+        try entry.installDefaultModules(self.innerPtr());
     }
 
     pub fn uninstallModule(self: *Self, comptime module: anytype) !void {
-        try self.inner.uninstallModule(module);
+        try self.innerPtr().uninstallModule(module);
     }
 
     pub fn appCommands(self: *Self) ecs.AppCommands {
-        return self.inner.appCommands();
+        return self.innerPtr().appCommands();
     }
 
     pub fn commands(self: *Self) ecs.Commands {
-        return ecs.Commands.init(self.inner.allocator, self.inner.io, &self.inner.world);
+        const app = self.innerPtr();
+        return ecs.Commands.init(app.allocator, app.io, &app.world);
     }
 
     pub fn insertResource(self: *Self, resource: anytype) !void {
-        try self.inner.insertResource(resource);
+        try self.innerPtr().insertResource(resource);
     }
 
     pub fn getResource(self: *Self, comptime T: type) ?*const T {
-        return self.inner.getResource(T);
+        return self.innerPtr().getResource(T);
     }
 
     pub fn getResourceMut(self: *Self, comptime T: type) ?*T {
-        return self.inner.getResourceMut(T);
+        return self.innerPtr().getResourceMut(T);
     }
 
     pub fn removeResource(self: *Self, comptime T: type) bool {
-        return self.inner.removeResource(T);
+        return self.innerPtr().removeResource(T);
     }
 
     pub fn hasResource(self: *Self, comptime T: type) bool {
-        return self.inner.hasResource(T);
+        return self.innerPtr().hasResource(T);
     }
 
     pub fn runScheduleByLabel(self: *Self, label: []const u8) !void {
-        try self.inner.runScheduleByLabel(label);
+        try self.innerPtr().runScheduleByLabel(label);
+    }
+
+    fn innerPtr(self: *Self) *ecs.App {
+        if (is_wasm) {
+            return self.wasm_inner.?;
+        }
+        return &self.inner;
     }
 };
 
@@ -121,10 +160,10 @@ pub fn installDefaultModules(app: *ecs.App) !void {
     try app.installModule(modules.TimeModule);
     try app.installModule(modules.TimerModule);
     try installPlatformModules(app, .{});
+    try app.installModule(modules.ParentModule);
     try app.installModule(render.RenderModule);
     try app.installModule(modules.InputModule);
     try app.installModule(audio.AudioModule);
-    try app.installModule(modules.ParentModule);
 }
 
 pub const PlatformModuleSettings = struct {
@@ -190,8 +229,8 @@ const wasm_runtime = if (is_wasm) @import("wasm") else struct {
 };
 
 const WasmRuntimeRunner = struct {
-    app: ecs.App,
-    io: std.Io,
+    app: *ecs.App,
+    io: *std.Io,
 };
 
 var root_wasm_runner: ?*WasmRuntimeRunner = null;
@@ -212,19 +251,18 @@ fn runWasm(app: *RuntimeApp) !u8 {
     const runner = try allocator.create(WasmRuntimeRunner);
     errdefer allocator.destroy(runner);
 
-    runner.io = wasm_runtime.io();
-    runner.app = app.inner;
-    runner.app.io = &runner.io;
+    runner.app = app.innerPtr();
+    runner.io = app.wasm_io orelse return error.WasmAppNotInitialized;
 
-    app.moved_to_wasm = true;
-    root_wasm_runner = runner;
     errdefer {
+        allocator.destroy(runner);
         root_wasm_runner = null;
-        app.moved_to_wasm = false;
     }
 
     try runner.app.start();
-    syncRootWasmExportSettings(&runner.app);
+    syncRootWasmExportSettings(runner.app);
+    app.moved_to_wasm = true;
+    root_wasm_runner = runner;
     root_wasm_last_error = "ok";
     return 0;
 }
@@ -368,6 +406,8 @@ fn rootWasmDeinit(handle: u32) callconv(.c) void {
         root_wasm_runner = null;
     }
     runner.app.deinit();
+    std.heap.wasm_allocator.destroy(runner.app);
+    std.heap.wasm_allocator.destroy(runner.io);
     std.heap.wasm_allocator.destroy(runner);
 }
 

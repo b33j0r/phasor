@@ -93,6 +93,7 @@ const activeSounds = new Map();
 let nextSoundId = 1;
 let nextSoundHandle = 1;
 const joltEnv = createJoltEnv(() => getMemoryView());
+const assetBytes = new Map();
 
 const textDecoder = new TextDecoder("utf-8");
 
@@ -113,6 +114,10 @@ function mapKeyboardEvent(event) {
     const ch = code.charCodeAt(3);
     if (ch >= 65 && ch <= 90) return ch;
   }
+  if (code.startsWith("Digit") && code.length === 6) {
+    const ch = code.charCodeAt(5);
+    if (ch >= 48 && ch <= 57) return ch;
+  }
   if (Object.prototype.hasOwnProperty.call(keyCodeMap, code)) {
     return keyCodeMap[code];
   }
@@ -121,6 +126,32 @@ function mapKeyboardEvent(event) {
 
 function getMemoryView() {
   return new DataView(memory.buffer);
+}
+
+function readString(ptr, len) {
+  return textDecoder.decode(new Uint8Array(memory.buffer, ptr, len));
+}
+
+function loadAssetBytes(path) {
+  const normalized = path.startsWith("/") ? path.slice(1) : path;
+  if (assetBytes.has(normalized)) return assetBytes.get(normalized);
+
+  const request = new XMLHttpRequest();
+  request.open("GET", new URL(normalized, import.meta.url), false);
+  request.overrideMimeType("text/plain; charset=x-user-defined");
+  request.send();
+  if (request.status < 200 || request.status >= 300) {
+    assetBytes.set(normalized, null);
+    return null;
+  }
+
+  const text = request.responseText;
+  const bytes = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i += 1) {
+    bytes[i] = text.charCodeAt(i) & 0xff;
+  }
+  assetBytes.set(normalized, bytes);
+  return bytes;
 }
 
 function float32ToFloat16(value) {
@@ -252,11 +283,6 @@ function ensureAudioContext() {
     audioCtx.resume().catch(() => {});
   }
   return audioCtx;
-}
-
-
-function readString(ptr, len) {
-  return textDecoder.decode(new Uint8Array(memory.buffer, ptr, len));
 }
 
 function setPageTitle(title) {
@@ -2123,6 +2149,16 @@ const imports = {
     wasm_memory_bytes() {
       if (!memory) return 0;
       return memory.buffer.byteLength;
+    },
+    wasmAssetFileSize(pathPtr, pathLen) {
+      const bytes = loadAssetBytes(readString(pathPtr, pathLen));
+      return bytes ? bytes.length : -1;
+    },
+    wasmAssetReadFile(pathPtr, pathLen, dstPtr, dstLen) {
+      const bytes = loadAssetBytes(readString(pathPtr, pathLen));
+      if (!bytes || dstLen < bytes.length) return -1;
+      new Uint8Array(memory.buffer, dstPtr, bytes.length).set(bytes);
+      return bytes.length;
     },
     wasm_js_heap(outUsedPtr, outTotalPtr) {
       const view = getMemoryView();

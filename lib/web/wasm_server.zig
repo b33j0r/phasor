@@ -203,7 +203,7 @@ fn serveRequest(
     };
     defer file.close(init.io);
 
-    const max_bytes = 32 * 1024 * 1024;
+    const max_bytes = 128 * 1024 * 1024;
     const stat = try file.stat(init.io);
     if (stat.size > max_bytes) return error.FileTooLarge;
     const data = try init.gpa.alloc(u8, @intCast(stat.size));
@@ -261,6 +261,9 @@ fn guessContentType(path: []const u8) []const u8 {
     if (std.mem.endsWith(u8, path, ".css")) return "text/css; charset=utf-8";
     if (std.mem.endsWith(u8, path, ".wasm")) return "application/wasm";
     if (std.mem.endsWith(u8, path, ".json")) return "application/json; charset=utf-8";
+    if (std.mem.endsWith(u8, path, ".gltf")) return "model/gltf+json";
+    if (std.mem.endsWith(u8, path, ".glb")) return "model/gltf-binary";
+    if (std.mem.endsWith(u8, path, ".bin")) return "application/octet-stream";
     if (std.mem.endsWith(u8, path, ".svg")) return "image/svg+xml";
     if (std.mem.endsWith(u8, path, ".png")) return "image/png";
     if (std.mem.endsWith(u8, path, ".jpg")) return "image/jpeg";

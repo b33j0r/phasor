@@ -140,6 +140,21 @@ pub const AssetsContext = struct {
     post_process_shader_library: ?*PostProcessShaderLibrary = null,
     texture_library: ?*TextureLibrary = null,
     material_library: ?*MaterialLibrary = null,
+    core_shaders: ?*CoreShaders = null,
+
+    pub fn buildContext(self: AssetsContext) ?BuildContext {
+        return .{
+            .allocator = self.allocator,
+            .renderer = self.renderer orelse return null,
+            .default_sampler = self.sampler orelse return null,
+            .mesh_library = self.mesh_library orelse return null,
+            .shader_library = self.shader_library orelse return null,
+            .post_process_shader_library = self.post_process_shader_library orelse return null,
+            .texture_library = self.texture_library orelse return null,
+            .material_library = self.material_library orelse return null,
+            .font_library = self.font_library orelse return null,
+        };
+    }
 };
 pub const CoreShaderSources = @import("core_shaders.zig");
 pub const ColorGrade = @import("color_grading.zig").ColorGrade;

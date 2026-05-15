@@ -112,6 +112,63 @@ pub const SceneData = struct {
         if (end > bytes.len) return null;
         return bytes[start..end];
     }
+
+    pub fn defaultScene(self: *const SceneData) ?*const SceneDef {
+        if (self.default_scene) |index| return self.sceneAt(index);
+        if (self.scenes.len == 0) return null;
+        return &self.scenes[0];
+    }
+
+    pub fn sceneAt(self: *const SceneData, index: u32) ?*const SceneDef {
+        if (index >= self.scenes.len) return null;
+        return &self.scenes[index];
+    }
+
+    pub fn nodeAt(self: *const SceneData, index: u32) ?*const NodeData {
+        if (index >= self.nodes.len) return null;
+        return &self.nodes[index];
+    }
+
+    pub fn findNodeNamed(self: *const SceneData, name: []const u8) ?u32 {
+        for (self.nodes, 0..) |node, index| {
+            const node_name = node.name orelse continue;
+            if (std.mem.eql(u8, node_name, name)) return @intCast(index);
+        }
+        return null;
+    }
+
+    pub fn findChildNamed(self: *const SceneData, parent_index: u32, name: []const u8) ?u32 {
+        const parent = self.nodeAt(parent_index) orelse return null;
+        for (parent.children) |child_index| {
+            const child = self.nodeAt(child_index) orelse continue;
+            const child_name = child.name orelse continue;
+            if (std.mem.eql(u8, child_name, name)) return child_index;
+        }
+        return null;
+    }
+
+    pub fn findNodePath(self: *const SceneData, path: []const []const u8) ?u32 {
+        if (path.len == 0) return null;
+
+        const start_scene = self.defaultScene() orelse return null;
+        for (start_scene.root_nodes) |root_index| {
+            const root = self.nodeAt(root_index) orelse continue;
+            const root_name = root.name orelse continue;
+            if (!std.mem.eql(u8, root_name, path[0])) continue;
+
+            var current = root_index;
+            var matched = true;
+            for (path[1..]) |segment| {
+                current = self.findChildNamed(current, segment) orelse {
+                    matched = false;
+                    break;
+                };
+            }
+            if (matched) return current;
+        }
+
+        return null;
+    }
 };
 
 pub const SceneDef = struct {

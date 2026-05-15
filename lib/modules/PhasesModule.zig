@@ -4,6 +4,7 @@ pub const PhaseContext = struct {
     io: *const std.Io,
     world: *World,
     schedule_manager: *schedule.ScheduleManager,
+    commands: *Commands,
     systems: std.ArrayListUnmanaged(SystemSpec) = .empty,
 
     pub const SystemSpec = struct {
@@ -15,12 +16,14 @@ pub const PhaseContext = struct {
         io: *const std.Io,
         world: *World,
         schedule_manager: *schedule.ScheduleManager,
+        commands: *Commands,
     ) PhaseContext {
         return .{
             .allocator = allocator,
             .io = io,
             .world = world,
             .schedule_manager = schedule_manager,
+            .commands = commands,
         };
     }
 
@@ -38,6 +41,38 @@ pub const PhaseContext = struct {
         try self.systems.append(self.allocator, .{ .label = schedule_ptr.label, .system = system });
     }
 
+    pub fn createEntity(self: *PhaseContext, components: anytype) !u64 {
+        return self.commands.createEntity(components);
+    }
+
+    pub fn removeEntity(self: *PhaseContext, entity_id: u64) !void {
+        try self.commands.removeEntity(entity_id);
+    }
+
+    pub fn removeEntityTree(self: *PhaseContext, entity_id: u64) !void {
+        try self.commands.removeEntityTree(entity_id);
+    }
+
+    pub fn addComponents(self: *PhaseContext, entity_id: u64, components: anytype) !void {
+        try self.commands.addComponents(entity_id, components);
+    }
+
+    pub fn insertResource(self: *PhaseContext, resource: anytype) !void {
+        try self.commands.insertResource(resource);
+    }
+
+    pub fn getResource(self: *PhaseContext, comptime T: type) ?*const T {
+        return self.commands.getResource(T);
+    }
+
+    pub fn getResourceMut(self: *PhaseContext, comptime T: type) ?*T {
+        return self.commands.getResourceMut(T);
+    }
+
+    pub fn query(self: *PhaseContext, comptime Parts: anytype) !db.QueryResult {
+        return self.commands.query(Parts);
+    }
+
     fn unregisterSystems(self: *PhaseContext) void {
         for (self.systems.items) |spec| {
             const schedule_ptr = self.schedule_manager.schedulePtr(spec.label) orelse continue;
@@ -53,6 +88,7 @@ pub fn PhaseContextStack(comptime PhasesT: type) type {
         io: *const std.Io,
         world: *World,
         schedule_manager: *schedule.ScheduleManager,
+        commands: *Commands,
         stack: std.ArrayListUnmanaged(*PhaseContext) = .empty,
 
         pub const Phases = PhasesT;
@@ -63,8 +99,9 @@ pub fn PhaseContextStack(comptime PhasesT: type) type {
             io: *const std.Io,
             world: *World,
             schedule_manager: *schedule.ScheduleManager,
+            commands: *Commands,
         ) !Self {
-            return .{ .allocator = alloc, .io = io, .world = world, .schedule_manager = schedule_manager };
+            return .{ .allocator = alloc, .io = io, .world = world, .schedule_manager = schedule_manager, .commands = commands };
         }
 
         pub fn deinit(self: *Self) void {
@@ -82,7 +119,7 @@ pub fn PhaseContextStack(comptime PhasesT: type) type {
         pub fn push(self: *Self) !*PhaseContext {
             const ctx = try self.allocator.create(PhaseContext);
             errdefer self.allocator.destroy(ctx);
-            ctx.* = PhaseContext.init(self.allocator, self.io, self.world, self.schedule_manager);
+            ctx.* = PhaseContext.init(self.allocator, self.io, self.world, self.schedule_manager, self.commands);
             try self.stack.append(self.allocator, ctx);
             return ctx;
         }
@@ -90,6 +127,13 @@ pub fn PhaseContextStack(comptime PhasesT: type) type {
         pub fn pop(self: *Self) ?*PhaseContext {
             if (self.stack.items.len == 0) return null;
             return self.stack.pop();
+        }
+
+        pub fn bindCommands(self: *Self, commands: *Commands) void {
+            self.commands = commands;
+            for (self.stack.items) |ctx| {
+                ctx.commands = commands;
+            }
         }
 
         pub fn top(self: *Self) ?*PhaseContext {
@@ -134,7 +178,7 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
         };
 
         pub fn install(app: *AppCommands, commands: *Commands) !void {
-            const stack = try Stack.init(commands.allocator, commands.io, commands.world, app.schedule_manager);
+            const stack = try Stack.init(commands.allocator, commands.io, commands.world, app.schedule_manager, commands);
             try commands.insertResource(PhaseContextStackResource{ .stack = stack });
 
             try app.addSystem("Startup", handleInitialPhase);
@@ -164,6 +208,7 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
 
             const next_phase = next_opt.?;
             const stack_res = commands.getResourceMut(PhaseContextStackResource) orelse return error.MissingPhaseContextStack;
+            stack_res.stack.bindCommands(commands);
 
             if (commands.getResourceMut(CurrentPhase)) |cur_res| {
                 const cur = cur_res.phase;
@@ -217,6 +262,7 @@ pub fn Definition(PhasesT: type, initial_phase: PhasesT) type {
                 .@"struct" => {
                     const ctx = try stack.push();
                     if (@hasDecl(T, "enter")) {
+                        // TODO: is this copy necessary?
                         var copy = v;
                         try T.enter(&copy, ctx);
                     }
@@ -487,5 +533,6 @@ const ecs = @import("ecs");
 const AppCommands = ecs.AppCommands;
 const Commands = ecs.Commands;
 const World = ecs.World;
+const db = @import("db");
 const System = ecs.system.System;
 const schedule = ecs.schedule;

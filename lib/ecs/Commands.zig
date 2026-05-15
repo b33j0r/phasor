@@ -92,6 +92,48 @@ pub fn removeEntity(self: *Self, entity_id: Entity.Id) !void {
     });
 }
 
+pub fn removeEntityTree(self: *Self, entity_id: Entity.Id) !void {
+    const RemoveEntityTreeContext = struct {
+        entity_id: Entity.Id,
+
+        pub fn execute(ctx: *@This(), world: *World) anyerror!void {
+            try removeEntityTreeImmediate(world, ctx.entity_id);
+        }
+    };
+
+    try self.queueContext(RemoveEntityTreeContext{
+        .entity_id = entity_id,
+    });
+}
+
+fn removeEntityTreeImmediate(world: *World, entity_id: Entity.Id) !void {
+    var children: std.ArrayListUnmanaged(Entity.Id) = .empty;
+    defer children.deinit(world.database.allocator);
+
+    try collectChildEntities(&world.database, entity_id, &children);
+    for (children.items) |child_id| {
+        try removeEntityTreeImmediate(world, child_id);
+    }
+
+    world.database.removeEntity(entity_id) catch |err| switch (err) {
+        error.EntityNotFound => {},
+        else => return err,
+    };
+}
+
+fn collectChildEntities(database: *db.Database, parent_id: Entity.Id, children: *std.ArrayListUnmanaged(Entity.Id)) !void {
+    for (database.tables.items) |*table| {
+        var row: usize = 0;
+        while (row < table.len()) : (row += 1) {
+            const parent = table.getComponentPtr(row, common.Parent) orelse continue;
+            if (parent.id == parent_id) {
+                const child_id = table.entityIdAt(row) orelse continue;
+                try children.append(database.allocator, child_id);
+            }
+        }
+    }
+}
+
 pub fn addComponent(self: *Self, entity_id: Entity.Id, component: anytype) !void {
     try self.addComponents(entity_id, .{component});
 }
@@ -264,6 +306,31 @@ test "commands flush batches through common channel" {
 
     try batch.apply(&world);
     try std.testing.expectEqual(@as(u32, 42), world.getResource(Marker).?.value);
+}
+
+test "removeEntityTree removes parented descendants" {
+    const allocator = std.testing.allocator;
+    var io_threaded = std.Io.Threaded.init(allocator, .{ .environ = std.process.Environ.empty });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var world = World.init(allocator);
+    defer world.deinit();
+
+    var commands = Self.init(allocator, &io, &world);
+    defer commands.deinit();
+
+    const Marker = struct {};
+
+    const root = try commands.createEntity(.{Marker{}});
+    const child = try commands.createEntity(.{ common.Parent{ .id = root }, Marker{} });
+    _ = try commands.createEntity(.{ common.Parent{ .id = child }, Marker{} });
+    try commands.apply();
+
+    try commands.removeEntityTree(root);
+    try commands.apply();
+
+    try std.testing.expectEqual(@as(usize, 0), world.database.entityCount());
 }
 
 // Imports

@@ -80,7 +80,11 @@ fn inverseMat3(m: mat3x3<f32>) -> mat3x3<f32> {
         );
     }
     let inv_det = 1.0 / det;
-    return mat3x3<f32>(r0 * inv_det, r1 * inv_det, r2 * inv_det);
+    return mat3x3<f32>(
+        vec3<f32>(r0.x, r1.x, r2.x) * inv_det,
+        vec3<f32>(r0.y, r1.y, r2.y) * inv_det,
+        vec3<f32>(r0.z, r1.z, r2.z) * inv_det,
+    );
 }
 
 fn sampleDirectionalShadow(world_pos: vec3<f32>, normal: vec3<f32>, ndotl: f32) -> f32 {

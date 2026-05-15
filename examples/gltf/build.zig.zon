@@ -1,0 +1,15 @@
+.{
+    .name = .gltf,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.17.0-dev.78+9636d76b6",
+    .paths = .{
+        "",
+        "../../assets/gltf/FlightHelmet",
+    },
+    .dependencies = .{
+        .phasor = .{
+            .path = "../..",
+        },
+    },
+    .fingerprint = 0x29fa5a7d4730f921,
+}

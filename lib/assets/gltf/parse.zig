@@ -20,6 +20,10 @@ pub fn parseFromBytes(allocator: std.mem.Allocator, bytes: []const u8) !scene.Sc
     if (result != c.cgltf_result_success or data == null) return Error.ParseFailed;
     defer c.cgltf_free(data);
 
+    if (needsCgltfLoadBuffers(data.?)) {
+        if (c.cgltf_load_buffers(&options, data, null) != c.cgltf_result_success) return Error.LoadBuffersFailed;
+    }
+
     if (c.cgltf_validate(data) != c.cgltf_result_success) return Error.ValidateFailed;
     return try buildSceneData(allocator, data.?);
 }
@@ -50,6 +54,21 @@ fn buildSceneData(allocator: std.mem.Allocator, data: *const c.cgltf_data) !scen
         .accessors = try buildAccessors(allocator, data),
         .buffers = try buildBuffers(allocator, data),
     };
+}
+
+fn needsCgltfLoadBuffers(data: *const c.cgltf_data) bool {
+    var found_loadable = false;
+    for (0..data.buffers_count) |i| {
+        const buffer = &data.buffers[i];
+        if (buffer.data != null) continue;
+        const uri = buffer.uri orelse {
+            found_loadable = true;
+            continue;
+        };
+        if (!std.mem.startsWith(u8, std.mem.span(uri), "data:")) return false;
+        found_loadable = true;
+    }
+    return found_loadable;
 }
 
 fn buildScenes(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]scene.SceneDef {
@@ -297,12 +316,7 @@ fn buildAccessors(allocator: std.mem.Allocator, data: *const c.cgltf_data) ![]sc
 fn nodeTransform(node: *allowzero const c.cgltf_node) common.LocalTransform {
     var out = common.LocalTransform{};
     if (node.has_matrix != 0) {
-        out.translation = .{
-            .x = @floatCast(node.matrix[12]),
-            .y = @floatCast(node.matrix[13]),
-            .z = @floatCast(node.matrix[14]),
-        };
-        return out;
+        return transformFromMatrix(&node.matrix);
     }
     if (node.has_translation != 0) {
         out.translation = .{
@@ -327,6 +341,84 @@ fn nodeTransform(node: *allowzero const c.cgltf_node) common.LocalTransform {
         };
     }
     return out;
+}
+
+fn transformFromMatrix(matrix: [*c]const c.cgltf_float) common.LocalTransform {
+    var x_axis = common.Vec3{ .x = @floatCast(matrix[0]), .y = @floatCast(matrix[1]), .z = @floatCast(matrix[2]) };
+    const y_axis = common.Vec3{ .x = @floatCast(matrix[4]), .y = @floatCast(matrix[5]), .z = @floatCast(matrix[6]) };
+    const z_axis = common.Vec3{ .x = @floatCast(matrix[8]), .y = @floatCast(matrix[9]), .z = @floatCast(matrix[10]) };
+
+    var scale = common.Vec3{
+        .x = x_axis.length(),
+        .y = y_axis.length(),
+        .z = z_axis.length(),
+    };
+    if (x_axis.cross(y_axis).dot(z_axis) < 0.0) {
+        scale.x = -scale.x;
+    }
+
+    if (@abs(scale.x) > 0.00001) x_axis = x_axis.scale(1.0 / scale.x);
+    const ry = if (@abs(scale.y) > 0.00001) y_axis.scale(1.0 / scale.y) else common.Vec3{ .y = 1.0 };
+    const rz = if (@abs(scale.z) > 0.00001) z_axis.scale(1.0 / scale.z) else common.Vec3{ .z = 1.0 };
+
+    return .{
+        .translation = .{
+            .x = @floatCast(matrix[12]),
+            .y = @floatCast(matrix[13]),
+            .z = @floatCast(matrix[14]),
+        },
+        .rotation = quatFromRotationColumns(x_axis, ry, rz),
+        .scale = scale,
+    };
+}
+
+fn quatFromRotationColumns(x_axis: common.Vec3, y_axis: common.Vec3, z_axis: common.Vec3) common.Quat {
+    const m00 = x_axis.x;
+    const m01 = y_axis.x;
+    const m02 = z_axis.x;
+    const m10 = x_axis.y;
+    const m11 = y_axis.y;
+    const m12 = z_axis.y;
+    const m20 = x_axis.z;
+    const m21 = y_axis.z;
+    const m22 = z_axis.z;
+    const trace = m00 + m11 + m22;
+
+    if (trace > 0.0) {
+        const s = @sqrt(trace + 1.0) * 2.0;
+        return (common.Quat{
+            .w = 0.25 * s,
+            .x = (m21 - m12) / s,
+            .y = (m02 - m20) / s,
+            .z = (m10 - m01) / s,
+        }).normalize();
+    }
+    if (m00 > m11 and m00 > m22) {
+        const s = @sqrt(1.0 + m00 - m11 - m22) * 2.0;
+        return (common.Quat{
+            .w = (m21 - m12) / s,
+            .x = 0.25 * s,
+            .y = (m01 + m10) / s,
+            .z = (m02 + m20) / s,
+        }).normalize();
+    }
+    if (m11 > m22) {
+        const s = @sqrt(1.0 + m11 - m00 - m22) * 2.0;
+        return (common.Quat{
+            .w = (m02 - m20) / s,
+            .x = (m01 + m10) / s,
+            .y = 0.25 * s,
+            .z = (m12 + m21) / s,
+        }).normalize();
+    }
+
+    const s = @sqrt(1.0 + m22 - m00 - m11) * 2.0;
+    return (common.Quat{
+        .w = (m10 - m01) / s,
+        .x = (m02 + m20) / s,
+        .y = (m12 + m21) / s,
+        .z = 0.25 * s,
+    }).normalize();
 }
 
 fn accessorRef(data: *const c.cgltf_data, accessor: ?*const c.cgltf_accessor) ?scene.AccessorRef {
@@ -611,4 +703,26 @@ test "parse gltf file resolves external buffer bytes" {
     const slice = parsed.accessorByteSlice(0).?;
     try std.testing.expectEqual(@as(usize, 16), slice.len);
     try std.testing.expectEqual(@as(u8, 63), slice[3]);
+}
+
+test "node matrix preserves rotation and scale" {
+    const matrix = [_]c.cgltf_float{
+        1.0, 0.0, 0.0,  0.0,
+        0.0, 0.0, -1.0, 0.0,
+        0.0, 1.0, 0.0,  0.0,
+        2.0, 3.0, 4.0,  1.0,
+    };
+
+    const transform = transformFromMatrix(&matrix);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), transform.translation.x, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 3.0), transform.translation.y, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.0), transform.translation.z, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), transform.scale.x, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), transform.scale.y, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), transform.scale.z, 0.0001);
+
+    const rotated_y = transform.rotation.rotateVec3(.{ .y = 1.0 });
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), rotated_y.x, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), rotated_y.y, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), rotated_y.z, 0.0001);
 }

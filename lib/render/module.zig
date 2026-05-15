@@ -251,6 +251,7 @@ fn ensureAssetsContextSystem(commands: *Commands) !void {
     const post_process_shader_library = commands.getResourceMut(render.PostProcessShaderLibrary) orelse return;
     const texture_library = commands.getResourceMut(render.TextureLibrary) orelse return;
     const material_library = commands.getResourceMut(render.MaterialLibrary) orelse return;
+    const core_shaders = commands.getResourceMut(render.CoreShaders) orelse return;
     try commands.insertResource(render.AssetsContext{
         .allocator = commands.allocator,
         .io = commands.io,
@@ -262,6 +263,7 @@ fn ensureAssetsContextSystem(commands: *Commands) !void {
         .post_process_shader_library = post_process_shader_library,
         .texture_library = texture_library,
         .material_library = material_library,
+        .core_shaders = core_shaders,
     });
     log.debug("AssetsContext ready", .{});
 }
