@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const app_exe = b.addExecutable(.{
-        .name = "gltf",
+        .name = "loading",
         .root_module = app_mod,
     });
     b.installArtifact(app_exe);
@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(app_exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
-    const run_step = b.step("run", "Run the glTF example");
+    const run_step = b.step("run", "Run the loading example");
     run_step.dependOn(&run_cmd.step);
 
     addWebBuild(b, host_target, optimize, phasor_dep);
@@ -96,7 +96,7 @@ fn addWebBuild(
         },
     });
     const wasm_exe = b.addExecutable(.{
-        .name = "gltf_web",
+        .name = "loading_web",
         .root_module = wasm_app_mod,
     });
     wasm_exe.entry = .disabled;
@@ -108,12 +108,12 @@ fn addWebBuild(
         .optimize = optimize,
     });
     const server_exe = b.addExecutable(.{
-        .name = "gltf_wasm_server",
+        .name = "loading_wasm_server",
         .root_module = server_mod,
     });
     b.installArtifact(server_exe);
 
-    const web_dir = "web/gltf";
+    const web_dir = "web/loading";
     const install_wasm = b.addInstallFile(wasm_exe.getEmittedBin(), b.fmt("{s}/app.wasm", .{web_dir}));
     const install_html = b.addInstallFile(phasor_dep.path("assets/web/index.html"), b.fmt("{s}/index.html", .{web_dir}));
     const install_webgpu = b.addInstallFile(phasor_dep.path("assets/web/webgpu.js"), b.fmt("{s}/webgpu.js", .{web_dir}));
@@ -136,11 +136,6 @@ fn addWebBuild(
         phasor_dep.path("lib/render/shaders/mesh_textured.wgsl"),
         b.fmt("{s}/shaders/mesh_textured.wgsl", .{web_dir}),
     );
-    const install_assets = b.addInstallDirectory(.{
-        .source_dir = b.path("assets"),
-        .install_dir = .prefix,
-        .install_subdir = b.fmt("{s}/assets", .{web_dir}),
-    });
 
     const run_server = b.addRunArtifact(server_exe);
     run_server.setCwd(b.path("."));
@@ -162,13 +157,12 @@ fn addWebBuild(
         &install_triangle_shader.step,
         &install_quad_shader.step,
         &install_mesh_textured_shader.step,
-        &install_assets.step,
     };
 
     for (installs) |step| {
         run_server.step.dependOn(step);
     }
 
-    const run_wasm = b.step("run-wasm", "Run the glTF example in the browser");
+    const run_wasm = b.step("run-wasm", "Run the loading example in the browser");
     run_wasm.dependOn(&run_server.step);
 }

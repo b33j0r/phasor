@@ -1,6 +1,3 @@
-const std = @import("std");
-const phasor = @import("phasor");
-
 const SceneId = enum {
     helmet,
     box,
@@ -33,31 +30,14 @@ const Assets = struct {
     box: Scene = Scene.file("assets/models/Box.glb"),
 };
 
-const LoaderState = phasor.AssetsLoadState(Assets);
+const AssetLoading = loading.AssetLoading(Assets);
+const LoaderState = AssetLoading.State;
 
 const ActiveScene = struct {
     id: SceneId,
 };
 
 const OverlayText = struct {};
-const LoadingStatusText = struct {};
-const LoadingBarTrack = struct {};
-const LoadingBarFill = struct {};
-
-const LoadingUi = struct {
-    last_stage: AssetsLoadStage = .idle,
-    last_asset_name: []const u8 = "bundle",
-    status_buf: [160]u8 = @splat(0),
-    status_len: usize = 0,
-
-    fn status(self: *const LoadingUi) []const u8 {
-        return self.status_buf[0..self.status_len];
-    }
-};
-
-const loading_bar_width: f32 = 360.0;
-const loading_bar_left: f32 = 220.0;
-const loading_bar_center_x: f32 = loading_bar_left + loading_bar_width * 0.5;
 
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.init(&init, .{
@@ -86,8 +66,10 @@ pub fn main(init: std.process.Init) !u8 {
     });
 
     try app.addSystem("Startup", setup);
-    try app.addSystem("Startup", beginLoading);
-    try app.addSystem("Update", updateLoadingUi);
+    try app.addSystem("Startup", loading.setup);
+    try app.addSystem("Startup", AssetLoading.begin);
+    try app.addSystem("Update", AssetLoading.sync);
+    try app.addSystem("Update", loading.sync);
     try app.addSystem("Update", switchSceneOnInput);
     try app.addSystem("Update", spinActiveScene);
     try app.addSystem("Update", syncOverlayText);
@@ -131,83 +113,10 @@ fn setup(commands: *Commands, assets: ResMut(Assets)) !void {
     });
 
     _ = try commands.createEntity(.{
-        LoadingStatusText{},
-        Transform{ .translation = .{ .x = loading_bar_center_x, .y = 268.0, .z = 0.0 } },
-        Text{
-            .font_size = 18.0,
-            .color = Color.rgb(214, 227, 242),
-            .content = "",
-            .horizontal_alignment = .Center,
-            .vertical_alignment = .Center,
-        },
-        Layer(1000){},
-    });
-
-    _ = try commands.createEntity(.{
-        LoadingBarTrack{},
-        Transform{ .translation = .{ .x = 400.0, .y = 318.0, .z = 0.0 }, .scale = Vec3.splat(0.0) },
-        Rectangle{ .width = loading_bar_width, .height = 18.0, .color = Color.rgb(38, 46, 58) },
-        Layer(1000){},
-    });
-
-    _ = try commands.createEntity(.{
-        LoadingBarFill{},
-        Transform{ .translation = .{ .x = loading_bar_left, .y = 318.0, .z = 0.0 }, .scale = Vec3.splat(0.0) },
-        Rectangle{ .width = 1.0, .height = 18.0, .color = Color.rgb(90, 190, 255) },
-        Layer(1000){},
-    });
-
-    _ = try commands.createEntity(.{
         ActiveScene{ .id = .helmet },
         Transform{},
         assets.ptr.helmet.instance(),
     });
-
-    try commands.insertResource(LoadingUi{});
-}
-
-fn beginLoading(commands: *Commands, loader: ResMut(LoaderState)) void {
-    loader.ptr.beginDefaultSession(commands.io);
-}
-
-fn updateLoadingUi(
-    events: EventReader(AssetsProgressEvent),
-    loader: Res(LoaderState),
-    ui: ResMut(LoadingUi),
-    status_query: Query(.{ Text, LoadingStatusText }),
-    fill_query: Query(.{ Rectangle, Transform, LoadingBarFill }),
-    track_query: Query(.{ Transform, LoadingBarTrack }),
-) !void {
-    while (events.next()) |event| {
-        ui.ptr.last_stage = event.stage;
-        if (event.asset_name) |name| ui.ptr.last_asset_name = name;
-    }
-
-    const loading_visible = !loader.ptr.isComplete();
-    const progress = loader.ptr.overallProgress01();
-    const counts = loader.ptr.currentCounts();
-    const percent: usize = @intFromFloat(progress * 100.0);
-    const asset_name = std.fs.path.basename(ui.ptr.last_asset_name);
-
-    ui.ptr.status_len = (try std.fmt.bufPrint(
-        &ui.ptr.status_buf,
-        "{s} {s}\n{d}% complete ({d}/{d})",
-        .{
-            stageLabel(ui.ptr.last_stage),
-            asset_name,
-            percent,
-            counts.completed,
-            counts.total,
-        },
-    )).len;
-
-    var status_it = status_query.iterator();
-    while (status_it.next()) |row| {
-        const text = row.get(Text) orelse continue;
-        text.content = if (loading_visible) ui.ptr.status() else "";
-    }
-
-    updateLoadingBar(fill_query, track_query, loading_visible, progress);
 }
 
 fn switchSceneOnInput(
@@ -226,7 +135,7 @@ fn switchSceneOnInput(
     while (it.next()) |row| {
         try commands.removeEntityTree(row.entity_id);
     }
-    loader.ptr.beginDefaultSession(commands.io);
+    AssetLoading.restart(commands, loader);
     try spawnScene(commands, assets.ptr, next_scene);
 }
 
@@ -305,52 +214,13 @@ fn sceneTransform(bounds: ImportedScene.Bounds, seconds: f32) Transform {
     };
 }
 
-fn updateLoadingBar(
-    fill_query: Query(.{ Rectangle, Transform, LoadingBarFill }),
-    track_query: Query(.{ Transform, LoadingBarTrack }),
-    visible: bool,
-    progress01: f32,
-) void {
-    const scale = if (visible) Vec3.splat(1.0) else Vec3.splat(0.0);
-
-    var track_it = track_query.iterator();
-    while (track_it.next()) |row| {
-        const transform = row.get(Transform) orelse continue;
-        transform.scale = scale;
-    }
-
-    const fill_width = @max(1.0, loading_bar_width * std.math.clamp(progress01, 0.0, 1.0));
-    var fill_it = fill_query.iterator();
-    while (fill_it.next()) |row| {
-        const rectangle = row.get(Rectangle) orelse continue;
-        const transform = row.get(Transform) orelse continue;
-        rectangle.width = fill_width;
-        transform.translation.x = loading_bar_left + fill_width * 0.5;
-        transform.scale = scale;
-    }
-}
-
-fn stageLabel(stage: AssetsLoadStage) []const u8 {
-    return switch (stage) {
-        .idle => "idle",
-        .bundle_started => "Starting",
-        .bundle_planning => "Planning",
-        .bundle_plan_complete => "Planned",
-        .bundle_executing => "Loading",
-        .asset_discovered => "Found",
-        .asset_planned => "Planned",
-        .asset_execute => "Loading",
-        .scene_prepared => "Prepared",
-        .scene_instance_gpu_started => "Uploading",
-        .scene_instance_gpu_progress => "Uploading",
-        .asset_complete => "Loaded",
-        .bundle_complete => "Ready",
-    };
-}
+// Imports
+const std = @import("std");
+const phasor = @import("phasor");
+const loading = @import("loading.zig");
 
 const AmbientLight = phasor.AmbientLight;
 const App = phasor.App;
-const AssetsLoadStage = phasor.AssetsLoadStage;
 const AssetsModuleConfigured = phasor.AssetsModuleConfigured;
 const Camera3d = phasor.Camera3d;
 const CameraLayer = phasor.CameraLayer;
@@ -358,7 +228,6 @@ const ClearColor = phasor.ClearColor;
 const Color = phasor.Color;
 const Commands = phasor.Commands;
 const ElapsedTime = phasor.ElapsedTime;
-const EventReader = phasor.EventReader;
 const ImportedScene = phasor.ImportedScene;
 const Key = phasor.Key;
 const Keyboard = phasor.Keyboard;
@@ -367,7 +236,6 @@ const Light = phasor.Light;
 const MetricsModuleLayered = phasor.MetricsModuleLayered;
 const Query = phasor.Query;
 const Quat = phasor.Quat;
-const Rectangle = phasor.Rectangle;
 const Res = phasor.Res;
 const ResMut = phasor.ResMut;
 const Scene = phasor.Scene;
@@ -376,4 +244,3 @@ const Transform = phasor.Transform;
 const Vec3 = phasor.Vec3;
 const VSync = phasor.VSync;
 const WindowSettings = phasor.WindowSettings;
-const AssetsProgressEvent = phasor.AssetsProgressEvent;
