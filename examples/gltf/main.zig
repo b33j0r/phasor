@@ -1,18 +1,48 @@
-// Assets
+const std = @import("std");
+const phasor = @import("phasor");
+
+const SceneId = enum {
+    helmet,
+    box,
+};
+
+const SceneBinding = struct {
+    id: SceneId,
+    key: Key,
+    asset_name: []const u8,
+    overlay: []const u8,
+};
+
+const scene_bindings = [_]SceneBinding{
+    .{
+        .id = .helmet,
+        .key = .one,
+        .asset_name = "FlightHelmet.gltf",
+        .overlay = "Viewing FlightHelmet.gltf  |  Press 2 for Box.glb",
+    },
+    .{
+        .id = .box,
+        .key = .two,
+        .asset_name = "Box.glb",
+        .overlay = "Viewing Box.glb  |  Press 1 for FlightHelmet.gltf",
+    },
+};
+
 const Assets = struct {
     helmet: Scene = Scene.file("assets/models/FlightHelmet.gltf"),
     box: Scene = Scene.file("assets/models/Box.glb"),
 };
 
-const LoaderState = AssetsLoadState(Assets);
+const LoaderState = phasor.AssetsLoadState(Assets);
 
-// Components
+const ActiveScene = struct {
+    id: SceneId,
+};
+
 const OverlayText = struct {};
 const LoadingStatusText = struct {};
 const LoadingBarTrack = struct {};
 const LoadingBarFill = struct {};
-const HelmetRoot = struct {};
-const BoxRoot = struct {};
 
 const LoadingUi = struct {
     last_stage: AssetsLoadStage = .idle,
@@ -20,12 +50,15 @@ const LoadingUi = struct {
     status_buf: [160]u8 = @splat(0),
     status_len: usize = 0,
 
-    pub fn status(self: *const LoadingUi) []const u8 {
+    fn status(self: *const LoadingUi) []const u8 {
         return self.status_buf[0..self.status_len];
     }
 };
 
-// Main
+const loading_bar_width: f32 = 360.0;
+const loading_bar_left: f32 = 220.0;
+const loading_bar_center_x: f32 = loading_bar_left + loading_bar_width * 0.5;
+
 pub fn main(init: std.process.Init) !u8 {
     var app = try App.init(&init, .{
         .command_queue_capacity = 128,
@@ -43,7 +76,6 @@ pub fn main(init: std.process.Init) !u8 {
     try app.insertResource(AmbientLight{ .intensity = 0.65 });
 
     try app.installDefaultModules();
-    try app.installModule(ViewerPhases);
     try app.installModule(AssetsModuleConfigured(Assets, .{
         .loading_policy = .manual,
         .scene_primitives_per_frame = 1,
@@ -53,62 +85,17 @@ pub fn main(init: std.process.Init) !u8 {
         .text_color = Color.WHITE,
     });
 
-    try app.addSystem("Startup", setupViewer);
-    try app.addSystem("Update", switchModels);
-    try app.addSystem("Update", updateModelView);
+    try app.addSystem("Startup", setup);
+    try app.addSystem("Startup", beginLoading);
+    try app.addSystem("Update", updateLoadingUi);
+    try app.addSystem("Update", switchSceneOnInput);
+    try app.addSystem("Update", spinActiveScene);
+    try app.addSystem("Update", syncOverlayText);
 
     return try app.run();
 }
 
-// Phases
-const Phases = union(enum) {
-    Loading: struct {
-        pub fn enter(_: anytype, ctx: *PhaseContext) !void {
-            const loader = ctx.getResourceMut(LoaderState) orelse return error.MissingAssetsLoader;
-            loader.beginDefaultSession(ctx.io);
-            try hideAllModels(ctx);
-            try setOverlay(ctx, "");
-            try updateLoadingText(ctx, "Planning scene bundle...");
-            try setLoadingBar(ctx, true, 0.0);
-            try ctx.addSystem("Update", updateLoadingUi);
-            try ctx.addSystem("Update", transitionFromLoading);
-        }
-
-        pub fn exit(_: anytype, ctx: *PhaseContext) !void {
-            try updateLoadingText(ctx, "");
-            try setLoadingBar(ctx, false, 0.0);
-        }
-    },
-    Helmet: struct {
-        pub fn enter(_: anytype, ctx: *PhaseContext) !void {
-            const assets = ctx.getResourceMut(Assets) orelse return error.MissingAssets;
-            try setModelState(ctx, HelmetRoot, assets.helmet.bounds(), true);
-            try setModelState(ctx, BoxRoot, assets.box.bounds(), false);
-            try setOverlay(ctx, "Viewing FlightHelmet.gltf  |  Press 2 for Box.glb");
-            try updateLoadingText(ctx, "");
-            try setLoadingBar(ctx, false, 0.0);
-        }
-
-        pub fn exit(_: anytype, _: *PhaseContext) !void {}
-    },
-    Box: struct {
-        pub fn enter(_: anytype, ctx: *PhaseContext) !void {
-            const assets = ctx.getResourceMut(Assets) orelse return error.MissingAssets;
-            try setModelState(ctx, HelmetRoot, assets.helmet.bounds(), false);
-            try setModelState(ctx, BoxRoot, assets.box.bounds(), true);
-            try setOverlay(ctx, "Viewing Box.glb  |  Press 1 for FlightHelmet.gltf");
-            try updateLoadingText(ctx, "");
-            try setLoadingBar(ctx, false, 0.0);
-        }
-
-        pub fn exit(_: anytype, _: *PhaseContext) !void {}
-    },
-};
-
-const ViewerPhases = PhasesModule.Definition(Phases, .{ .Loading = .{} });
-
-// Systems
-fn setupViewer(commands: *Commands, assets: ResMut(Assets)) !void {
+fn setup(commands: *Commands, assets: ResMut(Assets)) !void {
     _ = try commands.createEntity(.{
         Transform{},
         Camera3d{ .Perspective = .{
@@ -120,7 +107,9 @@ fn setupViewer(commands: *Commands, assets: ResMut(Assets)) !void {
     });
 
     _ = try commands.createEntity(.{
-        Transform{ .rotation = Quat.lookRotation(.{ .x = -0.35, .y = -0.65, .z = -0.7 }, .{ .y = 1.0 }) },
+        Transform{
+            .rotation = Quat.lookRotation(.{ .x = 0.35, .y = -0.65, .z = -0.7 }, .{ .y = 1.0 }),
+        },
         Light{ .directional = .{ .illuminance_lux = 65000.0 } },
     });
 
@@ -169,64 +158,16 @@ fn setupViewer(commands: *Commands, assets: ResMut(Assets)) !void {
     });
 
     _ = try commands.createEntity(.{
-        HelmetRoot{},
-        Transform{ .scale = Vec3.splat(0.0) },
+        ActiveScene{ .id = .helmet },
+        Transform{},
         assets.ptr.helmet.instance(),
-    });
-    _ = try commands.createEntity(.{
-        BoxRoot{},
-        Transform{ .scale = Vec3.splat(0.0) },
-        assets.ptr.box.instance(),
     });
 
     try commands.insertResource(LoadingUi{});
 }
 
-fn switchModels(
-    commands: *Commands,
-    keyboard: Res(Keyboard),
-    phase_opt: ResOpt(ViewerPhases.CurrentPhase),
-) !void {
-    const current = if (phase_opt.ptr) |phase| phase.phase else return;
-    switch (current) {
-        .Loading => return,
-        .Helmet => {},
-        .Box => {},
-    }
-
-    const keys = keyboard.deref();
-    if (keys.isKeyPressed(.one)) {
-        try commands.insertResource(ViewerPhases.NextPhase{ .phase = .{ .Helmet = .{} } });
-    } else if (keys.isKeyPressed(.two)) {
-        try commands.insertResource(ViewerPhases.NextPhase{ .phase = .{ .Box = .{} } });
-    }
-}
-
-fn updateModelView(
-    elapsed: Res(ElapsedTime),
-    phase_opt: ResOpt(ViewerPhases.CurrentPhase),
-    assets: Res(Assets),
-    helmets: Query(.{ Transform, HelmetRoot }),
-    boxes: Query(.{ Transform, BoxRoot }),
-    overlay: Query(.{ Text, OverlayText }),
-) void {
-    const current = if (phase_opt.ptr) |phase| phase.phase else return;
-    const helmet_visible = switch (current) {
-        .Loading => return,
-        .Helmet => true,
-        .Box => false,
-    };
-    const seconds: f32 = @floatCast(elapsed.deref().seconds);
-
-    setModelTransform(helmets, assets.ptr.helmet.bounds(), seconds, helmet_visible);
-    setModelTransform(boxes, assets.ptr.box.bounds(), seconds, !helmet_visible);
-    setOverlayText(
-        overlay,
-        if (helmet_visible)
-            "Viewing FlightHelmet.gltf  |  Press 2 for Box.glb"
-        else
-            "Viewing Box.glb  |  Press 1 for FlightHelmet.gltf",
-    );
+fn beginLoading(commands: *Commands, loader: ResMut(LoaderState)) void {
+    loader.ptr.beginDefaultSession(commands.io);
 }
 
 fn updateLoadingUi(
@@ -239,15 +180,15 @@ fn updateLoadingUi(
 ) !void {
     while (events.next()) |event| {
         ui.ptr.last_stage = event.stage;
-        if (event.asset_name) |name| {
-            ui.ptr.last_asset_name = name;
-        }
+        if (event.asset_name) |name| ui.ptr.last_asset_name = name;
     }
 
-    const counts = loader.ptr.currentCounts();
+    const loading_visible = !loader.ptr.isComplete();
     const progress = loader.ptr.overallProgress01();
+    const counts = loader.ptr.currentCounts();
     const percent: usize = @intFromFloat(progress * 100.0);
     const asset_name = std.fs.path.basename(ui.ptr.last_asset_name);
+
     ui.ptr.status_len = (try std.fmt.bufPrint(
         &ui.ptr.status_buf,
         "{s} {s}\n{d}% complete ({d}/{d})",
@@ -263,19 +204,115 @@ fn updateLoadingUi(
     var status_it = status_query.iterator();
     while (status_it.next()) |row| {
         const text = row.get(Text) orelse continue;
-        text.content = ui.ptr.status();
+        text.content = if (loading_visible) ui.ptr.status() else "";
     }
 
-    updateLoadingBarRows(fill_query, track_query, true, progress);
+    updateLoadingBar(fill_query, track_query, loading_visible, progress);
 }
 
-fn updateLoadingBarRows(
-    fill_query: anytype,
-    track_query: anytype,
+fn switchSceneOnInput(
+    commands: *Commands,
+    keyboard: Res(Keyboard),
+    assets: ResMut(Assets),
+    loader: ResMut(LoaderState),
+    active_scene: Query(.{ActiveScene}),
+) !void {
+    const next_scene = requestedScene(keyboard.deref()) orelse return;
+    const current = active_scene.first() orelse return;
+    const current_scene = current.get(ActiveScene) orelse return;
+    if (current_scene.id == next_scene) return;
+
+    var it = active_scene.iterator();
+    while (it.next()) |row| {
+        try commands.removeEntityTree(row.entity_id);
+    }
+    loader.ptr.beginDefaultSession(commands.io);
+    try spawnScene(commands, assets.ptr, next_scene);
+}
+
+fn spinActiveScene(
+    elapsed: Res(ElapsedTime),
+    assets: Res(Assets),
+    active_scene: Query(.{ Transform, ActiveScene }),
+) void {
+    const seconds: f32 = @floatCast(elapsed.deref().seconds);
+    var it = active_scene.iterator();
+    while (it.next()) |row| {
+        const transform = row.get(Transform) orelse continue;
+        const scene = row.get(ActiveScene) orelse continue;
+        transform.* = sceneTransform(sceneBounds(assets.ptr, scene.id), seconds);
+    }
+}
+
+fn syncOverlayText(
+    overlay_query: Query(.{ Text, OverlayText }),
+    active_scene: Query(.{ActiveScene}),
+) void {
+    const overlay = if (active_scene.first()) |row|
+        sceneBinding((row.get(ActiveScene) orelse return).id).overlay
+    else
+        "";
+
+    var it = overlay_query.iterator();
+    while (it.next()) |row| {
+        const text = row.get(Text) orelse continue;
+        text.content = overlay;
+    }
+}
+
+fn spawnScene(commands: *Commands, assets: *Assets, scene_id: SceneId) !void {
+    const scene = switch (scene_id) {
+        .helmet => assets.helmet.instance(),
+        .box => assets.box.instance(),
+    };
+
+    _ = try commands.createEntity(.{
+        ActiveScene{ .id = scene_id },
+        sceneTransform(sceneBounds(assets, scene_id), 0.0),
+        scene,
+    });
+}
+
+fn requestedScene(keyboard: *const Keyboard) ?SceneId {
+    inline for (scene_bindings) |binding| {
+        if (keyboard.isKeyPressed(binding.key)) return binding.id;
+    }
+    return null;
+}
+
+fn sceneBinding(scene_id: SceneId) SceneBinding {
+    inline for (scene_bindings) |binding| {
+        if (binding.id == scene_id) return binding;
+    }
+    unreachable;
+}
+
+fn sceneBounds(assets: *const Assets, scene_id: SceneId) ImportedScene.Bounds {
+    return switch (scene_id) {
+        .helmet => assets.helmet.bounds(),
+        .box => assets.box.bounds(),
+    };
+}
+
+fn sceneTransform(bounds: ImportedScene.Bounds, seconds: f32) Transform {
+    const scale = 1.8 / @max(bounds.maxDimension(), 0.001);
+    const center = bounds.center();
+    const rotation = Quat.fromAxisAngle(.{ .y = 1.0 }, seconds * 0.45);
+    return .{
+        .translation = .{ .x = -center.x * scale, .y = -center.y * scale, .z = -3.8 },
+        .scale = Vec3.splat(scale),
+        .rotation = rotation,
+    };
+}
+
+fn updateLoadingBar(
+    fill_query: Query(.{ Rectangle, Transform, LoadingBarFill }),
+    track_query: Query(.{ Transform, LoadingBarTrack }),
     visible: bool,
     progress01: f32,
 ) void {
     const scale = if (visible) Vec3.splat(1.0) else Vec3.splat(0.0);
+
     var track_it = track_query.iterator();
     while (track_it.next()) |row| {
         const transform = row.get(Transform) orelse continue;
@@ -291,100 +328,6 @@ fn updateLoadingBarRows(
         transform.translation.x = loading_bar_left + fill_width * 0.5;
         transform.scale = scale;
     }
-}
-
-fn transitionFromLoading(commands: *Commands, loader: Res(LoaderState)) !void {
-    if (!loader.ptr.isComplete()) return;
-    try commands.insertResource(ViewerPhases.NextPhase{ .phase = .{ .Helmet = .{} } });
-}
-
-fn hideAllModels(ctx: *PhaseContext) !void {
-    try setHidden(ctx, HelmetRoot);
-    try setHidden(ctx, BoxRoot);
-}
-
-fn setModelState(
-    ctx: *PhaseContext,
-    comptime Tag: type,
-    bounds: ImportedScene.Bounds,
-    visible: bool,
-) !void {
-    var roots = try ctx.query(.{ Transform, Tag });
-    defer roots.deinit();
-
-    var it = roots.iterator();
-    while (it.next()) |row| {
-        const transform = row.get(Transform) orelse continue;
-        transform.* = if (visible) modelTransform(bounds) else hiddenTransform();
-    }
-}
-
-fn setModelTransform(
-    roots: anytype,
-    bounds: ImportedScene.Bounds,
-    seconds: f32,
-    visible: bool,
-) void {
-    const scale = if (visible) 1.8 / @max(bounds.maxDimension(), 0.001) else 0.0;
-    const center = bounds.center();
-    const rotation = Quat.fromAxisAngle(.{ .y = 1.0 }, seconds * 0.45);
-
-    var it = roots.iterator();
-    while (it.next()) |row| {
-        const transform = row.get(Transform) orelse continue;
-        transform.translation = .{ .x = -center.x * scale, .y = -center.y * scale, .z = -3.8 };
-        transform.scale = Vec3.splat(scale);
-        transform.rotation = rotation;
-    }
-}
-
-fn setHidden(ctx: *PhaseContext, comptime Tag: type) !void {
-    var roots = try ctx.query(.{ Transform, Tag });
-    defer roots.deinit();
-
-    var it = roots.iterator();
-    while (it.next()) |row| {
-        const transform = row.get(Transform) orelse continue;
-        transform.* = hiddenTransform();
-    }
-}
-
-fn setOverlay(ctx: *PhaseContext, content: []const u8) !void {
-    var overlay = try ctx.query(.{ Text, OverlayText });
-    defer overlay.deinit();
-
-    var it = overlay.iterator();
-    while (it.next()) |row| {
-        const text = row.get(Text) orelse continue;
-        text.content = content;
-    }
-}
-
-fn setOverlayText(overlay: Query(.{ Text, OverlayText }), content: []const u8) void {
-    var overlay_it = overlay.iterator();
-    while (overlay_it.next()) |row| {
-        const text = row.get(Text) orelse continue;
-        text.content = content;
-    }
-}
-
-fn updateLoadingText(ctx: *PhaseContext, status: []const u8) !void {
-    var status_query = try ctx.query(.{ Text, LoadingStatusText });
-    defer status_query.deinit();
-    var status_it = status_query.iterator();
-    while (status_it.next()) |row| {
-        const text = row.get(Text) orelse continue;
-        text.content = status;
-    }
-}
-
-fn setLoadingBar(ctx: *PhaseContext, visible: bool, progress01: f32) !void {
-    var fill_query = try ctx.query(.{ Rectangle, Transform, LoadingBarFill });
-    defer fill_query.deinit();
-    var track_query = try ctx.query(.{ Transform, LoadingBarTrack });
-    defer track_query.deinit();
-
-    updateLoadingBarRows(fill_query, track_query, visible, progress01);
 }
 
 fn stageLabel(stage: AssetsLoadStage) []const u8 {
@@ -405,37 +348,10 @@ fn stageLabel(stage: AssetsLoadStage) []const u8 {
     };
 }
 
-const loading_bar_width: f32 = 360.0;
-const loading_bar_left: f32 = 220.0;
-const loading_bar_center_x: f32 = loading_bar_left + loading_bar_width * 0.5;
-
-fn modelTransform(bounds: ImportedScene.Bounds) Transform {
-    const scale = 1.8 / @max(bounds.maxDimension(), 0.001);
-    const center = bounds.center();
-    return Transform{
-        .translation = .{ .x = -center.x * scale, .y = -center.y * scale, .z = -3.8 },
-        .scale = Vec3.splat(scale),
-    };
-}
-
-fn hiddenTransform() Transform {
-    return Transform{
-        .translation = .{ .x = 0.0, .y = 0.0, .z = -3.8 },
-        .scale = Vec3.splat(0.0),
-    };
-}
-
-// Imports
-const std = @import("std");
-const phasor = @import("phasor");
-
 const AmbientLight = phasor.AmbientLight;
 const App = phasor.App;
 const AssetsLoadStage = phasor.AssetsLoadStage;
-const AssetsLoadState = phasor.AssetsLoadState;
-const AssetsModule = phasor.AssetsModule;
 const AssetsModuleConfigured = phasor.AssetsModuleConfigured;
-const AssetsProgressEvent = phasor.AssetsProgressEvent;
 const Camera3d = phasor.Camera3d;
 const CameraLayer = phasor.CameraLayer;
 const ClearColor = phasor.ClearColor;
@@ -444,21 +360,20 @@ const Commands = phasor.Commands;
 const ElapsedTime = phasor.ElapsedTime;
 const EventReader = phasor.EventReader;
 const ImportedScene = phasor.ImportedScene;
+const Key = phasor.Key;
 const Keyboard = phasor.Keyboard;
 const Layer = phasor.Layer;
 const Light = phasor.Light;
 const MetricsModuleLayered = phasor.MetricsModuleLayered;
-const PhaseContext = phasor.PhaseContext;
-const PhasesModule = phasor.PhasesModule;
-const Quat = phasor.Quat;
 const Query = phasor.Query;
+const Quat = phasor.Quat;
 const Rectangle = phasor.Rectangle;
 const Res = phasor.Res;
 const ResMut = phasor.ResMut;
-const ResOpt = phasor.ResOpt;
 const Scene = phasor.Scene;
 const Text = phasor.Text;
 const Transform = phasor.Transform;
 const Vec3 = phasor.Vec3;
 const VSync = phasor.VSync;
 const WindowSettings = phasor.WindowSettings;
+const AssetsProgressEvent = phasor.AssetsProgressEvent;
