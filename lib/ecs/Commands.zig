@@ -78,6 +78,11 @@ pub fn createEntity(self: *Self, components: anytype) !Entity.Id {
     return entity_id;
 }
 
+/// Same as createEntity but discards the returned entity ID.
+pub fn insertEntity(self: *Self, components: anytype) !void {
+    _ = try self.createEntity(components);
+}
+
 pub fn removeEntity(self: *Self, entity_id: Entity.Id) !void {
     const RemoveEntityContext = struct {
         entity_id: Entity.Id,
