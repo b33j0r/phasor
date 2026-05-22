@@ -186,7 +186,7 @@ fn buildPerspectiveSlice(
     right: common.Vec3,
     up: common.Vec3,
     aspect: f32,
-    persp: @FieldType(common.Camera3d, "Perspective"),
+    persp: @FieldType(common.Camera, "Perspective"),
     max_distance: f32,
 ) ?[8]common.Vec3 {
     const zoom = if (persp.zoom <= 0.0) 1.0 else persp.zoom;
@@ -220,7 +220,7 @@ fn buildOrthographicSlice(
     forward: common.Vec3,
     right: common.Vec3,
     up: common.Vec3,
-    ortho: @FieldType(common.Camera3d, "Orthographic"),
+    ortho: @FieldType(common.Camera, "Orthographic"),
     max_distance: f32,
 ) ?[8]common.Vec3 {
     const zoom = if (ortho.zoom <= 0.0) 1.0 else ortho.zoom;

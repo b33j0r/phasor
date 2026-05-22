@@ -2,7 +2,7 @@ pub fn renderSystem(
     commands: *Commands,
     queue: ResMut(render.RenderQueue),
     clear_opt: ResOpt(common.ClearColor),
-    camera_opt: ResOpt(common.Camera3d),
+    camera_opt: ResOpt(common.Camera),
     color_grading_opt: ResOpt(render.ColorGradingSettings),
     layer_cameras_opt: ResOpt(types.LayerCameras),
     layer_viewports_opt: ResOpt(types.LayerViewports),
@@ -405,7 +405,7 @@ fn drawSceneLayers(
     layers: []const i32,
     layer_cameras: ?*const types.LayerCameras,
     layer_viewports: ?*const types.LayerViewports,
-    fallback_camera: ?*const common.Camera3d,
+    fallback_camera: ?*const common.Camera,
     viewport_size: render.Size,
     surface_size: render.Size,
     mesh_library: *render.MeshLibrary,
@@ -841,7 +841,7 @@ fn scaleViewportRect(rect: types.ViewportRect, logical_size: render.Size, physic
 fn cameraForLayer(
     layer: i32,
     layer_cameras: ?*const types.LayerCameras,
-    fallback: ?*const common.Camera3d,
+    fallback: ?*const common.Camera,
 ) ?types.LayerCamera {
     const has_layer_cameras = if (layer_cameras) |cameras| cameras.map.count() > 0 else false;
     if (layer_cameras) |cameras| {
@@ -880,7 +880,7 @@ fn viewportMatrix(vp: anytype, size: render.Size) common.Mat4 {
     };
 }
 
-fn projectionMatrix(camera: common.Camera3d, size: render.Size) ?common.Mat4 {
+fn projectionMatrix(camera: common.Camera, size: render.Size) ?common.Mat4 {
     const w = @as(f32, @floatFromInt(size.width));
     const h = @as(f32, @floatFromInt(size.height));
     const aspect = if (h == 0.0) 1.0 else w / h;

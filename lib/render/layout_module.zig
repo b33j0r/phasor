@@ -12,11 +12,11 @@ pub fn uninstall(app: *AppCommands) void {
 fn computeLayerViewports(
     viewports: ResMut(types.LayerViewports),
     viewport_opt: ResOpt(types.ViewportSize),
-    cameras_zero_with_layout: Query(.{ common.Camera3d, common.ViewportLayout, render.CameraLayer(0) }),
-    cameras_unlayered_with_layout: Query(.{ common.Camera3d, common.ViewportLayout, Without(render.CameraLayerN) }),
+    cameras_zero_with_layout: Query(.{ common.Camera, common.ViewportLayout, render.CameraLayer(0) }),
+    cameras_unlayered_with_layout: Query(.{ common.Camera, common.ViewportLayout, Without(render.CameraLayerN) }),
     camera_groups_with_layout: GroupBy(render.CameraLayerN),
-    cameras_zero_without_layout: Query(.{ common.Camera3d, render.CameraLayer(0), Without(common.ViewportLayout) }),
-    cameras_unlayered_without_layout: Query(.{ common.Camera3d, Without(common.ViewportLayout), Without(render.CameraLayerN) }),
+    cameras_zero_without_layout: Query(.{ common.Camera, render.CameraLayer(0), Without(common.ViewportLayout) }),
+    cameras_unlayered_without_layout: Query(.{ common.Camera, Without(common.ViewportLayout), Without(render.CameraLayerN) }),
     camera_groups_without_layout: GroupBy(render.CameraLayerN),
 ) !void {
     const bounds = viewportBounds(viewport_opt.ptr);
@@ -39,7 +39,7 @@ fn collectLayerViewportLayouts(
 ) !void {
     var it = query.iterator();
     while (it.next()) |row| {
-        _ = row.get(common.Camera3d) orelse continue;
+        _ = row.get(common.Camera) orelse continue;
         const layout = row.get(common.ViewportLayout) orelse continue;
         const rect = resolveRect(layout.*, bounds);
         if (rect.width <= 0.0 or rect.height <= 0.0) continue;
@@ -55,7 +55,7 @@ fn collectLayerViewportGroupsWithLayout(
     var it = groups.iterator();
     while (it.next()) |group| {
         if (group.key == 0) continue;
-        var rows = try group.query(.{ common.Camera3d, common.ViewportLayout });
+        var rows = try group.query(.{ common.Camera, common.ViewportLayout });
         defer rows.deinit();
         try collectLayerViewportLayouts(viewports, rows, bounds, group.key);
     }
@@ -69,7 +69,7 @@ fn collectDefaultLayerViewport(
 ) !void {
     var it = query.iterator();
     while (it.next()) |row| {
-        _ = row.get(common.Camera3d) orelse continue;
+        _ = row.get(common.Camera) orelse continue;
         if (viewports.map.contains(forced_layer)) continue;
         try viewports.map.put(forced_layer, .{
             .x = 0.0,
@@ -88,7 +88,7 @@ fn collectLayerViewportGroupsWithoutLayout(
     var it = groups.iterator();
     while (it.next()) |group| {
         if (group.key == 0) continue;
-        var rows = try group.query(.{ common.Camera3d, Without(common.ViewportLayout) });
+        var rows = try group.query(.{ common.Camera, Without(common.ViewportLayout) });
         defer rows.deinit();
         try collectDefaultLayerViewport(viewports, rows, bounds, group.key);
     }

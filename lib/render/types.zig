@@ -116,7 +116,7 @@ pub const LayerViewports = struct {
 };
 
 pub const LayerCamera = struct {
-    camera: common.Camera3d,
+    camera: common.Camera,
     view: common.Mat4,
     transform: common.Transform,
 };

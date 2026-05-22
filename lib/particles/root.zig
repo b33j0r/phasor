@@ -244,7 +244,7 @@ pub fn ParticlesModuleConfigured(comptime max_particles: usize, comptime config:
         fn syncParticleSlots(
             config_res: ResOpt(ParticleSystemConfig),
             state_res: Res(ParticleState(max_particles)),
-            cameras: Query(.{ Transform, Camera3d }),
+            cameras: Query(.{ Transform, Camera }),
             slots: Query(.{ ParticleSlot, Transform, render.MeshInstance }),
         ) void {
             const particle_config = config_res.ptr orelse return;
@@ -358,11 +358,11 @@ fn particleRotation(profile: ParticleProfile, particle: Particle, camera_rotatio
     };
 }
 
-fn activeCameraRotation(cameras: Query(.{ Transform, Camera3d })) ?Quat {
+fn activeCameraRotation(cameras: Query(.{ Transform, Camera })) ?Quat {
     var it = cameras.iterator();
     while (it.next()) |row| {
         const transform = row.get(Transform) orelse continue;
-        const camera = row.get(Camera3d) orelse continue;
+        const camera = row.get(Camera) orelse continue;
         switch (camera.*) {
             .Viewport => continue,
             else => return transform.rotation,
@@ -396,7 +396,7 @@ const ecs = @import("ecs");
 const render = @import("render");
 
 const AppCommands = ecs.AppCommands;
-const Camera3d = common.Camera3d;
+const Camera = common.Camera;
 const Color = common.Color;
 const Commands = ecs.Commands;
 const Gradient = common.Gradient;

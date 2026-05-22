@@ -85,7 +85,7 @@ fn setup(
     // CameraLayer(0) tells the camera to render entities on layer 0.
     _ = try commands.createEntity(.{
         Transform{},
-        Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+        Camera{ .Viewport = .{ .mode = .TopLeft } },
         CameraLayer(0){},
     });
 
@@ -123,7 +123,7 @@ const phasor = @import("phasor");
 const App = phasor.App;
 const AssetsModule = phasor.AssetsModule;
 const BuildContext = phasor.BuildContext;
-const Camera3d = phasor.Camera3d;
+const Camera = phasor.Camera;
 const CameraLayer = phasor.CameraLayer;
 const ClearColor = phasor.ClearColor;
 const Color = phasor.Color;

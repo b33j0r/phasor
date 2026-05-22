@@ -80,7 +80,7 @@ pub fn main(init: std.process.Init) !u8 {
 fn setup(commands: *Commands, assets: ResMut(Assets)) !void {
     _ = try commands.createEntity(.{
         Transform{},
-        Camera3d{ .Perspective = .{
+        Camera{ .Perspective = .{
             .fov = std.math.pi / 3.0,
             .near = 0.05,
             .far = 100.0,
@@ -97,7 +97,7 @@ fn setup(commands: *Commands, assets: ResMut(Assets)) !void {
 
     _ = try commands.createEntity(.{
         Transform{},
-        Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+        Camera{ .Viewport = .{ .mode = .TopLeft } },
         CameraLayer(1000){},
     });
 
@@ -222,7 +222,7 @@ const loading = @import("loading.zig");
 const AmbientLight = phasor.AmbientLight;
 const App = phasor.App;
 const AssetsModuleConfigured = phasor.AssetsModuleConfigured;
-const Camera3d = phasor.Camera3d;
+const Camera = phasor.Camera;
 const CameraLayer = phasor.CameraLayer;
 const ClearColor = phasor.ClearColor;
 const Color = phasor.Color;

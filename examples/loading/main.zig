@@ -80,13 +80,13 @@ fn setup(commands: *Commands) !void {
 
     _ = try commands.createEntity(.{
         Transform{},
-        Camera3d{ .Viewport = .{ .mode = .Center } },
+        Camera{ .Viewport = .{ .mode = .Center } },
         CameraLayer(0){},
     });
 
     _ = try commands.createEntity(.{
         Transform{},
-        Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+        Camera{ .Viewport = .{ .mode = .TopLeft } },
         CameraLayer(1000){},
     });
 
@@ -185,7 +185,7 @@ fn revealLoadedScene(
 }
 
 const App = phasor.App;
-const Camera3d = phasor.Camera3d;
+const Camera = phasor.Camera;
 const CameraLayer = phasor.CameraLayer;
 const ClearColor = phasor.ClearColor;
 const Color = phasor.Color;

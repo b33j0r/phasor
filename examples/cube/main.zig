@@ -102,7 +102,7 @@ fn setup(
     // Create a perspective camera looking down the negative Z axis.
     _ = try commands.createEntity(.{
         Transform{},
-        Camera3d{ .Perspective = .{
+        Camera{ .Perspective = .{
             .fov = std.math.pi / 3.0,
             .near = 0.1,
             .far = 100.0,
@@ -113,7 +113,7 @@ fn setup(
     // Create a viewport camera for 2D overlay text such as the FPS counter.
     _ = try commands.createEntity(.{
         Transform{},
-        Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+        Camera{ .Viewport = .{ .mode = .TopLeft } },
         CameraLayer(1000){},
     });
 }
@@ -271,7 +271,7 @@ const phasor = @import("phasor");
 const App = phasor.App;
 
 const AssetsModule = phasor.AssetsModule;
-const Camera3d = phasor.Camera3d;
+const Camera = phasor.Camera;
 const CameraLayer = phasor.CameraLayer;
 const ClearColor = phasor.ClearColor;
 const Color = phasor.Color;

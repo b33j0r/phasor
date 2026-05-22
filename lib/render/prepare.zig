@@ -83,8 +83,8 @@ pub fn updateTextMeshes(
 }
 
 pub fn updateLayerCameras(
-    cameras_zero: Query(.{ common.Camera3d, common.Transform, render.CameraLayer(0) }),
-    cameras_unlayered: Query(.{ common.Camera3d, common.Transform, Without(render.CameraLayerN) }),
+    cameras_zero: Query(.{ common.Camera, common.Transform, render.CameraLayer(0) }),
+    cameras_unlayered: Query(.{ common.Camera, common.Transform, Without(render.CameraLayerN) }),
     camera_groups: GroupBy(render.CameraLayerN),
     layer_cameras: ResMut(types.LayerCameras),
 ) !void {
@@ -96,7 +96,7 @@ pub fn updateLayerCameras(
     var it = camera_groups.iterator();
     while (it.next()) |group| {
         if (group.key == 0) continue;
-        var rows = try group.query(.{ common.Camera3d, common.Transform });
+        var rows = try group.query(.{ common.Camera, common.Transform });
         defer rows.deinit();
         try collectLayerCameras(layer_cameras.ptr, rows, group.key);
     }
@@ -105,7 +105,7 @@ pub fn updateLayerCameras(
 fn collectLayerCameras(layer_cameras: *types.LayerCameras, query: anytype, forced_layer: i32) !void {
     var it = query.iterator();
     while (it.next()) |row| {
-        const cam = row.get(common.Camera3d) orelse continue;
+        const cam = row.get(common.Camera) orelse continue;
         const transform = row.get(common.Transform) orelse continue;
         try layer_cameras.map.put(forced_layer, .{
             .camera = cam.*,

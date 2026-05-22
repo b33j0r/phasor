@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const Camera3d = union(enum) {
+pub const Camera = union(enum) {
     /// An orthographic camera with traditional left/right/top/bottom bounds.
     Orthographic: struct {
         left: f32 = -1.0,

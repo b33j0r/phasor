@@ -86,7 +86,7 @@ fn setup(
     // in the top-left corner of the window instead of the center.
     _ = try commands.createEntity(.{
         Transform{},
-        Camera3d{ .Viewport = .{ .mode = .TopLeft } },
+        Camera{ .Viewport = .{ .mode = .TopLeft } },
     });
 
     // Create the ball entity itself.
@@ -158,7 +158,7 @@ const phasor = @import("phasor");
 
 const App = phasor.App;
 
-const Camera3d = phasor.Camera3d;
+const Camera = phasor.Camera;
 const Circle = phasor.Circle;
 const ClearColor = phasor.ClearColor;
 const Color = phasor.Color;

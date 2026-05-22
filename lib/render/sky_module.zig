@@ -67,7 +67,7 @@ pub fn proceduralSkyShader(core_shaders: *const render.CoreShaders, algorithm: P
 
 fn buildProceduralSkies(
     commands: *Commands,
-    cameras: Query(.{common.Camera3d}),
+    cameras: Query(.{common.Camera}),
     core_shaders: ResOpt(render.CoreShaders),
     skies: Query(.{ common.Transform, ProceduralSky, ecs.system_params.Without(ProceduralBuilt) }),
 ) !void {
@@ -108,7 +108,7 @@ fn buildProceduralSkies(
 
 fn buildPanoramaSkies(
     commands: *Commands,
-    cameras: Query(.{common.Camera3d}),
+    cameras: Query(.{common.Camera}),
     skies: Query(.{ common.Transform, PanoramaSky, ecs.system_params.Without(PanoramaBuilt) }),
 ) !void {
     const mesh_library = commands.getResourceMut(render.MeshLibrary) orelse return;
@@ -133,13 +133,13 @@ fn buildPanoramaSkies(
     }
 }
 
-fn clampSkySizeToCameraFar(requested_size: f32, cameras: Query(.{common.Camera3d})) f32 {
+fn clampSkySizeToCameraFar(requested_size: f32, cameras: Query(.{common.Camera})) f32 {
     if (requested_size <= 0.0) return 32.0;
 
     var min_far: ?f32 = null;
     var it = cameras.iterator();
     while (it.next()) |row| {
-        const camera = row.get(common.Camera3d) orelse continue;
+        const camera = row.get(common.Camera) orelse continue;
         const far_dist: f32 = switch (camera.*) {
             .Perspective => |persp| persp.far,
             .Orthographic => |ortho| @abs(ortho.far - ortho.near),
@@ -160,14 +160,14 @@ fn clampSkySizeToCameraFar(requested_size: f32, cameras: Query(.{common.Camera3d
 }
 
 fn updatePanoramaSkies(
-    cameras: Query(.{ common.Transform, common.Camera3d }),
+    cameras: Query(.{ common.Transform, common.Camera }),
     faces: Query(.{ common.Transform, PanoramaAnchor }),
 ) void {
     var camera_center: ?common.Vec3 = null;
     var camera_it = cameras.iterator();
     while (camera_it.next()) |row| {
         const transform = row.get(common.Transform) orelse continue;
-        const camera = row.get(common.Camera3d) orelse continue;
+        const camera = row.get(common.Camera) orelse continue;
         switch (camera.*) {
             .Viewport => continue,
             else => {
