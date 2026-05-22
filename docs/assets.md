@@ -1,7 +1,7 @@
 # Assets
 
 Assets are ordinary fields in a user-defined struct. Installing
-`AssetsModule(YourAssets)` inserts that struct as a resource, loads its fields in
+`AssetsModule(YourAssets, .{})` inserts that struct as a resource, loads its fields in
 `AssetsLoad` and `BeforeFrame`, and unloads them in `AssetsUnload`.
 
 ```zig

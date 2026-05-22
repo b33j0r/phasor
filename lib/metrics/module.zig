@@ -11,23 +11,44 @@ pub const MetricsViewport = union(enum) {
     }
 };
 
-pub fn MetricsModule(comptime LayerT: ?type) type {
+pub const MetricsModuleConfig = struct {
+    layer: i32 = 1000,
+    update_ms: u32 = 250,
+    max_dt_seconds: f64 = 0.25,
+    font_size: f32 = 60.0,
+    text_color: common.Color = common.Color.BLACK,
+    margin: f32 = 12.0,
+    buffer_capacity: usize = 512,
+    use_default_lines: bool = true,
+    extra_builtin_lines: []const BuiltinMetricLineItem = &[_]BuiltinMetricLineItem{},
+    prepend_lines: []const MetricLine = &[_]MetricLine{},
+    extra_lines: []const MetricLine = &[_]MetricLine{},
+    bus_capacity: usize = 256,
+    bus_enabled: bool = true,
+    log_interval_seconds: f64 = 0.0,
+    fps_smoothing_seconds: f64 = 0.1,
+};
+
+pub fn MetricsModule(config: MetricsModuleConfig) type {
+    const viewport = MetricsViewport.layer(config.layer);
+
     return struct {
-        update_ms: u32 = 250,
-        max_dt_seconds: f64 = 0.25,
-        font_size: f32 = 60.0,
-        text_color: common.Color = common.Color.BLACK,
-        margin: f32 = 12.0,
-        buffer_capacity: usize = 512,
-        use_default_lines: bool = true,
-        extra_builtin_lines: []const BuiltinMetricLineItem = &[_]BuiltinMetricLineItem{},
-        prepend_lines: []const MetricLine = &[_]MetricLine{},
-        extra_lines: []const MetricLine = &[_]MetricLine{},
-        bus_capacity: usize = 256,
-        bus_enabled: bool = true,
-        log_interval_seconds: f64 = 0.0,
-        fps_smoothing_seconds: f64 = 0.1,
-        viewport: MetricsViewport = defaultViewportMode(LayerT),
+        update_ms: u32 = config.update_ms,
+        max_dt_seconds: f64 = config.max_dt_seconds,
+        font_size: f32 = config.font_size,
+        text_color: common.Color = config.text_color,
+        margin: f32 = config.margin,
+        buffer_capacity: usize = config.buffer_capacity,
+        use_default_lines: bool = config.use_default_lines,
+        extra_builtin_lines: []const BuiltinMetricLineItem = config.extra_builtin_lines,
+        prepend_lines: []const MetricLine = config.prepend_lines,
+        extra_lines: []const MetricLine = config.extra_lines,
+        bus_capacity: usize = config.bus_capacity,
+        bus_enabled: bool = config.bus_enabled,
+        log_interval_seconds: f64 = config.log_interval_seconds,
+        fps_smoothing_seconds: f64 = config.fps_smoothing_seconds,
+
+        viewport: MetricsViewport = viewport,
 
         pub fn install(self: *const @This(), app: *AppCommands, cmds: *Commands) !void {
             if (!cmds.hasResource(TimeModule.DeltaTime) or !cmds.hasResource(TimeModule.ElapsedTime)) {
@@ -63,7 +84,7 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
                 .viewport = self.viewport,
             });
 
-            const components = if (LayerT) |Layer| .{
+            const text_entity = try cmds.createEntity(.{
                 render.Text{
                     .content = "FPS: 0.0",
                     .color = self.text_color,
@@ -73,20 +94,9 @@ pub fn MetricsModule(comptime LayerT: ?type) type {
                 },
                 common.Transform{},
                 MetricsTextTag{},
-                Layer{},
-            } else .{
-                render.Text{
-                    .content = "FPS: 0.0",
-                    .color = self.text_color,
-                    .font_size = self.font_size,
-                    .horizontal_alignment = .Right,
-                    .vertical_alignment = .Bottom,
-                },
-                common.Transform{},
-                MetricsTextTag{},
-            };
+                render.Layer(config.layer){},
+            });
 
-            const text_entity = try cmds.createEntity(components);
             try cmds.addComponents(text_entity, .{
                 TimerModule.CountdownTimer{
                     .remaining = self.log_interval_seconds,
@@ -137,19 +147,6 @@ fn emitSceneMetrics(
         .scene_size_y = metrics.gauge(size.y),
         .scene_size_z = metrics.gauge(size.z),
     });
-}
-
-fn defaultViewportMode(comptime LayerT: ?type) MetricsViewport {
-    if (LayerT) |Layer| {
-        if (@hasDecl(Layer, "__traits__")) {
-            inline for (Layer.__traits__) |Trait| {
-                if (@hasDecl(Trait, "key")) {
-                    return MetricsViewport.layer(Trait.key);
-                }
-            }
-        }
-    }
-    return MetricsViewport.screen();
 }
 
 const MetricsConfig = struct {

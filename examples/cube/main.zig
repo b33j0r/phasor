@@ -32,14 +32,15 @@ pub fn main(init: std.process.Init) !u8 {
     try app.installDefaultModules();
 
     // AssetsModule loads the mesh and shader data declared in the Assets struct below.
-    try app.installModule(AssetsModule(Assets));
+    try app.installModule(AssetsModule(Assets, .{}));
 
     // This displays diagnostic text such as the FPS counter and frame time in the
     // bottom-right corner of the screen.
-    try app.installModule(MetricsModuleLayered(Layer(1000)){
+    try app.installModule(MetricsModule(.{
+        .layer = 1000,
         .font_size = 24.0,
         .text_color = Color.WHITE,
-    });
+    }));
 
     // Register our system functions. The first argument is the schedule that the system should
     // run in, and the second argument is the system function itself.
@@ -281,7 +282,7 @@ const Layer = phasor.Layer;
 const Material = phasor.Material;
 const Mesh = phasor.Mesh;
 const MeshInstance = phasor.MeshInstance;
-const MetricsModuleLayered = phasor.MetricsModuleLayered;
+const MetricsModule = phasor.MetricsModule;
 const Query = phasor.Query;
 const Quat = phasor.Quat;
 const Res = phasor.Res;

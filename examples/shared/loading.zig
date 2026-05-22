@@ -26,78 +26,146 @@ pub const Model = struct {
     }
 };
 
+pub const Config = struct {
+    status_font_size: f32 = 18.0,
+    status_color: Color = Color.rgb(214, 227, 242),
+    bar_width: f32 = 360.0,
+    bar_height: f32 = 18.0,
+    bar_center_offset_y: f32 = -24.0,
+    status_gap: f32 = 26.0,
+    track_color: Color = Color.rgb(38, 46, 58),
+    fill_color: Color = Color.rgb(90, 190, 255),
+    min_fill_width: f32 = 1.0,
+
+    fn statusPosition(self: Config) Vec3 {
+        return .{
+            .x = 0.0,
+            .y = self.bar_center_offset_y + self.bar_height * 0.5 + self.status_gap,
+            .z = 0.0,
+        };
+    }
+
+    fn barPosition(self: Config) Vec3 {
+        return .{
+            .x = 0.0,
+            .y = self.bar_center_offset_y,
+            .z = 0.0,
+        };
+    }
+
+    fn fillPosition(self: Config, fill_width: f32) Vec3 {
+        return .{
+            .x = -(self.bar_width - fill_width) * 0.5,
+            .y = self.bar_center_offset_y,
+            .z = 0.0,
+        };
+    }
+
+    fn fillWidth(self: Config, progress01: f32) f32 {
+        return @max(self.min_fill_width, self.bar_width * std.math.clamp(progress01, 0.0, 1.0));
+    }
+};
+
 pub const StatusText = struct {};
 pub const BarTrack = struct {};
 pub const BarFill = struct {};
-
-const bar_width: f32 = 360.0;
-const bar_left: f32 = 220.0;
-const bar_center_x: f32 = bar_left + bar_width * 0.5;
 
 pub fn setup(commands: *Commands) !void {
     if (!commands.hasResource(Model)) {
         try commands.insertResource(Model{});
     }
+    const config = try ensureConfig(commands);
 
     _ = try commands.createEntity(.{
         StatusText{},
-        Transform{ .translation = .{ .x = bar_center_x, .y = 268.0, .z = 0.0 } },
+        Transform{ .translation = config.statusPosition(), .scale = Vec3.splat(0.0) },
         Text{
-            .font_size = 18.0,
-            .color = Color.rgb(214, 227, 242),
+            .font_size = config.status_font_size,
+            .color = config.status_color,
             .content = "",
             .horizontal_alignment = .Center,
             .vertical_alignment = .Center,
         },
-        Layer(1000){},
+        Layer(1){},
+    });
+
+    try commands.insertEntity(.{
+        Camera{ .Viewport = .{ .mode = .Center } },
+        Transform{},
+        CameraLayer(1){},
     });
 
     _ = try commands.createEntity(.{
         BarTrack{},
-        Transform{ .translation = .{ .x = 400.0, .y = 318.0, .z = 0.0 }, .scale = Vec3.splat(0.0) },
-        Rectangle{ .width = bar_width, .height = 18.0, .color = Color.rgb(38, 46, 58) },
-        Layer(1000){},
+        Transform{ .translation = config.barPosition(), .scale = Vec3.splat(0.0) },
+        Rectangle{ .width = config.bar_width, .height = config.bar_height, .color = config.track_color },
+        Layer(1){},
     });
 
     _ = try commands.createEntity(.{
         BarFill{},
-        Transform{ .translation = .{ .x = bar_left, .y = 318.0, .z = 0.0 }, .scale = Vec3.splat(0.0) },
-        Rectangle{ .width = 1.0, .height = 18.0, .color = Color.rgb(90, 190, 255) },
-        Layer(1000){},
+        Transform{ .translation = config.fillPosition(config.min_fill_width), .scale = Vec3.splat(0.0) },
+        Rectangle{ .width = config.min_fill_width, .height = config.bar_height, .color = config.fill_color },
+        Layer(1){},
     });
 }
 
 pub fn sync(
     model: Res(Model),
-    status_query: Query(.{ Text, StatusText }),
+    config: Res(Config),
+    status_query: Query(.{ Text, Transform, StatusText }),
     fill_query: Query(.{ Rectangle, Transform, BarFill }),
-    track_query: Query(.{ Transform, BarTrack }),
+    track_query: Query(.{ Rectangle, Transform, BarTrack }),
 ) void {
     var status_it = status_query.iterator();
     while (status_it.next()) |row| {
         const text = row.get(Text) orelse continue;
+        const transform = row.get(Transform) orelse continue;
+        text.font_size = config.ptr.status_font_size;
+        text.color = config.ptr.status_color;
         text.content = if (model.ptr.visible) model.ptr.status() else "";
+        transform.translation = config.ptr.statusPosition();
+        transform.scale = if (model.ptr.visible) Vec3.splat(1.0) else Vec3.splat(0.0);
     }
 
     const scale = if (model.ptr.visible) Vec3.splat(1.0) else Vec3.splat(0.0);
 
     var track_it = track_query.iterator();
     while (track_it.next()) |row| {
+        const rectangle = row.get(Rectangle) orelse continue;
         const transform = row.get(Transform) orelse continue;
+        rectangle.width = config.ptr.bar_width;
+        rectangle.height = config.ptr.bar_height;
+        rectangle.color = config.ptr.track_color;
+        transform.translation = config.ptr.barPosition();
         transform.scale = scale;
     }
 
-    const fill_width = @max(1.0, bar_width * std.math.clamp(model.ptr.progress01, 0.0, 1.0));
+    const fill_width = config.ptr.fillWidth(model.ptr.progress01);
     var fill_it = fill_query.iterator();
     while (fill_it.next()) |row| {
         const rectangle = row.get(Rectangle) orelse continue;
         const transform = row.get(Transform) orelse continue;
         rectangle.width = fill_width;
-        transform.translation.x = bar_left + fill_width * 0.5;
+        rectangle.height = config.ptr.bar_height;
+        rectangle.color = config.ptr.fill_color;
+        transform.translation = config.ptr.fillPosition(fill_width);
         transform.scale = scale;
     }
 }
 
+fn ensureConfig(commands: *Commands) !Config {
+    if (commands.getResource(Config)) |config| {
+        return config.*;
+    }
+    if (!commands.hasResource(Config)) {
+        try commands.insertResource(Config{});
+    }
+    return Config{};
+}
+
+const Camera = phasor.Camera;
+const CameraLayer = phasor.CameraLayer;
 const Color = phasor.Color;
 const Commands = phasor.Commands;
 const Layer = phasor.Layer;

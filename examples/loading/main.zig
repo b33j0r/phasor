@@ -61,10 +61,11 @@ pub fn main(init: std.process.Init) !u8 {
     try app.insertResource(ClearColor{ .color = Color.rgb(10, 12, 18) });
 
     try app.installDefaultModules();
-    try app.installModule(MetricsModuleLayered(Layer(1000)){
+    try app.installModule(MetricsModule(.{
+        .layer = 1000,
         .font_size = 24.0,
         .text_color = Color.WHITE,
-    });
+    }));
 
     try app.addSystem("Startup", setup);
     try app.addSystem("Startup", loading.setup);
@@ -97,8 +98,8 @@ fn setup(commands: *Commands) !void {
             .scale = Vec3.splat(0.0),
         },
         Rectangle{
-            .width = 220.0,
-            .height = 220.0,
+            .width = 120.0,
+            .height = 120.0,
             .color = Color.rgb(227, 84, 34),
         },
         Layer(0){},
@@ -193,7 +194,7 @@ const Commands = phasor.Commands;
 const DeltaTime = phasor.DeltaTime;
 const ElapsedTime = phasor.ElapsedTime;
 const Layer = phasor.Layer;
-const MetricsModuleLayered = phasor.MetricsModuleLayered;
+const MetricsModule = phasor.MetricsModule;
 const Query = phasor.Query;
 const Quat = phasor.Quat;
 const Rectangle = phasor.Rectangle;

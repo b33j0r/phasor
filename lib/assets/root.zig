@@ -7,7 +7,6 @@ pub const SceneData = scene.SceneData;
 pub const ImportedScene = imported_scene.ImportedScene;
 pub const PreparedImportedScene = imported_scene.PreparedImportedScene;
 pub const AssetsModule = @import("module.zig").AssetsModule;
-pub const AssetsModuleConfigured = @import("module.zig").AssetsModuleConfigured;
 pub const AssetsModuleConfig = @import("module.zig").AssetsModuleConfig;
 pub const AssetsLoadState = @import("module.zig").AssetsLoadState;
 pub const AssetsLoadingPolicy = enum {

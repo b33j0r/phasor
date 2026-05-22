@@ -37,11 +37,11 @@ pub fn main(init: std.process.Init) !u8 {
     try app.installDefaultModules();
 
     // AssetsModule loads the texture data declared in the Assets struct below.
-    try app.installModule(AssetsModule(Assets));
+    try app.installModule(AssetsModule(Assets, .{}));
 
     // This displays diagnostic text such as the FPS counter and frame time in the
     // bottom-right corner of the screen.
-    try app.installModule(MetricsModule{ .font_size = 24.0 });
+    try app.installModule(MetricsModule(.{ .font_size = 24.0 }));
 
     // Register our system functions. The first argument is the schedule that the system should
     // run in, and the second argument is the system function itself.

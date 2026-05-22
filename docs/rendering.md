@@ -31,7 +31,7 @@ pub fn main(init: std.process.Init) !u8 {
     });
     try app.insertResource(ClearColor{ .color = Color.WHITE });
     try app.installDefaultModules();
-    try app.installModule(AssetsModule(Assets));
+    try app.installModule(AssetsModule(Assets, .{}));
 
     try app.addSystem("Startup", setup);
     return try app.run();

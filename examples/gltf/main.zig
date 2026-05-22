@@ -56,14 +56,15 @@ pub fn main(init: std.process.Init) !u8 {
     try app.insertResource(AmbientLight{ .intensity = 0.65 });
 
     try app.installDefaultModules();
-    try app.installModule(AssetsModuleConfigured(Assets, .{
+    try app.installModule(AssetsModule(Assets, .{
         .loading_policy = .manual,
         .scene_primitives_per_frame = 1,
     }));
-    try app.installModule(MetricsModuleLayered(Layer(1000)){
+    try app.installModule(MetricsModule(.{
+        .layer = 1000,
         .font_size = 24.0,
         .text_color = Color.WHITE,
-    });
+    }));
 
     try app.addSystem("Startup", setup);
     try app.addSystem("Startup", loading.setup);
@@ -221,7 +222,7 @@ const loading = @import("loading.zig");
 
 const AmbientLight = phasor.AmbientLight;
 const App = phasor.App;
-const AssetsModuleConfigured = phasor.AssetsModuleConfigured;
+const AssetsModule = phasor.AssetsModule;
 const Camera = phasor.Camera;
 const CameraLayer = phasor.CameraLayer;
 const ClearColor = phasor.ClearColor;
@@ -233,7 +234,7 @@ const Key = phasor.Key;
 const Keyboard = phasor.Keyboard;
 const Layer = phasor.Layer;
 const Light = phasor.Light;
-const MetricsModuleLayered = phasor.MetricsModuleLayered;
+const MetricsModule = phasor.MetricsModule;
 const Query = phasor.Query;
 const Quat = phasor.Quat;
 const Res = phasor.Res;

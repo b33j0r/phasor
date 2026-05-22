@@ -33,7 +33,7 @@ pub fn main(init: std.process.Init) !u8 {
 
     // This displays diagnostic text such as the FPS counter and frame time in the
     // bottom-right corner of the screen.
-    try app.installModule(MetricsModule{ .font_size = 24.0 });
+    try app.installModule(MetricsModule(.{ .font_size = 24.0 }));
 
     // Register our system functions. The first argument is the schedule that the system should
     // run in, and the second argument is the system function itself.

@@ -11,7 +11,9 @@ pub const DebugSettings = struct {
 };
 
 pub fn DebugModule(comptime LayerT: ?type) type {
-    const MetricsModuleT = MetricsModule.MetricsModule(LayerT);
+    const MetricsModuleT = MetricsModule.MetricsModule(.{
+        .layer = layerValue(LayerT),
+    });
     return struct {
         metrics: MetricsModuleT = .{},
         settings: DebugSettings = .{},
@@ -30,6 +32,19 @@ pub fn DebugModule(comptime LayerT: ?type) type {
             _ = cmds.removeResource(DebugSettings);
         }
     };
+}
+
+fn layerValue(comptime LayerT: ?type) ?i32 {
+    if (LayerT) |Layer| {
+        if (@hasDecl(Layer, "__traits__")) {
+            inline for (Layer.__traits__) |Trait| {
+                if (@hasDecl(Trait, "key")) {
+                    return Trait.key;
+                }
+            }
+        }
+    }
+    return null;
 }
 
 fn emitDebugMetrics(

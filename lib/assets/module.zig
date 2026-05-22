@@ -175,7 +175,7 @@ pub fn AssetsLoadState(comptime T: type) type {
     };
 }
 
-pub fn AssetsModuleConfigured(comptime T: type, comptime config: AssetsModuleConfig) type {
+pub fn AssetsModule(comptime T: type, comptime config: AssetsModuleConfig) type {
     return struct {
         const Self = @This();
         const State = AssetsLoadState(T);
@@ -558,10 +558,6 @@ pub fn AssetsModuleConfigured(comptime T: type, comptime config: AssetsModuleCon
     };
 }
 
-pub fn AssetsModule(comptime T: type) type {
-    return AssetsModuleConfigured(T, .{});
-}
-
 const AssetPlanSlot = struct {
     asset_name: []const u8,
     asset_ptr: *anyopaque,
@@ -755,7 +751,7 @@ test "autoload policy preserves default eager asset loading" {
         .allocator = allocator,
         .io = &io,
     });
-    try app.installModule(AssetsModule(TestAssets));
+    try app.installModule(AssetsModule(TestAssets, .{}));
     try app.runScheduleByLabel(schedule.DefaultSchedule.AssetsLoad);
 
     const assets = app.getResource(TestAssets).?;
@@ -809,7 +805,7 @@ test "manual policy waits for explicit load session and emits progress" {
         .io = &io,
     });
     try app.insertResource(ProgressLog{});
-    try app.installModule(AssetsModuleConfigured(TestAssets, .{
+    try app.installModule(AssetsModule(TestAssets, .{
         .loading_policy = .manual,
         .scene_primitives_per_frame = 1,
     }));
