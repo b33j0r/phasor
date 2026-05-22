@@ -84,13 +84,13 @@ fn setup(
 
     // Create a camera. The TopLeft viewport mode makes 2D coordinates start
     // in the top-left corner of the window instead of the center.
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Transform{},
         Camera{ .Viewport = .{ .mode = .TopLeft } },
     });
 
     // Create the ball entity itself.
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Ball{},
         Velocity{ .v = .{ .x = 220.0, .y = 160.0 } },
         Transform{ .translation = center_screen },

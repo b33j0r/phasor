@@ -209,7 +209,7 @@ fn spawnPanoramaFace(
         segments,
         sky.shader_handle.isValid(),
     );
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         common.Transform{
             .translation = center.add(spec.offset),
             .rotation = spec.rotation,

@@ -83,7 +83,7 @@ fn setup(
     // Create a camera. The TopLeft viewport mode makes 2D coordinates start
     // in the top-left corner of the window instead of the center.
     // CameraLayer(0) tells the camera to render entities on layer 0.
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Transform{},
         Camera{ .Viewport = .{ .mode = .TopLeft } },
         CameraLayer(0){},
@@ -101,7 +101,7 @@ fn setup(
     // - Parent and LocalTransform so its position is relative to the centered parent.
     // - Transform for the final world-space position.
     // - Sprite so the renderer knows what texture to draw.
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Parent{ .id = centroid },
         LocalTransform{
             .translation = .{ .x = 0.0, .y = 0.0, .z = 1.0 },

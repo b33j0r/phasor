@@ -76,7 +76,7 @@ pub fn setup(commands: *Commands) !void {
     }
     const config = try ensureConfig(commands);
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         StatusText{},
         Transform{ .translation = config.statusPosition(), .scale = Vec3.splat(0.0) },
         Text{
@@ -95,14 +95,14 @@ pub fn setup(commands: *Commands) !void {
         CameraLayer(1){},
     });
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         BarTrack{},
         Transform{ .translation = config.barPosition(), .scale = Vec3.splat(0.0) },
         Rectangle{ .width = config.bar_width, .height = config.bar_height, .color = config.track_color },
         Layer(1){},
     });
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         BarFill{},
         Transform{ .translation = config.fillPosition(config.min_fill_width), .scale = Vec3.splat(0.0) },
         Rectangle{ .width = config.min_fill_width, .height = config.bar_height, .color = config.fill_color },

@@ -91,7 +91,7 @@ fn setup(
     if (!assets.cube_shader.handle.isValid()) return error.CubeShaderMissing;
 
     // Create the cube entity.
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Cube{},
         Transform{ .translation = .{ .x = 0.0, .y = 0.0, .z = -4.0 } },
         MeshInstance{
@@ -101,7 +101,7 @@ fn setup(
     });
 
     // Create a perspective camera looking down the negative Z axis.
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Transform{},
         Camera{ .Perspective = .{
             .fov = std.math.pi / 3.0,
@@ -112,7 +112,7 @@ fn setup(
     });
 
     // Create a viewport camera for 2D overlay text such as the FPS counter.
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Transform{},
         Camera{ .Viewport = .{ .mode = .TopLeft } },
         CameraLayer(1000){},

@@ -329,7 +329,7 @@ test "removeEntityTree removes parented descendants" {
 
     const root = try commands.createEntity(.{Marker{}});
     const child = try commands.createEntity(.{ common.Parent{ .id = root }, Marker{} });
-    _ = try commands.createEntity(.{ common.Parent{ .id = child }, Marker{} });
+    try commands.insertEntity(.{ common.Parent{ .id = child }, Marker{} });
     try commands.apply();
 
     try commands.removeEntityTree(root);

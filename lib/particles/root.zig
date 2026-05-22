@@ -161,7 +161,7 @@ pub fn ParticlesModuleConfigured(comptime max_particles: usize, comptime config:
             const first_profile = particle_config.profiles[0];
             var i: usize = 0;
             while (i < capacity) : (i += 1) {
-                _ = try commands.createEntity(.{
+                try commands.insertEntity(.{
                     ParticleSlot{ .index = @intCast(i) },
                     Transform{
                         .translation = particle_config.hidden_position,

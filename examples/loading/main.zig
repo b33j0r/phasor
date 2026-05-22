@@ -79,19 +79,19 @@ pub fn main(init: std.process.Init) !u8 {
 fn setup(commands: *Commands) !void {
     try commands.insertResource(FakeLoader{});
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Transform{},
         Camera{ .Viewport = .{ .mode = .Center } },
         CameraLayer(0){},
     });
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Transform{},
         Camera{ .Viewport = .{ .mode = .TopLeft } },
         CameraLayer(1000){},
     });
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         ReadyCard{},
         Transform{
             .translation = .{ .x = 0.0, .y = 0.0, .z = 0.0 },
@@ -105,7 +105,7 @@ fn setup(commands: *Commands) !void {
         Layer(0){},
     });
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         ReadyLabel{},
         Transform{ .translation = .{ .x = 0.0, .y = 150.0, .z = 0.0 } },
         Text{

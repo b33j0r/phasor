@@ -79,7 +79,7 @@ pub fn main(init: std.process.Init) !u8 {
 }
 
 fn setup(commands: *Commands, assets: ResMut(Assets)) !void {
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Transform{},
         Camera{ .Perspective = .{
             .fov = std.math.pi / 3.0,
@@ -89,20 +89,20 @@ fn setup(commands: *Commands, assets: ResMut(Assets)) !void {
         CameraLayer(0){},
     });
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Transform{
             .rotation = Quat.lookRotation(.{ .x = 0.35, .y = -0.65, .z = -0.7 }, .{ .y = 1.0 }),
         },
         Light{ .directional = .{ .illuminance_lux = 65000.0 } },
     });
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         Transform{},
         Camera{ .Viewport = .{ .mode = .TopLeft } },
         CameraLayer(1000){},
     });
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         OverlayText{},
         Transform{ .translation = .{ .x = 24.0, .y = 24.0, .z = 0.0 } },
         Text{
@@ -113,7 +113,7 @@ fn setup(commands: *Commands, assets: ResMut(Assets)) !void {
         Layer(1000){},
     });
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         ActiveScene{ .id = .helmet },
         Transform{},
         assets.ptr.helmet.instance(),
@@ -176,7 +176,7 @@ fn spawnScene(commands: *Commands, assets: *Assets, scene_id: SceneId) !void {
         .box => assets.box.instance(),
     };
 
-    _ = try commands.createEntity(.{
+    try commands.insertEntity(.{
         ActiveScene{ .id = scene_id },
         sceneTransform(sceneBounds(assets, scene_id), 0.0),
         scene,
