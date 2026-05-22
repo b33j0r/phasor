@@ -4,14 +4,19 @@ pub fn extractSystem(
     scene_stats_mode_opt: ResOpt(render.SceneStatsMode),
     scene_stats_snapshot: ResMut(render.SceneStatsSnapshot),
     mesh_library_opt: ResOpt(render.MeshLibrary),
+    layer_cameras_opt: ResOpt(types.LayerCameras),
     ambient_light: ResOpt(lighting.AmbientLight),
     environment_light: ResOpt(lighting.EnvironmentLight),
     exposure_settings: ResOpt(lighting.ExposureSettings),
     normal_map_scale_opt: ResOpt(render.NormalMapScale),
-    mesh_override_query: Query(.{ render.MeshInstance, common.Transform, render.LayerOverride }),
-    mesh_zero_query: Query(.{ render.MeshInstance, common.Transform, render.Layer(0), Without(render.LayerOverride) }),
-    mesh_unlayered_query: Query(.{ render.MeshInstance, common.Transform, Without(render.LayerN), Without(render.LayerOverride) }),
+    mesh_override_query: Query(.{ render.MeshInstance, common.Transform, render.LayerOverride, Without(render.Text) }),
+    mesh_zero_query: Query(.{ render.MeshInstance, common.Transform, render.Layer(0), Without(render.LayerOverride), Without(render.Text) }),
+    mesh_unlayered_query: Query(.{ render.MeshInstance, common.Transform, Without(render.LayerN), Without(render.LayerOverride), Without(render.Text) }),
     mesh_layer_groups: GroupBy(render.LayerN),
+    text_override_query: Query(.{ render.MeshInstance, render.Text, common.Transform, render.LayerOverride }),
+    text_zero_query: Query(.{ render.MeshInstance, render.Text, common.Transform, render.Layer(0), Without(render.LayerOverride) }),
+    text_unlayered_query: Query(.{ render.MeshInstance, render.Text, common.Transform, Without(render.LayerN), Without(render.LayerOverride) }),
+    text_layer_groups: GroupBy(render.LayerN),
     triangle_override_query: Query(.{ render.Triangle, render.LayerOverride }),
     triangle_zero_query: Query(.{ render.Triangle, render.Layer(0), Without(render.LayerOverride) }),
     triangle_unlayered_query: Query(.{ render.Triangle, Without(render.LayerN), Without(render.LayerOverride) }),
@@ -71,6 +76,11 @@ pub fn extractSystem(
     try extractMeshesForRows(queue.ptr, mesh_zero_query, mesh_library, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier, 0);
     try extractMeshesForRows(queue.ptr, mesh_unlayered_query, mesh_library, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier, 0);
     try extractMeshesForGroups(queue.ptr, mesh_layer_groups, mesh_library, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier);
+
+    try extractTextMeshesForRows(queue.ptr, text_override_query, mesh_library, layer_cameras_opt.ptr, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier, null);
+    try extractTextMeshesForRows(queue.ptr, text_zero_query, mesh_library, layer_cameras_opt.ptr, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier, 0);
+    try extractTextMeshesForRows(queue.ptr, text_unlayered_query, mesh_library, layer_cameras_opt.ptr, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier, 0);
+    try extractTextMeshesForGroups(queue.ptr, text_layer_groups, mesh_library, layer_cameras_opt.ptr, scene_stats_snapshot.ptr, scene_stats_mode, normal_scale_multiplier);
 }
 
 fn extractLights(store: *types.ExtractedSceneLighting, query: anytype, comptime has_visibility: bool) void {
@@ -167,10 +177,69 @@ fn extractMeshesForGroups(
     var it = groups.iterator();
     while (it.next()) |group| {
         if (group.key == 0) continue;
-        var rows = try group.query(.{ render.MeshInstance, common.Transform, Without(render.LayerOverride) });
+        var rows = try group.query(.{ render.MeshInstance, common.Transform, Without(render.LayerOverride), Without(render.Text) });
         defer rows.deinit();
         try extractMeshesForRows(queue, rows, mesh_library, scene_stats_snapshot, scene_stats_mode, normal_scale_multiplier, group.key);
     }
+}
+
+fn extractTextMeshesForRows(
+    queue: *render.RenderQueue,
+    query: anytype,
+    mesh_library: ?*const render.MeshLibrary,
+    layer_cameras: ?*const types.LayerCameras,
+    scene_stats_snapshot: *render.SceneStatsSnapshot,
+    scene_stats_mode: render.SceneStatsMode,
+    normal_scale_multiplier: f32,
+    forced_layer: ?i32,
+) !void {
+    var it = query.iterator();
+    while (it.next()) |row| {
+        const instance = row.get(render.MeshInstance) orelse continue;
+        const transform = row.get(common.Transform) orelse continue;
+        const layer = forced_layer orelse layerKeyForRow(row);
+        const sort_key = sortKeyForRow(row);
+        const model = textModelMatrix(transform.*, layer, layer_cameras);
+        accumulateSceneStats(scene_stats_snapshot, scene_stats_mode, mesh_library, instance.*, model, layer);
+        try queue.pushMeshInstance(instance.*, model, normal_scale_multiplier, layer, sort_key, row.entity_id);
+    }
+}
+
+fn extractTextMeshesForGroups(
+    queue: *render.RenderQueue,
+    groups: GroupBy(render.LayerN),
+    mesh_library: ?*const render.MeshLibrary,
+    layer_cameras: ?*const types.LayerCameras,
+    scene_stats_snapshot: *render.SceneStatsSnapshot,
+    scene_stats_mode: render.SceneStatsMode,
+    normal_scale_multiplier: f32,
+) !void {
+    var it = groups.iterator();
+    while (it.next()) |group| {
+        if (group.key == 0) continue;
+        var rows = try group.query(.{ render.MeshInstance, render.Text, common.Transform, Without(render.LayerOverride) });
+        defer rows.deinit();
+        try extractTextMeshesForRows(queue, rows, mesh_library, layer_cameras, scene_stats_snapshot, scene_stats_mode, normal_scale_multiplier, group.key);
+    }
+}
+
+fn textModelMatrix(
+    transform: common.Transform,
+    layer: i32,
+    layer_cameras: ?*const types.LayerCameras,
+) common.Mat4 {
+    const model = transform.toMat4();
+    if (!textNeedsViewportYFlip(layer, layer_cameras)) return model;
+    return common.Mat4.mul(model, common.Mat4.scale(1.0, -1.0, 1.0));
+}
+
+fn textNeedsViewportYFlip(layer: i32, layer_cameras: ?*const types.LayerCameras) bool {
+    const cameras = layer_cameras orelse return false;
+    const layer_camera = cameras.map.get(layer) orelse return false;
+    return switch (layer_camera.camera) {
+        .Viewport => |viewport| viewport.mode == .Center,
+        else => false,
+    };
 }
 
 fn accumulateSceneStats(
@@ -256,3 +325,54 @@ const Query = system_params.Query;
 const ResMut = system_params.ResMut;
 const ResOpt = system_params.ResOpt;
 const Without = system_params.Without;
+
+test "textNeedsViewportYFlip only flips center viewport cameras" {
+    var layer_cameras = types.LayerCameras.init(std.testing.allocator);
+    defer layer_cameras.deinit();
+
+    try layer_cameras.map.put(1, .{
+        .camera = .{ .Viewport = .{ .mode = .Center } },
+        .view = common.Mat4.identity(),
+        .transform = common.Transform.identity(),
+    });
+    try layer_cameras.map.put(2, .{
+        .camera = .{ .Viewport = .{ .mode = .TopLeft } },
+        .view = common.Mat4.identity(),
+        .transform = common.Transform.identity(),
+    });
+    try layer_cameras.map.put(3, .{
+        .camera = .{ .Orthographic = .{} },
+        .view = common.Mat4.identity(),
+        .transform = common.Transform.identity(),
+    });
+
+    try std.testing.expect(textNeedsViewportYFlip(1, &layer_cameras));
+    try std.testing.expect(!textNeedsViewportYFlip(2, &layer_cameras));
+    try std.testing.expect(!textNeedsViewportYFlip(3, &layer_cameras));
+    try std.testing.expect(!textNeedsViewportYFlip(99, &layer_cameras));
+    try std.testing.expect(!textNeedsViewportYFlip(1, null));
+}
+
+test "textModelMatrix applies a local-space y flip" {
+    const transform = common.Transform{
+        .translation = .{ .x = 10.0, .y = 20.0, .z = 0.0 },
+        .scale = .{ .x = 2.0, .y = 3.0, .z = 1.0 },
+    };
+
+    var layer_cameras = types.LayerCameras.init(std.testing.allocator);
+    defer layer_cameras.deinit();
+    try layer_cameras.map.put(4, .{
+        .camera = .{ .Viewport = .{ .mode = .Center } },
+        .view = common.Mat4.identity(),
+        .transform = common.Transform.identity(),
+    });
+
+    const model = textModelMatrix(transform, 4, &layer_cameras);
+    const origin = model.transformVec3(.{ .x = 0.0, .y = 0.0, .z = 0.0 });
+    const above = model.transformVec3(.{ .x = 0.0, .y = 1.0, .z = 0.0 });
+    const right = model.transformVec3(.{ .x = 1.0, .y = 0.0, .z = 0.0 });
+
+    try std.testing.expectEqualDeep(common.Vec3{ .x = 10.0, .y = 20.0, .z = 0.0 }, origin);
+    try std.testing.expectEqualDeep(common.Vec3{ .x = 10.0, .y = 17.0, .z = 0.0 }, above);
+    try std.testing.expectEqualDeep(common.Vec3{ .x = 12.0, .y = 20.0, .z = 0.0 }, right);
+}

@@ -71,8 +71,7 @@ const Assets = struct {
     },
 
     // The shader uses the vertex colors for each face and derives a grid from
-    // the local cube position, so the example can show custom mesh data without
-    // also needing a texture file.
+    // the local cube position.
     cube_shader: Shader = .{
         .wgsl_source = cube_shader_wgsl,
         .vertex_layout = .pos3_color4,
